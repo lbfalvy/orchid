@@ -89,11 +89,12 @@ and `isub` are self explanatory.
 ## Auto parameters (generics, polymorphism)
 
 Although I didin't specify the type of `i` in the above example, it is
-known at compile time because the recursion is applied to b which is an
-integer. I could have omitted the second argument but then I would have
+known at compile time because the recursion is applied to `a` which is an
+integer. I could have omitted the second argument, then I would have
 had to specify `i`'s type as an integer, because for plain lambda
-expressions all types have to be statically knoqn at compile time. To
-achieve polymorphism, one parametric tool is available, called auto
+expressions all types have to be statically known at compile time.
+
+Polymorphism is achieved using parametric constructs called auto
 parameters. An auto parameter is a placeholder filled in during
 compilation, syntactically remarkably similar to lambda expressions:
 
