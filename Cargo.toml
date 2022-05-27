@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 thiserror = "1.0"
 chumsky = "0.8"
+derivative = "2.2"
