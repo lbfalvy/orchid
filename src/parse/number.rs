@@ -6,6 +6,9 @@ fn assert_not_digit(base: u32, c: char) {
     }
 }
 
+/// Parse an arbitrarily grouped sequence of digits starting with an underscore.
+/// 
+/// TODO: this should use separated_by and parse the leading group too
 fn separated_digits_parser(base: u32) -> impl Parser<char, String, Error = Simple<char>> {
     just('_')
         .ignore_then(text::digits(base))
@@ -13,6 +16,9 @@ fn separated_digits_parser(base: u32) -> impl Parser<char, String, Error = Simpl
         .map(|sv| sv.iter().map(|s| s.chars()).flatten().collect())
 }
 
+/// parse a grouped uint
+/// 
+/// Not to be confused with [int_parser] which does a lot more
 fn uint_parser(base: u32) -> impl Parser<char, u64, Error = Simple<char>> {
     text::int(base)
         .then(separated_digits_parser(base))
@@ -21,6 +27,8 @@ fn uint_parser(base: u32) -> impl Parser<char, u64, Error = Simple<char>> {
         })
 }
 
+/// parse exponent notation, or return 0 as the default exponent.
+/// The exponent is always in decimal. 
 fn pow_parser() -> impl Parser<char, i32, Error = Simple<char>> {
     return choice((
         just('p')
@@ -32,6 +40,9 @@ fn pow_parser() -> impl Parser<char, i32, Error = Simple<char>> {
     )).or_else(|_| Ok(0))
 }
 
+/// returns a mapper that converts a mantissa and an exponent into an uint
+/// 
+/// TODO it panics if it finds a negative exponent
 fn nat2u(base: u64) -> impl Fn((u64, i32),) -> u64 {
     return move |(val, exp)| {
         if exp == 0 {val}
@@ -39,6 +50,7 @@ fn nat2u(base: u64) -> impl Fn((u64, i32),) -> u64 {
     };
 }
 
+/// returns a mapper that converts a mantissa and an exponent into a float
 fn nat2f(base: u64) -> impl Fn((f64, i32),) -> f64 {
     return move |(val, exp)| {
         if exp == 0 {val}
@@ -46,11 +58,15 @@ fn nat2f(base: u64) -> impl Fn((f64, i32),) -> f64 {
     }
 }
 
+/// parse an uint from exponential notation (panics if 'p' is a digit in base)
 fn pow_uint_parser(base: u32) -> impl Parser<char, u64, Error = Simple<char>> {
     assert_not_digit(base, 'p');
     uint_parser(base).then(pow_parser()).map(nat2u(base.into()))
 }
 
+/// parse an uint from a base determined by its prefix or lack thereof
+/// 
+/// Not to be convused with [uint_parser] which is a component of it.
 pub fn int_parser() -> impl Parser<char, u64, Error = Simple<char>> {
     choice((
         just("0b").ignore_then(pow_uint_parser(2)),
@@ -60,6 +76,7 @@ pub fn int_parser() -> impl Parser<char, u64, Error = Simple<char>> {
     ))
 }
 
+/// parse a float from dot notation
 fn dotted_parser(base: u32) -> impl Parser<char, f64, Error = Simple<char>> {
     uint_parser(base)
     .then_ignore(just('.'))
@@ -73,11 +90,14 @@ fn dotted_parser(base: u32) -> impl Parser<char, f64, Error = Simple<char>> {
     })
 }
 
+/// parse a float from dotted and optionally also exponential notation
 fn pow_float_parser(base: u32) -> impl Parser<char, f64, Error = Simple<char>> {
     assert_not_digit(base, 'p');
     dotted_parser(base).then(pow_parser()).map(nat2f(base.into()))
 }
 
+/// parse a float with dotted and optionally exponential notation from a base determined by its
+/// prefix
 pub fn float_parser() -> impl Parser<char, f64, Error = Simple<char>> {
     choice((
         just("0b").ignore_then(pow_float_parser(2)),

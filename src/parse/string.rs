@@ -1,6 +1,8 @@
 use chumsky::{self, prelude::*, Parser};
 
+/// Parses a text character that is not the specified delimiter
 fn text_parser(delim: char) -> impl Parser<char, char, Error = Simple<char>> {
+    // Copied directly from Chumsky's JSON example.
     let escape = just('\\').ignore_then(
         just('\\')
             .or(just('/'))
@@ -27,15 +29,17 @@ fn text_parser(delim: char) -> impl Parser<char, char, Error = Simple<char>> {
     filter(move |&c| c != '\\' && c != delim).or(escape)
 }
 
+/// Parse a character literal between single quotes
 pub fn char_parser() -> impl Parser<char, char, Error = Simple<char>> {
     just('\'').ignore_then(text_parser('\'')).then_ignore(just('\''))
 }
 
+/// Parse a string between double quotes
 pub fn str_parser() -> impl Parser<char, String, Error = Simple<char>> {
     just('"')
     .ignore_then(
         text_parser('"').map(Some)
-        .or(just("\\\n").map(|_| None))
+        .or(just("\\\n").map(|_| None)) // Newlines preceded by backslashes are ignored.
         .repeated()
     ).then_ignore(just('"'))
     .flatten().collect()

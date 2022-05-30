@@ -1,28 +1,46 @@
 use chumsky::{self, prelude::*, Parser};
 
-fn op_parser_recur<'a, 'b>(ops: &'a [String]) -> BoxedParser<'b, char, String, Simple<char>> {
-    if ops.len() == 1 { just(ops[0].clone()).boxed() }
-    else { just(ops[0].clone()).or(op_parser_recur(&ops[1..])).boxed() }
-}
-
-fn op_parser(ops: &[String]) -> BoxedParser<char, String, Simple<char>> {
+/// Matches any one of the passed operators, longest-first
+fn op_parser<'a>(ops: &[&'a str]) -> BoxedParser<'a, char, String, Simple<char>> {
     let mut sorted_ops = ops.to_vec();
     sorted_ops.sort_by(|a, b| b.len().cmp(&a.len()));
-    op_parser_recur(&sorted_ops)
+    sorted_ops.into_iter()
+        .map(|op| just(op.to_string()).boxed())
+        .reduce(|a, b| a.or(b).boxed()).unwrap()
 }
 
-pub fn modname_parser() -> impl Parser<char, String, Error = Simple<char>> {
-    let not_name_char: Vec<char> = vec![':', '\\', '"', '\'', '(', ')', '.'];
+/// Matches anything that's allowed as an operator
+/// 
+/// Blacklist rationale:
+/// - `:` is used for namespacing and type annotations, both are distinguished from operators
+/// - `\` and `@` are parametric expression starters
+/// - `"` and `'` are read as primitives and would never match.
+/// - `(` and `)` are strictly balanced and this must remain the case for automation and streaming.
+/// - `.` is the discriminator for parametrics.
+/// 
+/// FIXME: `@name` without a dot should be parsed correctly for overrides. Could be an operator but
+/// then parametrics should take precedence, which might break stuff. investigate.
+/// 
+/// TODO: `'` could work as an operator whenever it isn't closed. It's common im maths so it's
+/// worth a try
+/// 
+/// TODO: `.` could possibly be parsed as an operator depending on context. This operator is very
+/// common in maths so it's worth a try. Investigate.
+pub fn modname_parser<'a>() -> impl Parser<char, String, Error = Simple<char>> + 'a {
+    let not_name_char: Vec<char> = vec![':', '\\', '@', '"', '\'', '(', ')', '.'];
     filter(move |c| !not_name_char.contains(c) && !c.is_whitespace())
         .repeated().at_least(1)
         .collect()
 }
 
-pub fn name_parser<'a>(ops: &'a [String]) -> impl Parser<char, String, Error = Simple<char>> + 'a {
+/// Parse an operator or name. Failing both, parse everything up to the next whitespace or
+/// blacklisted character as a new operator.
+pub fn name_parser<'a>(
+    ops: &[&'a str]
+) -> impl Parser<char, Vec<String>, Error = Simple<char>> + 'a {
     choice((
         op_parser(ops), // First try to parse a known operator
         text::ident(), // Failing that, parse plain text
-        // Finally parse everything until tne next terminal as a new operator
-        modname_parser()
-    )).padded()
+        modname_parser() // Finally parse everything until tne next terminal as a new operator
+    )).padded().separated_by(just("::")).padded()
 }
