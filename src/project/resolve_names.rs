@@ -41,10 +41,10 @@ impl ParseError {
 }
 
 // Loading a module:
-//  1. [X] Parse the imports
-//  2. [ ] Build a mapping of all imported symbols to full paths
-//     -> [X] Parse the exported symbols from all imported modules
-//  3. [ ] Parse everything using the full list of operators
+//  1. [x] Parse the imports
+//  2. [x] Build a mapping of all imported symbols to full paths
+//     -> [x] Parse the exported symbols from all imported modules
+//  3. [x] Parse everything using the full list of operators
 //  4. [ ] Traverse and remap elements
 
 type GetLoaded<'a> = dyn FnMut(&'a [&str]) -> &'a Option<Loaded>;
