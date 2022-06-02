@@ -1,0 +1,5 @@
+[[target]]
+name = 'Dummy Project'
+type = 'executable'
+
+[target.dependencies]

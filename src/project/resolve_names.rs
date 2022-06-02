@@ -1,4 +1,8 @@
+use std::borrow::Borrow;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
+use std::{iter, clone};
 
 use chumsky::{Parser, prelude::Simple};
 use thiserror::Error;
@@ -36,8 +40,6 @@ impl ParseError {
     }
 }
 
-
-
 // Loading a module:
 //  1. [X] Parse the imports
 //  2. [ ] Build a mapping of all imported symbols to full paths
@@ -45,31 +47,74 @@ impl ParseError {
 //  3. [ ] Parse everything using the full list of operators
 //  4. [ ] Traverse and remap elements
 
-pub fn load_project<F>(
-    mut load_mod: F, prelude: &[&str], entry: &str
+type GetLoaded<'a> = dyn FnMut(&'a [&str]) -> &'a Option<Loaded>;
+type GetPreparsed<'a> = dyn FnMut(&'a [&str]) -> &'a Option<Vec<FileEntry>>;
+
+pub fn load_project<'a, F>(
+    mut load_mod: F, prelude: &[&'a str], entry: &str
 ) -> Result<super::Project, ParseError>
 where F: FnMut(&[&str]) -> Option<Loaded> {
+    // TODO: Welcome to Kamino!
+    let prelude_vec: Vec<String> = prelude.iter().map(|s| s.to_string()).collect();
     let preparser = file_parser(prelude, &[]);
-    let mut loaded = Cache::new(|path: &[&str]| load_mod(path));
-    let mut preparsed = Cache::new(|path: &[&str]| {
-        loaded.get(path).as_ref().map(|loaded| match loaded {
+    let loaded_cell = RefCell::new(Cache::new(|path: Vec<String>| {
+        load_mod(&path.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+    }));
+    let preparsed_cell = RefCell::new(Cache::new(|path: Vec<String>| {
+        let mut loaded = loaded_cell.borrow_mut();
+        loaded.by_clone(path).as_ref().map(|loaded| match loaded {
             Loaded::Module(source) => Some(preparser.parse(source.as_str()).ok()?),
             _ => return None
         }).flatten()
-    });
-    let exports = Cache::new(|path: &[&str]| loaded.get(path).map(|data| {
-        match data {
-            Loaded::Namespace(names) => Some(names),
-            Loaded::Module(source) => preparsed.get(path).map(|data| {
-                exported_names(&data).into_iter().map(|n| n[0]).collect()
-            })
+    }));
+    let exports_cell = RefCell::new(Cache::new(|path: Vec<String>| {
+        let mut loaded = loaded_cell.borrow_mut();
+        loaded.by_clone(path.clone()).as_ref().map(|data| {
+            let mut preparsed = preparsed_cell.borrow_mut();
+            match data {
+                Loaded::Namespace(names) => Some(names.clone()),
+                Loaded::Module(source) => preparsed.by_clone(path).as_ref().map(|data| {
+                    parse::exported_names(&data).into_iter()
+                        .map(|n| n[0].clone())
+                        .collect()
+                }),
+                _ => None
+            }
+        }).flatten()
+    }));
+    let imports_cell = RefCell::new(Cache::new(|path: Vec<String>| {
+        let mut preparsed = preparsed_cell.borrow_mut();
+        let entv = preparsed.by_clone(path).clone()?;
+        let import_entries = parse::imports(entv.iter());
+        let mut imported_symbols: HashMap<String, Vec<String>> = HashMap::new();
+        for imp in import_entries {
+            let mut exports = exports_cell.borrow_mut();
+            let export = exports.by_clone(imp.path.clone()).as_ref()?;
+            if let Some(ref name) = imp.name {
+                if export.contains(&name) {
+                    imported_symbols.insert(name.clone(), imp.path.clone());
+                }
+            } else {
+                for exp in export.clone() {
+                    imported_symbols.insert(exp.clone(), imp.path.clone());
+                }
+            }
         }
-    }).flatten());
-    let imports = Cache::new(|path: &[&str]| preparsed.get(path).map(|data| {
-        data.iter().filter_map(|ent| match ent {
-            FileEntry::Import(imp) => Some(imp),
-            _ => None
-        }).flatten().collect::<Vec<_>>()
+        Some(imported_symbols)
+    }));
+    let parsed = RefCell::new(Cache::new(|path: Vec<String>| {
+        let mut imports = imports_cell.borrow_mut();
+        let mut loaded = loaded_cell.borrow_mut();
+        let data = loaded.by_clone(path.clone()).as_ref()?;
+        let text = match data { Loaded::Module(s) => Some(s), _ => None }?;
+        let imported_symbols = imports.by_clone(path).as_ref()?;
+        let imported_ops: Vec<&str> = imported_symbols.keys()
+            .chain(prelude_vec.iter())
+            .map(|s| s.as_str())
+            .filter(|s| parse::is_op(s))
+            .collect();
+        let file_parser = file_parser(prelude, &imported_ops);
+        file_parser.parse(text.as_str()).ok()
     }));
     // let main = preparsed.get(&[entry]);
     // for imp in parse::imports(main) {
@@ -80,7 +125,6 @@ where F: FnMut(&[&str]) -> Option<Loaded> {
     // let mut project = super::Project {
     //     modules: HashMap::new()
     // };
-    
     
     // Some(project)
     todo!("Finish this function")

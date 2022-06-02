@@ -61,7 +61,7 @@ pub fn file_parser<'a>(
 
 /// Decide if a string can be an operator. Operators can include digits and text, just not at the
 /// start.
-fn is_op(s: &str) -> bool {
+pub fn is_op(s: &str) -> bool {
     return match s.chars().next() {
         Some(x) => !x.is_alphanumeric(), 
         None => false
@@ -99,9 +99,12 @@ pub fn all_ops(src: &Vec<FileEntry>) -> Vec<&String> { defined_ops(src, false) }
 pub fn exported_ops(src: &Vec<FileEntry>) -> Vec<&String> { defined_ops(src, true) }
 
 /// Summarize all imports from a file in a single list of qualified names 
-pub fn imports(src: &Vec<FileEntry>) -> Vec<&import::Import> {
-    src.into_iter().filter_map(|ent| match ent {
+pub fn imports<'a, 'b, I>(
+    src: I
+) -> impl Iterator<Item = &'b import::Import> + 'a
+where I: Iterator<Item = &'b FileEntry> + 'a {
+    src.filter_map(|ent| match ent {
         FileEntry::Import(impv) => Some(impv.iter()),
         _ => None
-    }).flatten().collect()
+    }).flatten()
 }

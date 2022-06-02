@@ -12,5 +12,6 @@ pub use expression::expression_parser;
 pub use sourcefile::FileEntry;
 pub use sourcefile::file_parser;
 pub use sourcefile::imports;
+pub use sourcefile::is_op;
 pub use sourcefile::exported_names;
 pub use import::Import;
