@@ -7,6 +7,7 @@ mod name;
 mod substitution;
 mod sourcefile;
 
+pub use substitution::Substitution;
 pub use expression::Expr;
 pub use expression::expression_parser;
 pub use sourcefile::FileEntry;

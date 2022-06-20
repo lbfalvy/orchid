@@ -17,6 +17,7 @@ pub enum Expr {
     S(Vec<Expr>),
     Lambda(String, Option<Box<Expr>>, Vec<Expr>),
     Auto(Option<String>, Option<Box<Expr>>, Vec<Expr>),
+    
     Typed(Box<Expr>, Box<Expr>)
 }
 
