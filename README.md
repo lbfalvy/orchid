@@ -41,9 +41,9 @@ main = loop \r. (
 
 Filter through an arbitrary collection
 ```orchid
-filter = @C:Type -> Type. @:Map C. @T. @U. \f:T -> U. \coll:C T. (
+filter = @C:Type -> Type. @:Map C. @T. \f:T -> Bool. \coll:C T. (
     coll >> \el. if (f el) then (Some el) else Nil
-):(C U)
+):(C T)
 ```
 
 # Explanation
@@ -203,8 +203,8 @@ section above; they're ugly and hard to read. The solution to this is a
 powerful preprocessor which is used internally to define all sorts of
 syntax sugar from operators to complex syntax patterns and even pattern
 matching, and can also be used to define custom syntax. The preprocessor
-executes substitution rules on the S-tree which have a real numbered
-priority and an internal order of resolution.
+reads the source as an S-tree while executing substitution rules which
+have a real numbered priority.
 
 In the following example, seq matches a list of arbitrary tokens and its
 parameter is the order of resolution. The order can be used for example to
@@ -215,7 +215,7 @@ preprocessing works on the typeless AST and matchers are constructed
 using inclusion rather than exclusion, so it would not be possible to
 selectively allow the above example without enforcing that if-statements
 are searched back-to-front. If order is still a problem, you can always
-parenthesize problematic expressions.
+parenthesize subexpressions at the callsite.
 
 ```orchid
 (...$pre:(seq 2) if $1 then $2 else $3 ...$post:(seq 1)) =2=> (
@@ -246,7 +246,35 @@ actually Turing complete. They can be used quite intuitively to traverse
 the token tree with unique "carriage" symbols that move according to their
 environment and can carry structured data payloads.
 
-TODO: carriage example
+Here's an example of a carriage being used to turn a square-bracketed
+list expression into a lambda expression that matches a conslist. Notice
+how the square brackets pair up, as all three variants of brackets
+group nodes.
+
+```
+-- Initial step, eliminates entry condition (square brackets) and constructs
+-- carriage and other working symbols
+export [...$data:(seq 1)] =1000.1=> (cons_start ...$data cons_carriage(none))
+-- Shortcut with higher priority
+export [] =1000.5=> none
+-- Step
+export , $item cons_carriage($tail) =1000.1=> cons_carriage((some (cons $item $tail)))
+-- End, removes carriage and working symbols and leaves valid source code
+export cons_start $item cons_carriage($tail) =1000.1=> some (cons $item $tail)
+-- Low priority rules should turn leftover symbols into errors.
+export cons_start =0=> cons_err
+export cons_carriage($data) =0=> cons_err
+export cons_err =0=> (macro_error "Malformed conslist expression")
+-- macro_error will probably have its own rules for composition and
+-- bubbling such that the output for an erratic expression would be a
+-- single macro_error to be decoded by developer tooling
+```
+
+Another thing to note is that although it may look like cons_carriage is
+a global string, it's in fact namespaced to whatever file provides the
+macro. It is however exported, and accidentally importing it may lead to
+unexpected results. I'm still working on a categorical solution to this
+problem.
 
 # Module system
 
@@ -255,7 +283,10 @@ folders and forming a tree the leaves of which are the actual symbols. An
 exported symbol is a name referenced in an exported substitution rule
 or assigned to an exported function. Imported symbols are considered
 identical to the same symbol directly imported from the same module for
-the purposes of substitution.
+the purposes of substitution. The module syntax is very similar to
+Rust's, and since each token gets its own export with most rules
+comprising several local symbols, the most common import option is
+probably ::* (import all).
 
 # Optimization
 
