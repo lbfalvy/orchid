@@ -1,4 +1,5 @@
 use chumsky::{self, prelude::*, Parser};
+use ordered_float::NotNan;
 
 fn assert_not_digit(base: u32, c: char) {
     if base > (10 + (c as u32 - 'a' as u32)) {
@@ -51,7 +52,7 @@ fn nat2u(base: u64) -> impl Fn((u64, i32),) -> u64 {
 }
 
 /// returns a mapper that converts a mantissa and an exponent into a float
-fn nat2f(base: u64) -> impl Fn((f64, i32),) -> f64 {
+fn nat2f(base: u64) -> impl Fn((NotNan<f64>, i32),) -> NotNan<f64> {
     return move |(val, exp)| {
         if exp == 0 {val}
         else {val * (base as f64).powf(exp.try_into().unwrap())}
@@ -77,32 +78,35 @@ pub fn int_parser() -> impl Parser<char, u64, Error = Simple<char>> {
 }
 
 /// parse a float from dot notation
-fn dotted_parser(base: u32) -> impl Parser<char, f64, Error = Simple<char>> {
+fn dotted_parser(base: u32) -> impl Parser<char, NotNan<f64>, Error = Simple<char>> {
     uint_parser(base)
-    .then_ignore(just('.'))
     .then(
-        text::digits(base).then(separated_digits_parser(base))
-    ).map(move |(wh, (frac1, frac2))| {
-        let frac = frac1 + &frac2;
-        let frac_num = u64::from_str_radix(&frac, base).unwrap() as f64;
-        let dexp = base.pow(frac.len().try_into().unwrap());
-        wh as f64 + (frac_num / dexp as f64)
+        just('.').ignore_then(
+            text::digits(base).then(separated_digits_parser(base))
+        ).map(move |(frac1, frac2)| {
+            let frac = frac1 + &frac2;
+            let frac_num = u64::from_str_radix(&frac, base).unwrap() as f64;
+            let dexp = base.pow(frac.len().try_into().unwrap());
+            frac_num / dexp as f64
+        }).or_not().map(|o| o.unwrap_or_default())
+    ).try_map(|(wh, f), s| {
+        NotNan::new(wh as f64 + f).map_err(|_| Simple::custom(s, "Float literal evaluates to NaN"))
     })
 }
 
 /// parse a float from dotted and optionally also exponential notation
-fn pow_float_parser(base: u32) -> impl Parser<char, f64, Error = Simple<char>> {
+fn pow_float_parser(base: u32) -> impl Parser<char, NotNan<f64>, Error = Simple<char>> {
     assert_not_digit(base, 'p');
     dotted_parser(base).then(pow_parser()).map(nat2f(base.into()))
 }
 
 /// parse a float with dotted and optionally exponential notation from a base determined by its
 /// prefix
-pub fn float_parser() -> impl Parser<char, f64, Error = Simple<char>> {
+pub fn float_parser() -> impl Parser<char, NotNan<f64>, Error = Simple<char>> {
     choice((
         just("0b").ignore_then(pow_float_parser(2)),
         just("0x").ignore_then(pow_float_parser(16)),
         just('0').ignore_then(pow_float_parser(8)),
         pow_float_parser(10),
-    ))
+    )).labelled("float")
 }

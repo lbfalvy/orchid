@@ -9,7 +9,9 @@ pub struct Substack<'a, T> {
 }
 
 impl<'a, T> Substack<'a, T> {
+    #[allow(dead_code)]
     pub fn item(&self) -> &T { &self.item }
+    #[allow(dead_code)]
     pub fn prev(&self) -> Option<&'a Substack<'a, T>> { self.prev }
 
     pub fn new(item: T) -> Self {

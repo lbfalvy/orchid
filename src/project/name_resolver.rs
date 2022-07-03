@@ -3,7 +3,7 @@ use thiserror::Error;
 
 use crate::utils::Substack;
 
-use super::expr::{Expr, Token};
+use crate::{Expr, Clause, Literal};
 
 type ImportMap = HashMap<String, Vec<String>>;
 
@@ -50,9 +50,8 @@ where
     ) -> Result<Vec<String>, ResolutionError<E>> {
         if let Some(cached) = self.cache.get(symbol) { return cached.clone() }
         // The imports and path of the referenced file and the local name 
-        let mut splitpoint = symbol.len();
         let path = (self.get_modname)(symbol).ok_or(ResolutionError::NoModule(symbol.clone()))?;
-        let name = symbol.split_at(path.len()).1;
+        let (_, name) = symbol.split_at(path.len());
         let imports = (self.get_imports)(&path)?;
         let result = if let Some(source) = imports.get(&name[0]) {
             let new_sym: Vec<String> = source.iter().chain(name.iter()).cloned().collect();
@@ -79,41 +78,39 @@ where
             .next().transpose()
     }
 
-    fn process_token_rec(&mut self, tok: &Token) -> Result<Token, ResolutionError<E>> {
+    fn process_clause_rec(&mut self, tok: &Clause) -> Result<Clause, ResolutionError<E>> {
         Ok(match tok {
-            Token::Literal(l) => Token::Literal(l.clone()),
-            Token::S(exv) => Token::S(
+            Clause::S(c, exv) => Clause::S(*c, 
                 exv.iter().map(|e| self.process_expression_rec(e))
                     .collect::<Result<Vec<Expr>, ResolutionError<E>>>()?
             ),
-            Token::Lambda(name, typ, body) =>  Token::Lambda(name.clone(),
-                self.process_exprboxopt_rec(typ)?,
+            Clause::Lambda(name, typ, body) =>  Clause::Lambda(name.clone(),
+                self.process_exprv_rec(typ)?,
                 self.process_exprv_rec(body)?
             ),
-            Token::Auto(name, typ, body) => Token::Auto(name.clone(),
-                self.process_exprboxopt_rec(typ)?,
+            Clause::Auto(name, typ, body) => Clause::Auto(name.clone(),
+                self.process_exprv_rec(typ)?,
                 self.process_exprv_rec(body)?
             ),
-            Token::Name { qualified, local } => Token::Name {
-                local: local.clone(),
-                qualified: self.find_origin(qualified)?
-            }
+            Clause::Name(qualified) => Clause::Name(self.find_origin(qualified)?),
+            x => x.clone()
         })
     }
 
-    fn process_expression_rec(&mut self, ex: &Expr) -> Result<Expr, ResolutionError<E>> {
-        Ok(Expr {
-            token: self.process_token_rec(&ex.token)?,
-            typ: self.process_exprboxopt_rec(&ex.typ)?
-        })
+    fn process_expression_rec(&mut self, Expr(token, typ): &Expr) -> Result<Expr, ResolutionError<E>> {
+        Ok(Expr(
+            self.process_clause_rec(token)?,
+            self.process_exprboxopt_rec(typ)?
+        ))
     }
 
     pub fn find_origin(&mut self, symbol: &Vec<String>) -> Result<Vec<String>, ResolutionError<E>> {
         self.find_origin_rec(symbol, &Substack::new(symbol))
     }
 
-    pub fn process_token(&mut self, tok: &Token) -> Result<Token, ResolutionError<E>> {
-        self.process_token_rec(tok)
+    #[allow(dead_code)]
+    pub fn process_clause(&mut self, clause: &Clause) -> Result<Clause, ResolutionError<E>> {
+        self.process_clause_rec(clause)
     }
 
     pub fn process_expression(&mut self, ex: &Expr) -> Result<Expr, ResolutionError<E>> {

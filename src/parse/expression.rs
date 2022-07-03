@@ -1,86 +1,90 @@
-use std::{fmt::Debug};
 use chumsky::{self, prelude::*, Parser};
+use crate::{Clause, Expr, Literal, enum_parser};
 
-use super::string;
-use super::number;
-use super::misc;
-use super::name;
+use super::{lexer::Lexeme};
 
-/// An S-expression as read from a source file
-#[derive(Debug, Clone)]
-pub enum Expr {
-    Num(f64),
-    Int(u64),
-    Char(char),
-    Str(String),
-    Name(Vec<String>),
-    S(Vec<Expr>),
-    Lambda(String, Option<Box<Expr>>, Vec<Expr>),
-    Auto(Option<String>, Option<Box<Expr>>, Vec<Expr>),
-    
-    Typed(Box<Expr>, Box<Expr>)
+fn sexpr_parser<P>(
+    expr: P
+) -> impl Parser<Lexeme, Clause, Error = Simple<Lexeme>> + Clone
+where P: Parser<Lexeme, Expr, Error = Simple<Lexeme>> + Clone {
+    Lexeme::paren_parser(expr.repeated()).map(|(del, b)| Clause::S(del, b))
 }
 
-/// Parse a type annotation
-fn typed_parser<'a>(
-    expr: Recursive<'a, char, Expr, Simple<char>>
-) -> impl Parser<char, Expr, Error = Simple<char>> + 'a {
-    just(':').ignore_then(expr)
+fn lambda_parser<P>(
+    expr: P
+) -> impl Parser<Lexeme, Clause, Error = Simple<Lexeme>> + Clone
+where P: Parser<Lexeme, Expr, Error = Simple<Lexeme>> + Clone {
+    just(Lexeme::BS)
+    .then_ignore(enum_parser!(Lexeme::Comment).repeated())
+    .ignore_then(enum_parser!(Lexeme::Name))
+    .then_ignore(enum_parser!(Lexeme::Comment).repeated())
+    .then(
+        just(Lexeme::Type)
+        .then_ignore(enum_parser!(Lexeme::Comment).repeated())
+        .ignore_then(expr.clone().repeated())
+        .then_ignore(enum_parser!(Lexeme::Comment).repeated())
+        .or_not().map(Option::unwrap_or_default)
+    )
+    .then_ignore(just(Lexeme::name(".")))
+    .then_ignore(enum_parser!(Lexeme::Comment).repeated())
+    .then(expr.repeated().at_least(1))
+    .map(|((name, typ), mut body): ((String, Vec<Expr>), Vec<Expr>)| {
+        for ent in &mut body { ent.bind_parameter(&name) };
+        Clause::Lambda(name, typ, body)
+    })
+}
+
+fn auto_parser<P>(
+    expr: P
+) -> impl Parser<Lexeme, Clause, Error = Simple<Lexeme>> + Clone
+where P: Parser<Lexeme, Expr, Error = Simple<Lexeme>> + Clone {
+    just(Lexeme::At)
+    .then_ignore(enum_parser!(Lexeme::Comment).repeated())
+    .ignore_then(enum_parser!(Lexeme::Name).or_not())
+    .then_ignore(enum_parser!(Lexeme::Comment).repeated())
+    .then(
+        just(Lexeme::Type)
+        .then_ignore(enum_parser!(Lexeme::Comment).repeated())
+        .ignore_then(expr.clone().repeated())
+        .then_ignore(enum_parser!(Lexeme::Comment).repeated())
+    )
+    .then_ignore(just(Lexeme::name(".")))
+    .then_ignore(enum_parser!(Lexeme::Comment).repeated())
+    .then(expr.repeated().at_least(1))
+    .try_map(|((name, typ), mut body), s| if name == None && typ.is_empty() {
+        Err(Simple::custom(s, "Auto without name or type has no effect"))
+    } else { 
+        if let Some(n) = &name {
+            for ent in &mut body { ent.bind_parameter(n) }
+        }
+        Ok(Clause::Auto(name, typ, body))
+    })
+}
+
+fn name_parser() -> impl Parser<Lexeme, Vec<String>, Error = Simple<Lexeme>> + Clone {
+    enum_parser!(Lexeme::Name).separated_by(
+        enum_parser!(Lexeme::Comment).repeated()
+        .then(just(Lexeme::NS))
+        .then(enum_parser!(Lexeme::Comment).repeated())
+    ).at_least(1)
 }
 
 /// Parse an expression without a type annotation
-fn untyped_xpr_parser<'a>(
-    expr: Recursive<'a, char, Expr, Simple<char>>,
-    ops: &[&'a str]
-) -> impl Parser<char, Expr, Error = Simple<char>> + 'a {
-    // basic S-expression rule
-    let sexpr = expr.clone()
-        .repeated()
-        .delimited_by(just('('), just(')'))
-        .map(Expr::S);
-    // Blocks
-    // can and therefore do match everything up to the closing paren
-    // \name. body
-    // \name:type. body
-    let lambda = just('\\')
-        .ignore_then(text::ident())
-        .then(typed_parser(expr.clone()).or_not())
-        .then_ignore(just('.'))
-        .then(expr.clone().repeated().at_least(1))
-        .map(|((name, t), body)| Expr::Lambda(name, t.map(Box::new), body));
-    // @name. body
-    // @name:type. body
-    // @:type. body
-    let auto = just('@')
-        .ignore_then(text::ident().or_not())
-        .then(typed_parser(expr.clone()).or_not())
-        .then_ignore(just('.'))
-        .then(expr.clone().repeated().at_least(1))
-        .map(|((name, t), body)| Expr::Auto(name, t.map(Box::new), body));
-    choice((
-        number::int_parser().map(Expr::Int), // all ints are valid floats so it takes precedence
-        number::float_parser().map(Expr::Num),
-        string::char_parser().map(Expr::Char),
-        string::str_parser().map(Expr::Str),
-        name::name_parser(ops).map(Expr::Name), // includes namespacing
-        sexpr,
-        lambda,
-        auto
-    )).padded()
-}
-
-/// Parse any expression with a type annotation, surrounded by comments
-pub fn expression_parser<'a>(ops: &[&'a str]) -> impl Parser<char, Expr, Error = Simple<char>> + 'a {
-    // This approach to parsing comments is ugly and error-prone,
-    // but I don't have a lot of other ideas
-    return recursive(|expr| {
-        return misc::comment_parser().or_not().ignore_then(
-            untyped_xpr_parser(expr.clone(), &ops)
-                .then(typed_parser(expr).or_not())
-                .map(|(val, t)| match t {
-                    Some(typ) => Expr::Typed(Box::new(val), Box::new(typ)),
-                    None => val
-                })
-        ).then_ignore(misc::comment_parser().or_not())
+pub fn xpr_parser() -> impl Parser<Lexeme, Expr, Error = Simple<Lexeme>> {
+    recursive(|expr| {
+        let clause = 
+        enum_parser!(Lexeme::Comment).repeated()
+        .ignore_then(choice((
+            enum_parser!(Lexeme >> Literal; Int, Num, Char, Str).map(Clause::Literal),
+            name_parser().map(Clause::Name),
+            sexpr_parser(expr.clone()),
+            lambda_parser(expr.clone()),
+            auto_parser(expr.clone())
+        ))).then_ignore(enum_parser!(Lexeme::Comment).repeated());
+        clause.clone().then(
+            just(Lexeme::Type)
+            .ignore_then(expr.clone()).or_not()
+        )
+        .map(|(val, typ)| Expr(val, typ.map(Box::new)))
     })
 }

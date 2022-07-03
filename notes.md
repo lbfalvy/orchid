@@ -16,4 +16,3 @@ export main = (
     greet name
 )
 ```
-

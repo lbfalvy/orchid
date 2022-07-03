@@ -3,7 +3,7 @@ use chumsky::{self, prelude::*, Parser};
 use super::{expression, number::float_parser};
 
 #[derive(Debug, Clone)]
-pub struct Substitution {
+pub struct Rule {
     pub source: expression::Expr,
     pub priority: f64,
     pub target: expression::Expr
@@ -19,15 +19,16 @@ pub struct Substitution {
 /// shadow_reee =0.9=> reee
 /// ```
 /// TBD whether this disables reee in the specified range or loops forever
-pub fn substitution_parser<'a>(
-    pattern_ops: &[&'a str],
-    ops: &[&'a str]
-) -> impl Parser<char, Substitution, Error = Simple<char>> + 'a {
-    expression::expression_parser(pattern_ops)
+pub fn rule_parser<'a, T: 'a + AsRef<str> + Clone>(
+    pattern_ops: &[T],
+    ops: &[T]
+) -> impl Parser<char, Rule, Error = Simple<char>> + 'a {
+    expression::expression_parser(pattern_ops).padded()
         .then_ignore(just('='))
         .then(
             float_parser().then_ignore(just("=>"))
             .or_not().map(|prio| prio.unwrap_or(0.0))
-        ).then(expression::expression_parser(ops))
-        .map(|((source, priority), target)| Substitution { source, priority, target })
+        ).then(expression::expression_parser(ops).padded())
+        .map(|((source, priority), target)| Rule { source, priority, target })
+        .labelled("rule")
 }

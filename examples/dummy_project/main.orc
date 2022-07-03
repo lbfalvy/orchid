@@ -1,18 +1,18 @@
 import std::io::(println, out) -- imports
 
--- single word substitution (alias)
-greet = \name. printf out "Hello {}!\n" [name]
+-- single word rule (alias)
+greet =1=> (\name. printf out "Hello {}!\n" [name])
 
--- multi-word exported substitution
-export (...$pre ;) $a ...$post) =200=> (...$pre (greet $a) ...$post)
+-- multi-word exported rule
+export ;> $a =200=> (greet $a)
 
--- single-word exported substitution
+-- single-word exported rule
 export main = (
-    print "What is your name? >>
+    print "What is your name?" >>
     readln >>= \name.
     greet name
 )
 
 -- The broadest trait definition in existence
-Foo = Bar Baz
-default anyFoo = @T. @impl:(T (Bar Baz)). impl:(T Foo)
+Foo = (Bar Baz)
+-- default anyFoo = @T. @impl:(T (Bar Baz)). impl:(T Foo)

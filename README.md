@@ -252,7 +252,7 @@ TODO: carriage example
 
 Files are the smallest unit of namespacing, automatically grouped into
 folders and forming a tree the leaves of which are the actual symbols. An
-exported symbol is a name referenced in an exported substitution pattern
+exported symbol is a name referenced in an exported substitution rule
 or assigned to an exported function. Imported symbols are considered
 identical to the same symbol directly imported from the same module for
 the purposes of substitution.
