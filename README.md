@@ -7,14 +7,14 @@ Hello World in Orchid
 ```orchid
 import std::io::(println, out)
 
-main = println out "Hello World!"
+main == println out "Hello World!"
 ```
 
 Basic command line calculator
 ```orchid
 import std::io::(readln, printf, in, out)
 
-main = (
+main == (
     readln in >>= int |> \a. 
     readln in >>= \op.
     readln in >>= int |> \b.
@@ -31,7 +31,7 @@ Grep
 ```orchid
 import std::io::(readln, println, in, out, getarg)
 
-main = loop \r. (
+main == loop \r. (
     readln in >>= \line.
     if (substring (getarg 1) line)
     then (println out ln >>= r)
@@ -41,7 +41,7 @@ main = loop \r. (
 
 Filter through an arbitrary collection
 ```orchid
-filter = @C:Type -> Type. @:Map C. @T. \f:T -> Bool. \coll:C T. (
+filter == @C:Type -> Type. @:Map C. @T. \f:T -> Bool. \coll:C T. (
     coll >> \el. if (f el) then (Some el) else Nil
 ):(C T)
 ```
@@ -122,9 +122,9 @@ types whose defaults have implmentations based on your defaults.
 For a demonstration, here's a sample implementation of the Option monad.
 ```orchid
 --[[ The definition of Monad ]]--
-Bind = \M:Type -> Type. @T -> @U -> (T -> M U) -> M T -> M U
-Return = \M:Type -> Type. @T -> T -> M T
-Monad = \M:Type -> Type. (
+Bind == \M:Type -> Type. @T -> @U -> (T -> M U) -> M T -> M U
+Return == \M:Type -> Type. @T -> T -> M T
+Monad == \M:Type -> Type. (
     @:Bind M.
     @:Return M.
     0 --[ Note that empty expressions are forbidden so those that exist
@@ -134,19 +134,19 @@ Monad = \M:Type -> Type. (
 )
 
 --[[ The definition of Option ]]--
-export Option = \T:Type. @U -> U -> (T -> U) -> U
+export Option == \T:Type. @U -> U -> (T -> U) -> U
 --[ Constructors ]--
-export Some = @T. \data:T. ( \default. \map. map data ):(Option T)
-export None = @T.          ( \default. \map. default  ):(Option T)
+export Some == @T. \data:T. ( \default. \map. map data ):(Option T)
+export None == @T.          ( \default. \map. default  ):(Option T)
 --[ Implement Monad ]--
-default returnOption = Some:(Return Option)
-default bindOption = ( @T:Type. @U:Type.
+default returnOption == Some:(Return Option)
+default bindOption == ( @T:Type. @U:Type.
     \f:T -> U. \opt:Option T. opt None f
 ):(Bind Option)
 --[ Sample function that works on unknown monad to demonstrate HKTs.
     Turns (Option (M T)) into (M (Option T)), "raising" the unknown monad
     out of the Option ]--
-export raise = @M:Type -> Type. @T:Type. @:Monad M. \opt:Option (M T). (
+export raise == @M:Type -> Type. @T:Type. @:Monad M. \opt:Option (M T). (
     opt (return None) (\m. bind m (\x. Some x))
 ):(M (Option T))
 ```
@@ -162,7 +162,7 @@ Add has three arguments, two are the types of the operands and one is
 the result:
 
 ```orchid
-default concatListAdd replacing applicativeAdd = @T. (
+default concatListAdd replacing applicativeAdd == @T. (
     ...
 ):(Add (List T) (List T) (List T))
 ```
@@ -170,7 +170,7 @@ default concatListAdd replacing applicativeAdd = @T. (
 For completeness' sake, the original definition might look like this:
 
 ```orchid
-default elementwiseAdd = @C:Type -> Type. @T. @U. @V. @:(Applicative C). @:(Add T U V). (
+default elementwiseAdd == @C:Type -> Type. @T. @U. @V. @:(Applicative C). @:(Add T U V). (
     ...
 ):(Add (C T) (C U) (C V))
 ```
@@ -179,7 +179,7 @@ With the use of autos, here's what the recursive multiplication
 implementation looks like:
 
 ```orchid
-default iterativeMultiply = @T. @:(Add T T T). (
+default iterativeMultiply == @T. @:(Add T T T). (
     \a:int.\b:T. loop \r. (\i.
         ifthenelse (ieq i 0)
             b
@@ -191,7 +191,7 @@ default iterativeMultiply = @T. @:(Add T T T). (
 This could then be applied to any type that's closed over addition
 
 ```orchid
-aroundTheWorldLyrics = (
+aroundTheWorldLyrics == (
     mult 18 (add (mult 4 "Around the World\n") "\n")
 )
 ```
@@ -231,9 +231,9 @@ $a - $b =10=> (sub $a $b)
 The recursive addition function now looks like this
 
 ```orchid
-default iterativeMultiply = @T. @:(Add T T T). (
+default iterativeMultiply == @T. @:(Add T T T). (
     \a:int.\b:T. loop \r. (\i.
-        if (i == 0) then b
+        if (i = 0) then b
         else (b + (r (i - 1)))
     ) a
 ):(Multiply T int T)
