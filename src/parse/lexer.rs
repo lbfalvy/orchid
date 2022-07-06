@@ -1,6 +1,6 @@
-use std::{ops::Range, iter};
+use std::{ops::Range, iter, fmt};
 use ordered_float::NotNan;
-use chumsky::{Parser, prelude::*, text::whitespace};
+use chumsky::{Parser, prelude::*};
 use std::fmt::Debug;
 use crate::utils::BoxedIter;
 
@@ -12,6 +12,11 @@ impl Debug for Entry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.0)
         // f.debug_tuple("Entry").field(&self.0).field(&self.1).finish()
+    }
+}
+impl Into<(Lexeme, Range<usize>)> for Entry {
+    fn into(self) -> (Lexeme, Range<usize>) {
+        (self.0, self.1)
     }
 }
 
@@ -61,6 +66,9 @@ impl Lexeme {
     pub fn name<T: ToString>(n: T) -> Self {
         Lexeme::Name(n.to_string())
     }
+    pub fn rule<T>(prio: T) -> Self where T: Into<f64> {
+        Lexeme::Rule(NotNan::new(prio.into()).expect("Rule priority cannot be NaN"))
+    }
     pub fn paren_parser<T, P>(
         expr: P
     ) -> impl Parser<Lexeme, (char, T), Error = Simple<Lexeme>> + Clone
@@ -76,15 +84,20 @@ impl Lexeme {
     }
 }
 
-fn rule_parser() -> impl Parser<char, NotNan<f64>, Error = Simple<char>> {
-    just('=').ignore_then(
-        choice((
-            none_of("-0123456789").rewind().to(NotNan::new(0f64).unwrap()),
-            number::float_parser().then_ignore(just("=>"))
-        )).map_err_with_span(|err, span| {
-            panic!("Something's up! {:?} {}", span, err)
-        })
-    )
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct LexedText(pub Vec<Vec<Entry>>);
+
+impl Debug for LexedText {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for row in &self.0 {
+            for tok in row {
+                tok.fmt(f)?;
+                f.write_str(" ")?
+            }
+            f.write_str("\n")?
+        }
+        Ok(())
+    }
 }
 
 type LexSubres<'a> = BoxedIter<'a, Entry>;
@@ -104,7 +117,7 @@ fn paren_parser<'a>(
     })
 }
 
-pub fn lexer<'a, T: 'a>(ops: &[T]) -> impl Parser<char, Vec<Vec<Entry>>, Error=Simple<char>> + 'a
+pub fn lexer<'a, T: 'a>(ops: &[T]) -> impl Parser<char, LexedText, Error=Simple<char>> + 'a
 where T: AsRef<str> + Clone {
     let all_ops = ops.iter().map(|o| o.as_ref().to_string())
         .chain(iter::once(".".to_string())).collect::<Vec<_>>();
@@ -114,7 +127,8 @@ where T: AsRef<str> + Clone {
             paren_parser(recurse.clone(), '[', ']'),
             paren_parser(recurse.clone(), '{', '}'),
             choice((
-                rule_parser().map(Lexeme::Rule),
+                just("==").padded().to(Lexeme::rule(0f64)),
+                just("=").ignore_then(number::float_parser()).then_ignore(just("=>")).map(Lexeme::rule),
                 comment::comment_parser().map(Lexeme::Comment),
                 just("::").padded().to(Lexeme::NS),
                 just('\\').padded().to(Lexeme::BS),
@@ -130,5 +144,5 @@ where T: AsRef<str> + Clone {
     }).separated_by(one_of("\t ").repeated())
     .flatten().collect()
     .separated_by(just('\n').then(text::whitespace()).ignored())
-    
+    .map(LexedText)
 }

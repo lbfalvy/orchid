@@ -3,7 +3,7 @@ use thiserror::Error;
 
 use crate::utils::Substack;
 
-use crate::{Expr, Clause, Literal};
+use crate::expression::{Expr, Clause};
 
 type ImportMap = HashMap<String, Vec<String>>;
 

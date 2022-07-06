@@ -1,5 +1,5 @@
 use chumsky::{self, prelude::*, Parser};
-use crate::{Clause, Expr, Literal, enum_parser};
+use crate::{enum_parser, expression::{Clause, Expr, Literal}};
 
 use super::{lexer::Lexeme};
 
@@ -86,5 +86,5 @@ pub fn xpr_parser() -> impl Parser<Lexeme, Expr, Error = Simple<Lexeme>> {
             .ignore_then(expr.clone()).or_not()
         )
         .map(|(val, typ)| Expr(val, typ.map(Box::new)))
-    })
+    }).labelled("Expression")
 }

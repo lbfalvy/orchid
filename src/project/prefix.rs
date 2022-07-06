@@ -1,4 +1,4 @@
-use crate::{Expr, Clause};
+use crate::expression::{Expr, Clause};
 
 /// Replaces the first element of a name with the matching prefix from a prefix map
 

@@ -40,8 +40,10 @@ pub fn file_loader(proj: PathBuf) -> impl FnMut(Vec<String>) -> Result<Loaded, L
         let orcfile = dirpath.with_extension("orc");
         if orcfile.is_file() {
             read_to_string(orcfile).map(Loaded::Module).map_err(LoadingError::from)
-        } else if dirpath.exists() {
-            Err(LoadingError::UnknownNode(dirpath.to_string_lossy().into_owned()))
-        } else { Err(LoadingError::Missing(dirpath.to_string_lossy().into_owned())) }
+        } else {
+            let pathstr = dirpath.to_string_lossy().into_owned();
+            Err(if dirpath.exists() { LoadingError::UnknownNode(pathstr) }
+            else { LoadingError::Missing(pathstr) })
+        }
     }
 }
