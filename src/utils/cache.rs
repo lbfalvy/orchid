@@ -4,16 +4,21 @@ use mappable_rc::Mrc;
 
 /// Cache the return values of an effectless closure in a hashmap
 /// Inspired by the closure_cacher crate.
-pub struct Cache<I, O: 'static> where O: Clone {
+pub struct Cache<'a, I, O: 'static> /*where O: Clone*/ {
     store: RefCell<HashMap<I, Mrc<O>>>,
-    closure: RefCell<Box<dyn FnMut (I) -> O + 'static>>
+    closure: RefCell<Box<dyn FnMut (I, &Self) -> Mrc<O> + 'a>>
 }
 
-impl<I, O> Cache<I, O> where 
-    I: Eq + Hash + Clone,
-    O: Clone
+impl<'a, I, O> Cache<'a, I, O> where 
+    I: Eq + Hash + Clone
 {
-    pub fn new<F: 'static>(closure: F) -> Self where F: FnMut(I) -> O {
+    pub fn new<F: 'a>(mut closure: F) -> Self where F: FnMut(I, &Self) -> O {
+        Self::new_raw(move |o, s| Mrc::new(closure(o, s)))
+    }
+
+    /// Take an Mrc<O> closure rather than an O closure
+    /// Used internally to derive caches from other systems working with Mrc-s
+    pub fn new_raw<F: 'a>(closure: F) -> Self where F: FnMut(I, &Self) -> Mrc<O> {
         Self {
             store: RefCell::new(HashMap::new()),
             closure: RefCell::new(Box::new(closure))
@@ -25,7 +30,7 @@ impl<I, O> Cache<I, O> where
         let mut closure = self.closure.borrow_mut();
         let mut store = self.store.borrow_mut();
         Mrc::clone(store.raw_entry_mut().from_key(i)
-            .or_insert_with(|| (i.clone(), Mrc::new(closure(i.clone())))).1)
+            .or_insert_with(|| (i.clone(), closure(i.clone(), self))).1)
     }
     #[allow(dead_code)]
     /// Return the result if it has already been computed
@@ -40,9 +45,9 @@ impl<I, O> Cache<I, O> where
     }
 }
 
-impl<I, O, E> Cache<I, Result<O, E>> where 
+impl<'a, I, O, E> Cache<'a, I, Result<O, E>> where 
     I: Eq + Hash + Clone,
-    O: Clone,
+    // O: Clone,
     E: Clone
 {
     /// Sink the ref from a Result into the Ok value, such that cloning only occurs on the sad path
@@ -54,9 +59,9 @@ impl<I, O, E> Cache<I, Result<O, E>> where
     }
 }
 
-impl<I, O> Cache<I, Option<O>> where 
+impl<'a, I, O> Cache<'a, I, Option<O>> where 
     I: Eq + Hash + Clone,
-    O: Clone
+    // O: Clone
 {
     #[allow(dead_code)]
     /// Sink the ref from an Option into the Some value such that the return value can be

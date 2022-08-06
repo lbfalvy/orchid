@@ -26,7 +26,7 @@ fn main() {
     let collect_rules = rule_collector(move |n| {
         if n == vec!["prelude"] { Ok(Loaded::Module(PRELUDE.to_string())) }
         else { file_loader(cwd.clone())(n) }
-    }, literal(&["...", ">>", ">>=", "[", "]", ",", "$", "=", "=>"]));
+    }, literal(&["...", ">>", ">>=", "[", "]", ",", "=", "=>"]));
     match collect_rules.try_find(&literal(&["main"])) {
         Ok(rules) => for rule in rules.iter() {
             println!("{rule:?}")

@@ -36,25 +36,37 @@ impl Debug for Expr {
     }
 }
 
-impl Expr {
-    /// Replace all occurences of a name in the tree with a parameter, to bypass name resolution
-    pub fn bind_parameter(&mut self, name: &str) {
-        self.0.bind_parameter(name);
-        if let Some(typ) = &mut self.1 {
-            typ.bind_parameter(name);
-        }
-    }
-}
-
 /// An S-expression as read from a source file
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Clause {
     Literal(Literal),
-    Name(Vec<String>),
+    Name{
+        local: Option<String>,
+        qualified: Vec<String>
+    },
     S(char, Vec<Expr>),
     Lambda(String, Vec<Expr>, Vec<Expr>),
     Auto(Option<String>, Vec<Expr>, Vec<Expr>),
-    Parameter(String)
+    /// Second parameter:
+    ///     None => matches one token
+    ///     Some(prio) => prio is the sizing priority for the vectorial (higher prio grows first)
+    Placeh(String, Option<usize>),
+}
+impl Clause {
+    pub fn body(&self) -> Option<&Vec<Expr>> {
+        match self {
+            Clause::Auto(_, _, body) | 
+            Clause::Lambda(_, _, body) |
+            Clause::S(_, body) => Some(body),
+            _ => None
+        }
+    }
+    pub fn typ(&self) -> Option<&Vec<Expr>> {
+        match self {
+            Clause::Auto(_, typ, _) | Clause::Lambda(_, typ, _) => Some(typ),
+            _ => None
+        }
+    }
 }
 
 fn fmt_expr_seq(it: &mut dyn Iterator<Item = &Expr>, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -69,7 +81,9 @@ impl Debug for Clause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Literal(arg0) => write!(f, "{:?}", arg0),
-            Self::Name(arg0) => write!(f, "{}", arg0.join("::")),
+            Self::Name{local, qualified} =>
+                if let Some(local) = local {write!(f, "{}<{}>", qualified.join("::"), local)}
+                else {write!(f, "{}", qualified.join("::"))},
             Self::S(del, items) => {
                 f.write_str(&del.to_string())?;
                 fmt_expr_seq(&mut items.iter(), f)?;
@@ -90,24 +104,9 @@ impl Debug for Clause {
                 f.write_str(":")?; fmt_expr_seq(&mut argtyp.iter(), f)?; f.write_str(".")?;
                 fmt_expr_seq(&mut body.iter(), f)
             },
-            Self::Parameter(name) => write!(f, "`{}", name)
-        }
-    }
-}
-
-impl Clause {
-    /// Replace all occurences of a name in the tree with a parameter, to bypass name resolution
-    pub fn bind_parameter(&mut self, name: &str) {
-        match self {
-            Clause::Name(n) => if n.len() == 1 && n[0] == name {
-                *self = Clause::Parameter(name.to_string())
-            }
-            Clause::S(_, exprv) => for expr in exprv { expr.bind_parameter(name) }
-            Clause::Lambda(_, typ, body) | Clause::Auto(_, typ, body) => {
-                for expr in typ { expr.bind_parameter(name) }
-                for expr in body { expr.bind_parameter(name) }
-            }
-            _ => ()
+            // Self::Parameter(name) => write!(f, "`{}", name),
+            Self::Placeh(name, None) => write!(f, "${}", name),
+            Self::Placeh(name, Some(prio)) => write!(f, "...${}:{}", name, prio)
         }
     }
 }

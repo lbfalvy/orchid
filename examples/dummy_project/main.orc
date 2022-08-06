@@ -6,6 +6,8 @@ greet =1=> (\name. printf out "Hello {}!\n" [name])
 -- multi-word exported rule
 export ;> $a =200=> (greet $a)
 
+reeee := \$a.b
+
 -- single-word exported rule
 export main == (
     print "What is your name?" >>

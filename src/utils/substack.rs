@@ -1,45 +1,55 @@
+use std::fmt::Debug;
 
 /// Implement a FILO stack that lives on the regular call stack as a linked list.
 /// Mainly useful to detect loops in recursive algorithms where the recursion isn't
 /// deep enough to warrant a heap-allocated set
-#[derive(Debug, Clone, Copy)]
-pub struct Substack<'a, T> {
+#[derive(Clone, Copy)]
+pub struct Stackframe<'a, T> {
     pub item: T,
-    pub prev: Option<&'a Self>
+    pub prev: Option<&'a Stackframe<'a, T>>
 }
 
-impl<'a, T> Substack<'a, T> {
-    #[allow(dead_code)]
-    pub fn item(&self) -> &T { &self.item }
-    #[allow(dead_code)]
-    pub fn prev(&self) -> Option<&'a Substack<'a, T>> { self.prev }
-
+impl<'a, T: 'a> Stackframe<'a, T> {
     pub fn new(item: T) -> Self {
         Self {
             item,
             prev: None
         }
     }
-    pub fn push(&'a self, item: T) -> Self {
-        Self {
+    /// Get the item owned by this listlike, very fast O(1)
+    pub fn item(&self) -> &T { &self.item }
+    /// Get the next link in the list, very fast O(1)
+    pub fn prev(&self) -> Option<&'a Stackframe<T>> { self.prev }
+    /// Construct an iterator over the listlike, very fast O(1)
+    pub fn iter(&self) -> StackframeIterator<T> {
+        StackframeIterator { curr: Some(self) }
+    }
+    pub fn push(&self, item: T) -> Stackframe<'_, T>  {
+        Stackframe {
             item,
             prev: Some(self)
         }
     }
-    pub fn iter(&'a self) -> SubstackIterator<'a, T> {
-        SubstackIterator { curr: Some(self) }
+}
+
+impl<'a, T> Debug for Stackframe<'a, T> where T: Debug {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Substack")?;
+        f.debug_list().entries(self.iter()).finish()
     }
 }
 
-pub struct SubstackIterator<'a, T> {
-    curr: Option<&'a Substack<'a, T>>
+pub struct StackframeIterator<'a, T> {
+    curr: Option<&'a Stackframe<'a, T>>
 }
 
-impl<'a, T> Iterator for SubstackIterator<'a, T> {
+impl<'a, T> Iterator for StackframeIterator<'a, T> {
     type Item = &'a T;
     fn next(&mut self) -> Option<&'a T> {
-        let Substack{ item, prev } = self.curr?;
-        self.curr = *prev;
+        let curr = self.curr?;
+        let item = curr.item();
+        let prev = curr.prev();
+        self.curr = prev;
         Some(item)
     }
 }

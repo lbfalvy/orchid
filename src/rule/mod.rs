@@ -1,6 +1,6 @@
-mod rule;
+// mod rule;
 mod executor;
-mod bad_state_error;
+mod rule_error;
 
-pub use rule::Rule;
-pub use bad_state_error::BadState;
+// pub use rule::Rule;
+pub use rule_error::RuleError;

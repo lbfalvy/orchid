@@ -1,7 +1,7 @@
 use std::{collections::HashMap};
 use thiserror::Error;
 
-use crate::utils::Substack;
+use crate::utils::Stackframe;
 
 use crate::expression::{Expr, Clause};
 
@@ -43,10 +43,10 @@ where
 
     /// Obtains a symbol's originnal name
     /// Uses a substack to detect loops
-    fn find_origin_rec(
+    fn find_origin_rec<'a>(
         &mut self,
-        symbol: &Vec<String>,
-        import_path: &Substack<'_, &Vec<String>>
+        symbol: &'a Vec<String>,
+        import_path: Stackframe<'a, &'a Vec<String>>
     ) -> Result<Vec<String>, ResolutionError<E>> {
         if let Some(cached) = self.cache.get(symbol) { return cached.clone() }
         // The imports and path of the referenced file and the local name 
@@ -58,7 +58,7 @@ where
             if import_path.iter().any(|el| el == &&new_sym) {
                 Err(ResolutionError::Cycle(import_path.iter().cloned().cloned().collect()))
             } else {
-                self.find_origin_rec(&new_sym, &import_path.push(symbol))
+                self.find_origin_rec(&new_sym, import_path.push(symbol))
             }
         } else {
             Ok(symbol.clone()) // If not imported, it must be locally defined
@@ -92,7 +92,10 @@ where
                 self.process_exprv_rec(typ)?,
                 self.process_exprv_rec(body)?
             ),
-            Clause::Name(qualified) => Clause::Name(self.find_origin(qualified)?),
+            Clause::Name{local, qualified} => Clause::Name{
+                local: local.clone(),
+                qualified: self.find_origin(qualified)?
+            },
             x => x.clone()
         })
     }
@@ -105,7 +108,7 @@ where
     }
 
     pub fn find_origin(&mut self, symbol: &Vec<String>) -> Result<Vec<String>, ResolutionError<E>> {
-        self.find_origin_rec(symbol, &Substack::new(symbol))
+        self.find_origin_rec(symbol, Stackframe::new(symbol))
     }
 
     #[allow(dead_code)]

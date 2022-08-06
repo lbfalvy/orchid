@@ -29,7 +29,7 @@ where P: Parser<Lexeme, Expr, Error = Simple<Lexeme>> + Clone {
     .then_ignore(enum_parser!(Lexeme::Comment).repeated())
     .then(expr.repeated().at_least(1))
     .map(|((name, typ), mut body): ((String, Vec<Expr>), Vec<Expr>)| {
-        for ent in &mut body { ent.bind_parameter(&name) };
+        // for ent in &mut body { ent.bind_parameter(&name) };
         Clause::Lambda(name, typ, body)
     })
 }
@@ -54,9 +54,9 @@ where P: Parser<Lexeme, Expr, Error = Simple<Lexeme>> + Clone {
     .try_map(|((name, typ), mut body), s| if name == None && typ.is_empty() {
         Err(Simple::custom(s, "Auto without name or type has no effect"))
     } else { 
-        if let Some(n) = &name {
-            for ent in &mut body { ent.bind_parameter(n) }
-        }
+        // if let Some(n) = &name {
+        //     for ent in &mut body { ent.bind_parameter(n) }
+        // }
         Ok(Clause::Auto(name, typ, body))
     })
 }
@@ -69,6 +69,13 @@ fn name_parser() -> impl Parser<Lexeme, Vec<String>, Error = Simple<Lexeme>> + C
     ).at_least(1)
 }
 
+fn placeholder_parser() -> impl Parser<Lexeme, String, Error = Simple<Lexeme>> + Clone {
+    enum_parser!(Lexeme::Name).try_map(|name, span| {
+        name.strip_prefix("$").map(&str::to_string)
+            .ok_or(Simple::custom(span, "Not a placeholder"))
+    })
+}
+
 /// Parse an expression without a type annotation
 pub fn xpr_parser() -> impl Parser<Lexeme, Expr, Error = Simple<Lexeme>> {
     recursive(|expr| {
@@ -76,7 +83,19 @@ pub fn xpr_parser() -> impl Parser<Lexeme, Expr, Error = Simple<Lexeme>> {
         enum_parser!(Lexeme::Comment).repeated()
         .ignore_then(choice((
             enum_parser!(Lexeme >> Literal; Int, Num, Char, Str).map(Clause::Literal),
-            name_parser().map(Clause::Name),
+            placeholder_parser().map(|n| Clause::Placeh(n, None)),
+            just(Lexeme::name("..."))
+                .ignore_then(placeholder_parser())
+                .then(
+                    just(Lexeme::Type)
+                    .ignore_then(enum_parser!(Lexeme::Int))
+                    .or_not().map(Option::unwrap_or_default)
+                )
+                .map(|(name, prio)| Clause::Placeh(name, Some(prio.try_into().unwrap()))),
+            name_parser().map(|qualified| Clause::Name {
+                local: if qualified.len() == 1 {Some(qualified[0].clone())} else {None},
+                qualified
+            }),
             sexpr_parser(expr.clone()),
             lambda_parser(expr.clone()),
             auto_parser(expr.clone())

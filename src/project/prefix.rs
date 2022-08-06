@@ -20,9 +20,10 @@ fn prefix_clause(
             typ.iter().map(|e| prefix_expr(e, namespace)).collect(),
             body.iter().map(|e| prefix_expr(e, namespace)).collect(),
         ),
-        Clause::Name(name) => Clause::Name (
-            namespace.iter().chain(name.iter()).cloned().collect()
-        ),
+        Clause::Name{local, qualified} => Clause::Name{
+            local: local.clone(),
+            qualified: namespace.iter().chain(qualified.iter()).cloned().collect()
+        },
         x => x.clone()
     }
 }

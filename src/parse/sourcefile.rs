@@ -1,8 +1,10 @@
 use std::collections::HashSet;
 use std::iter;
 
-use crate::{enum_parser, expression::{Expr, Clause, Rule}};
+use crate::enum_parser;
+use crate::expression::{Expr, Clause, Rule};
 use crate::utils::BoxedIter;
+use crate::utils::Stackframe;
 
 use super::expression::xpr_parser;
 use super::import;
@@ -19,32 +21,74 @@ pub enum FileEntry {
     Rule(Rule, bool)
 }
 
+fn visit_all_names_clause_recur<'a, F>(
+    clause: &'a Clause,
+    binds: Stackframe<String>,
+    mut cb: &mut F
+) where F: FnMut(&'a Vec<String>) {
+    match clause {
+        Clause::Auto(name, typ, body) => {
+            for x in typ.iter() {
+                visit_all_names_expr_recur(x, binds.clone(), &mut cb)
+            }
+            let binds_dup = binds.clone();
+            let new_binds = if let Some(n) = name {
+                binds_dup.push(n.to_owned())
+            } else {
+                binds
+            };
+            for x in body.iter() {
+                visit_all_names_expr_recur(x, new_binds.clone(), &mut cb)
+            }
+        },
+        Clause::Lambda(name, typ, body) => {
+            for x in typ.iter() {
+                visit_all_names_expr_recur(x, binds.clone(), &mut cb)
+            }
+            for x in body.iter() {
+                visit_all_names_expr_recur(x, binds.push(name.to_owned()), &mut cb)
+            }
+        },
+        Clause::S(_, body) => for x in body.iter() {
+            visit_all_names_expr_recur(x, binds.clone(), &mut cb)
+        },
+        Clause::Name{ local, qualified } => {
+            if let Some(name) = local {
+                if binds.iter().all(|x| x != name) {
+                    cb(qualified)
+                }
+            }
+        }
+        _ => (),
+    }
+}
+
 /// Recursively iterate through all "names" in an expression. It also finds a lot of things that
 /// aren't names, such as all bound parameters. Generally speaking, this is not a very
 /// sophisticated search.
 /// 
 /// TODO: find a way to exclude parameters
-fn find_all_names_recur<'a>(expr: &'a Expr) -> BoxedIter<&'a Vec<String>> {
-    let proc_clause = |clause: &'a Clause| match clause {
-        Clause::Auto(_, typ, body) | Clause::Lambda(_, typ, body) => Box::new(
-            typ.iter().flat_map(find_all_names_recur)
-            .chain(body.iter().flat_map(find_all_names_recur))
-        ) as BoxedIter<&'a Vec<String>>,
-        Clause::S(_, body) => Box::new(
-            body.iter().flat_map(find_all_names_recur)
-        ),
-        Clause::Name(x) => Box::new(iter::once(x)),
-        _ => Box::new(iter::empty())
-    };
+fn visit_all_names_expr_recur<'a, F>(
+    expr: &'a Expr,
+    binds: Stackframe<String>,
+    cb: &mut F
+) where F: FnMut(&'a Vec<String>) {
     let Expr(val, typ) = expr;
+    visit_all_names_clause_recur(val, binds.clone(), cb);
     if let Some(t) = typ {
-        Box::new(proc_clause(val).chain(find_all_names_recur(t)))
-    } else { proc_clause(val) }
+        visit_all_names_expr_recur(t, binds, cb)
+    }
 }
 
 /// Collect all names that occur in an expression
 fn find_all_names(expr: &Expr) -> HashSet<&Vec<String>> {
-    find_all_names_recur(expr).collect()
+    let mut ret = HashSet::new();
+    visit_all_names_expr_recur(expr, Stackframe::new(String::new()), &mut |n| {
+        if !n.last().unwrap().starts_with("$") {
+            ret.insert(n);
+        }
+    });
+    ret
 }
 
 fn rule_parser() -> impl Parser<Lexeme, (Vec<Expr>, NotNan<f64>, Vec<Expr>), Error = Simple<Lexeme>> {

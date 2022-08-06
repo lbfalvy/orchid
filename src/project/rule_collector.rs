@@ -24,20 +24,20 @@ pub fn rule_collector<F: 'static, ELoad>(
     mut load_mod: F,
     prelude: Vec<String>
 // ) -> impl FnMut(Vec<String>) -> Result<&'a Vec<super::Rule>, ParseError<ELoad>> + 'a
-) -> Cache<Vec<String>, Result<Vec<super::Rule>, ModuleError<ELoad>>>
+) -> Cache<'static, Vec<String>, Result<Vec<super::Rule>, ModuleError<ELoad>>>
 where
     F: FnMut(Vec<String>) -> Result<Loaded, ELoad>,
     ELoad: Clone + Debug
 {
     // Map paths to a namespace with name list (folder) or module with source text (file)
-    let loaded = Rc::new(Cache::new(move |path: Vec<String>|
+    let loaded = Rc::new(Cache::new(move |path: Vec<String>, _|
          -> ParseResult<Loaded, ELoad> {
         load_mod(path).map_err(ModuleError::Load)
     }));
     // Map names to the longest prefix that points to a valid module
     let modname = Rc::new(Cache::new({
         let loaded = Rc::clone(&loaded);
-        move |symbol: Vec<String>| -> Result<Vec<String>, Vec<ModuleError<ELoad>>> {
+        move |symbol: Vec<String>, _| -> Result<Vec<String>, Vec<ModuleError<ELoad>>> {
             let mut errv: Vec<ModuleError<ELoad>> = Vec::new();
             let reg_err = |e, errv: &mut Vec<ModuleError<ELoad>>| {
                 errv.push(e);
@@ -61,7 +61,7 @@ where
     let preparsed = Rc::new(Cache::new({
         let loaded = Rc::clone(&loaded);
         let prelude2 = prelude.clone();
-        move |path: Vec<String>| -> ParseResult<Vec<FileEntry>, ELoad> {
+        move |path: Vec<String>, _| -> ParseResult<Vec<FileEntry>, ELoad> {
             let loaded = loaded.try_find(&path)?;
             if let Loaded::Module(source) = loaded.as_ref() {
                 Ok(parse::parse(&prelude2, source.as_str())?)
@@ -72,7 +72,7 @@ where
     let exports = Rc::new(Cache::new({
         let loaded = Rc::clone(&loaded);
         let preparsed = Rc::clone(&preparsed);
-        move |path: Vec<String>| -> ParseResult<Vec<String>, ELoad> {
+        move |path: Vec<String>, _| -> ParseResult<Vec<String>, ELoad> {
             let loaded = loaded.try_find(&path)?;
             if let Loaded::Namespace(names) = loaded.as_ref() {
                 return Ok(names.clone());
@@ -88,7 +88,7 @@ where
     let imports = Rc::new(Cache::new({
         let preparsed = Rc::clone(&preparsed);
         let exports = Rc::clone(&exports);
-        move |path: Vec<String>| -> ParseResult<HashMap<String, Vec<String>>, ELoad> {
+        move |path: Vec<String>, _| -> ParseResult<HashMap<String, Vec<String>>, ELoad> {
             let entv = preparsed.try_find(&path)?.clone();
             let import_entries = parse::imports(entv.iter());
             let mut imported_symbols: HashMap<String, Vec<String>> = HashMap::new();
@@ -112,7 +112,7 @@ where
         let preparsed = Rc::clone(&preparsed);
         let imports = Rc::clone(&imports);
         let loaded = Rc::clone(&loaded);
-        move |path: Vec<String>| -> ParseResult<Vec<FileEntry>, ELoad> {
+        move |path: Vec<String>, _| -> ParseResult<Vec<FileEntry>, ELoad> {
             let imported_ops: Vec<String> =
                 imports.try_find(&path)?
                 .keys()
@@ -144,7 +144,7 @@ where
         let exports = Rc::clone(&exports);
         let imports = Rc::clone(&imports);
         let modname = Rc::clone(&modname);
-        move |path: Vec<String>| -> ParseResult<Module, ELoad> {
+        move |path: Vec<String>, _| -> ParseResult<Module, ELoad> {
             let module = Module {
                 rules: parsed.try_find(&path)?
                     .iter()
@@ -182,7 +182,7 @@ where
     }));
     let all_rules = Cache::new({
         let resolved = Rc::clone(&resolved);
-        move |path: Vec<String>| -> ParseResult<Vec<super::Rule>, ELoad> {
+        move |path: Vec<String>, _| -> ParseResult<Vec<super::Rule>, ELoad> {
             let mut processed: HashSet<Vec<String>> = HashSet::new();
             let mut rules: Vec<super::Rule> = Vec::new();
             let mut pending: VecDeque<Vec<String>> = VecDeque::new();
