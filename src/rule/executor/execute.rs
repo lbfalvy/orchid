@@ -88,6 +88,7 @@ where F: FnMut(Mrc<[Expr]>) -> Option<Mrc<[Expr]>> {
 
 /// Fill in a template from a state as produced by a pattern
 fn write_slice(state: &State, tpl: &Mrc<[Expr]>) -> Mrc<[Expr]> {
+    eprintln!("Writing {tpl:?} with state {state:?}");
     tpl.iter().flat_map(|Expr(clause, xpr_typ)| match clause {
         Clause::Auto(name_opt, typ, body) => box_once(Expr(Clause::Auto(
             name_opt.as_ref().and_then(|name| {
@@ -142,7 +143,6 @@ pub fn execute(mut src: Mrc<[Expr]>, mut tgt: Mrc<[Expr]>, input: Mrc<[Expr]>)
     slice_to_vec(&mut src, &mut tgt);
     // Generate matcher
     let matcher = SliceMatcherDnC::new(src);
-    println!("Matcher: {matcher:#?}");
     let matcher_cache = SliceMatcherDnC::get_matcher_cache();
     Ok(update_all_seqs(Mrc::clone(&input), &mut |p| {
         let state = matcher.match_range_cached(p, &matcher_cache)?;

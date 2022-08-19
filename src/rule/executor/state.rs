@@ -35,7 +35,6 @@ impl State {
     }
     pub fn insert_vec<S>(mut self, k: &S, v: &[Expr]) -> Option<Self>
     where S: AsRef<str> + ToString + ?Sized + Debug {
-        eprintln!("{:?} + {k:?}-{v:?}", self.0);
         if let Some(old) = self.0.get(k.as_ref()) {
             if let Entry::Vec(val) = old {
                 if val.as_slice() != v {return None}
@@ -136,5 +135,11 @@ impl IntoIterator for State {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
+    }
+}
+
+impl Debug for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
     }
 }

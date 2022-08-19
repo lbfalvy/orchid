@@ -29,7 +29,7 @@ fn op_parser<'a, T: AsRef<str> + Clone>(ops: &[T]) -> BoxedParser<'a, char, Stri
 /// TODO: `.` could possibly be parsed as an operator depending on context. This operator is very
 /// common in maths so it's worth a try. Investigate.
 pub fn modname_parser<'a>() -> impl Parser<char, String, Error = Simple<char>> + 'a {
-    let not_name_char: Vec<char> = vec![':', '\\', '@', '"', '\'', '(', ')', ',', '.'];
+    let not_name_char: Vec<char> = vec![':', '\\', '@', '"', '\'', '(', ')', '[', ']', '{', '}', ',', '.'];
     filter(move |c| !not_name_char.contains(c) && !c.is_whitespace())
         .repeated().at_least(1)
         .collect()

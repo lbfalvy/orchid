@@ -1,4 +1,3 @@
-
 use std::fmt::Debug;
 
 use mappable_rc::Mrc;
@@ -131,17 +130,6 @@ impl SliceMatcherDnC {
             None,
             Some(Box::new(Self::new(mrc_derive(&pattern, |p| &p[1..]))))
         ));
-        // let (Expr(clause, _), left_subm, right_subm) = if pattern.len() == 1 {
-        //     (&pattern[0], None, None)
-        // } else if let Some((left, _, right)) = split_at_max_vec(pattern) {(
-        //     &pattern[left.len()],
-        //     Some(Box::new(Self::new(left))),
-        //     Some(Box::new(Self::new(right)))
-        // )} else {(
-        //     &pattern[0],
-        //     None, 
-        //     Some(Box::new(Self::new(&pattern[1..])))
-        // )};
         Self {
             pattern, right_subm, left_subm,
             clause: Mrc::clone(&clause),
@@ -285,7 +273,6 @@ impl SliceMatcherDnC {
         target: Mrc<[Expr]>,
         cache: &Cache<CacheEntry<'a>, Option<State>>
     ) -> Option<State> {
-        eprintln!("Matching {target:?} with {:?}", self.pattern);
         if self.pattern.is_empty() {
             return if target.is_empty() {Some(State::new())} else {None}
         }
