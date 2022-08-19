@@ -14,7 +14,7 @@ fn separated_digits_parser(base: u32) -> impl Parser<char, String, Error = Simpl
     just('_')
         .ignore_then(text::digits(base))
         .repeated()
-        .map(|sv| sv.iter().map(|s| s.chars()).flatten().collect())
+        .map(|sv| sv.iter().flat_map(|s| s.chars()).collect())
 }
 
 /// parse a grouped uint
@@ -31,7 +31,7 @@ fn uint_parser(base: u32) -> impl Parser<char, u64, Error = Simple<char>> {
 /// parse exponent notation, or return 0 as the default exponent.
 /// The exponent is always in decimal. 
 fn pow_parser() -> impl Parser<char, i32, Error = Simple<char>> {
-    return choice((
+    choice((
         just('p')
             .ignore_then(text::int(10))
             .map(|s: String| s.parse().unwrap()),
@@ -45,15 +45,15 @@ fn pow_parser() -> impl Parser<char, i32, Error = Simple<char>> {
 /// 
 /// TODO it panics if it finds a negative exponent
 fn nat2u(base: u64) -> impl Fn((u64, i32),) -> u64 {
-    return move |(val, exp)| {
+    move |(val, exp)| {
         if exp == 0 {val}
         else {val * base.checked_pow(exp.try_into().unwrap()).unwrap()}
-    };
+    }
 }
 
 /// returns a mapper that converts a mantissa and an exponent into a float
 fn nat2f(base: u64) -> impl Fn((NotNan<f64>, i32),) -> NotNan<f64> {
-    return move |(val, exp)| {
+    move |(val, exp)| {
         if exp == 0 {val}
         else {val * (base as f64).powf(exp.try_into().unwrap())}
     }

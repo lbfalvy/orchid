@@ -4,7 +4,7 @@ use chumsky::{prelude::{Simple, end}, Stream, Parser};
 use itertools::Itertools;
 use thiserror::Error;
 
-use crate::expression::Rule;
+use crate::{expression::Rule, parse::lexer::LexedText};
 
 use super::{Lexeme, FileEntry, lexer, line_parser, LexerEntry};
 
@@ -24,14 +24,17 @@ where
     S: Into<Stream<'a, char, Range<usize>, Iter>> {
     let lexed = lexer(ops).parse(stream).map_err(ParseError::Lex)?;
     println!("Lexed:\n{:?}", lexed);
+    let LexedText(token_batchv) = lexed;
     let parsr = line_parser().then_ignore(end());
-    let (parsed_lines, errors_per_line) = lexed.0.into_iter().filter_map(|v| {
+    let (parsed_lines, errors_per_line) = token_batchv.into_iter().filter(|v| {
+        !v.is_empty()
+    }).map(|v| {
         // Find the first invalid position for Stream::for_iter
         let LexerEntry(_, Range{ end, .. }) = v.last().unwrap().clone();
         // Stream expects tuples, lexer outputs structs
         let tuples = v.into_iter().map_into::<(Lexeme, Range<usize>)>();
-        Some(parsr.parse(Stream::from_iter(end..end+1, tuples)))
-        //                                 ^^^^^^^^^^
+        parsr.parse(Stream::from_iter(end..end+1, tuples))
+        //                            ^^^^^^^^^^
         // I haven't the foggiest idea why this is needed, parsers are supposed to be lazy so the
         // end of input should make little difference
     }).map(|res| match res {
@@ -39,13 +42,13 @@ where
         Err(e) => (None, e)
     }).unzip::<_, _, Vec<_>, Vec<_>>();
     let total_err = errors_per_line.into_iter()
-        .map(Vec::into_iter).flatten()
+        .flat_map(Vec::into_iter)
         .collect::<Vec<_>>();
-    if total_err.len() > 0 { Err(ParseError::Ast(total_err)) }
+    if !total_err.is_empty() { Err(ParseError::Ast(total_err)) }
     else { Ok(parsed_lines.into_iter().map(Option::unwrap).collect()) } 
 }
 
-pub fn reparse<'a, Iter, S, Op>(ops: &[Op], stream: S, pre: &Vec<FileEntry>)
+pub fn reparse<'a, Iter, S, Op>(ops: &[Op], stream: S, pre: &[FileEntry])
 -> Result<Vec<FileEntry>, ParseError>
 where
     Op: 'a + AsRef<str> + Clone,

@@ -13,7 +13,7 @@ fn text_parser(delim: char) -> impl Parser<char, char, Error = Simple<char>> {
             .or(just('r').to('\r'))
             .or(just('t').to('\t'))
             .or(just('u').ignore_then(
-                filter(|c: &char| c.is_digit(16))
+                filter(|c: &char| c.is_ascii_hexdigit())
                     .repeated()
                     .exactly(4)
                     .collect::<String>()

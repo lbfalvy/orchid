@@ -1,4 +1,6 @@
-use crate::expression::{Expr, Clause};
+use mappable_rc::Mrc;
+
+use crate::{expression::{Expr, Clause}, utils::collect_to_mrc};
 
 /// Replaces the first element of a name with the matching prefix from a prefix map
 
@@ -6,32 +8,34 @@ use crate::expression::{Expr, Clause};
 /// Called by [#prefix] which handles Typed.
 fn prefix_clause(
     expr: &Clause,
-    namespace: &Vec<String>
+    namespace: Mrc<[String]>
 ) -> Clause {
     match expr {
-        Clause::S(c, v) => Clause::S(*c, v.iter().map(|e| prefix_expr(e, namespace)).collect()),
+        Clause::S(c, v) => Clause::S(*c,
+            collect_to_mrc(v.iter().map(|e| prefix_expr(e, Mrc::clone(&namespace))))
+        ),
         Clause::Auto(name, typ, body) => Clause::Auto(
             name.clone(),
-            typ.iter().map(|e| prefix_expr(e, namespace)).collect(),
-            body.iter().map(|e| prefix_expr(e, namespace)).collect(),
+            collect_to_mrc(typ.iter().map(|e| prefix_expr(e, Mrc::clone(&namespace)))),
+            collect_to_mrc(body.iter().map(|e| prefix_expr(e, Mrc::clone(&namespace)))),
         ),
         Clause::Lambda(name, typ, body) => Clause::Lambda(
             name.clone(),
-            typ.iter().map(|e| prefix_expr(e, namespace)).collect(),
-            body.iter().map(|e| prefix_expr(e, namespace)).collect(),
+            collect_to_mrc(typ.iter().map(|e| prefix_expr(e, Mrc::clone(&namespace)))),
+            collect_to_mrc(body.iter().map(|e| prefix_expr(e, Mrc::clone(&namespace)))),
         ),
         Clause::Name{local, qualified} => Clause::Name{
             local: local.clone(),
-            qualified: namespace.iter().chain(qualified.iter()).cloned().collect()
+            qualified: collect_to_mrc(namespace.iter().chain(qualified.iter()).cloned())
         },
         x => x.clone()
     }
 }
 
 /// Produce an Expr object for any value of Expr
-pub fn prefix_expr(Expr(clause, typ): &Expr, namespace: &Vec<String>) -> Expr {
+pub fn prefix_expr(Expr(clause, typ): &Expr, namespace: Mrc<[String]>) -> Expr {
     Expr(
-        prefix_clause(clause, namespace),
-        typ.as_ref().map(|e| Box::new(prefix_expr(e, namespace)))
+        prefix_clause(clause, Mrc::clone(&namespace)),
+        typ.as_ref().map(|e| Mrc::new(prefix_expr(e, namespace)))
     )
 }

@@ -3,6 +3,8 @@ use std::rc::Rc;
 use std::fs::read_to_string;
 use std::path::PathBuf;
 
+use mappable_rc::Mrc;
+
 use super::loaded::Loaded;
 
 #[derive(Clone, Debug)]
@@ -18,7 +20,7 @@ impl From<io::Error> for LoadingError {
     }
 }
 
-pub fn file_loader(proj: PathBuf) -> impl FnMut(Vec<String>) -> Result<Loaded, LoadingError> + 'static {
+pub fn file_loader(proj: PathBuf) -> impl FnMut(Mrc<[String]>) -> Result<Loaded, LoadingError> + 'static {
     move |path| {
         let dirpath = proj.join(path.join("/"));
         if dirpath.is_dir() || dirpath.is_symlink() {

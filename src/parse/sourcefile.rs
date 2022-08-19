@@ -1,10 +1,10 @@
 use std::collections::HashSet;
-use std::iter;
 
-use crate::enum_parser;
+use crate::{enum_parser, box_chain};
 use crate::expression::{Expr, Clause, Rule};
-use crate::utils::BoxedIter;
+use crate::utils::to_mrc_slice;
 use crate::utils::Stackframe;
+use crate::utils::iter::box_empty;
 
 use super::expression::xpr_parser;
 use super::import;
@@ -24,12 +24,12 @@ pub enum FileEntry {
 fn visit_all_names_clause_recur<'a, F>(
     clause: &'a Clause,
     binds: Stackframe<String>,
-    mut cb: &mut F
-) where F: FnMut(&'a Vec<String>) {
+    cb: &mut F
+) where F: FnMut(&'a [String]) {
     match clause {
         Clause::Auto(name, typ, body) => {
             for x in typ.iter() {
-                visit_all_names_expr_recur(x, binds.clone(), &mut cb)
+                visit_all_names_expr_recur(x, binds.clone(), cb)
             }
             let binds_dup = binds.clone();
             let new_binds = if let Some(n) = name {
@@ -38,25 +38,23 @@ fn visit_all_names_clause_recur<'a, F>(
                 binds
             };
             for x in body.iter() {
-                visit_all_names_expr_recur(x, new_binds.clone(), &mut cb)
+                visit_all_names_expr_recur(x, new_binds.clone(), cb)
             }
         },
         Clause::Lambda(name, typ, body) => {
             for x in typ.iter() {
-                visit_all_names_expr_recur(x, binds.clone(), &mut cb)
+                visit_all_names_expr_recur(x, binds.clone(), cb)
             }
             for x in body.iter() {
-                visit_all_names_expr_recur(x, binds.push(name.to_owned()), &mut cb)
+                visit_all_names_expr_recur(x, binds.push(name.to_owned()), cb)
             }
         },
         Clause::S(_, body) => for x in body.iter() {
-            visit_all_names_expr_recur(x, binds.clone(), &mut cb)
+            visit_all_names_expr_recur(x, binds.clone(), cb)
         },
-        Clause::Name{ local, qualified } => {
-            if let Some(name) = local {
-                if binds.iter().all(|x| x != name) {
-                    cb(qualified)
-                }
+        Clause::Name{ local: Some(name), qualified } => {
+            if binds.iter().all(|x| x != name) {
+                cb(qualified)
             }
         }
         _ => (),
@@ -72,7 +70,7 @@ fn visit_all_names_expr_recur<'a, F>(
     expr: &'a Expr,
     binds: Stackframe<String>,
     cb: &mut F
-) where F: FnMut(&'a Vec<String>) {
+) where F: FnMut(&'a [String]) {
     let Expr(val, typ) = expr;
     visit_all_names_clause_recur(val, binds.clone(), cb);
     if let Some(t) = typ {
@@ -81,10 +79,10 @@ fn visit_all_names_expr_recur<'a, F>(
 }
 
 /// Collect all names that occur in an expression
-fn find_all_names(expr: &Expr) -> HashSet<&Vec<String>> {
+fn find_all_names(expr: &Expr) -> HashSet<&[String]> {
     let mut ret = HashSet::new();
     visit_all_names_expr_recur(expr, Stackframe::new(String::new()), &mut |n| {
-        if !n.last().unwrap().starts_with("$") {
+        if !n.last().unwrap().starts_with('$') {
             ret.insert(n);
         }
     });
@@ -111,19 +109,27 @@ pub fn line_parser() -> impl Parser<Lexeme, FileEntry, Error = Simple<Lexeme>> {
             println!("{:?} could not yield an export", s); e
         })
             .ignore_then(rule_parser())
-            .map(|(source, prio, target)| FileEntry::Rule(Rule{source, prio, target}, true)),
+            .map(|(source, prio, target)| FileEntry::Rule(Rule {
+                source: to_mrc_slice(source),
+                prio,
+                target: to_mrc_slice(target)
+            }, true)),
         // This could match almost anything so it has to go last
-        rule_parser().map(|(source, prio, target)| FileEntry::Rule(Rule{source, prio, target}, false)),
+        rule_parser().map(|(source, prio, target)| FileEntry::Rule(Rule{
+            source: to_mrc_slice(source),
+            prio,
+            target: to_mrc_slice(target)
+        }, false)),
     ))
 }
 
 /// Collect all exported names (and a lot of other words) from a file
-pub fn exported_names(src: &Vec<FileEntry>) -> HashSet<&Vec<String>> {
+pub fn exported_names(src: &[FileEntry]) -> HashSet<&[String]> {
     src.iter().flat_map(|ent| match ent {
         FileEntry::Rule(Rule{source, target, ..}, true) =>
-            Box::new(source.iter().chain(target.iter())) as BoxedIter<&Expr>,
-        _ => Box::new(iter::empty())
-    }).map(find_all_names).flatten().collect()
+            box_chain!(source.iter(), target.iter()),
+        _ => box_empty()
+    }).flat_map(find_all_names).collect()
 }
 
 /// Summarize all imports from a file in a single list of qualified names 

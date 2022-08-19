@@ -1,6 +1,7 @@
+use mappable_rc::Mrc;
 use itertools::Itertools;
 use ordered_float::NotNan;
-use std::{fmt::Debug};
+use std::fmt::Debug;
 
 /// An exact value
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -23,12 +24,17 @@ impl Debug for Literal {
 }
 
 /// An S-expression with a type
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub struct Expr(pub Clause, pub Option<Box<Expr>>);
+#[derive(PartialEq, Eq, Hash)]
+pub struct Expr(pub Clause, pub Option<Mrc<Expr>>);
+
+impl Clone for Expr {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), self.1.as_ref().map(Mrc::clone))
+    }
+}
 
 impl Debug for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // f.debug_tuple("Expr").field(&self.0).field(&self.1).finish()
         let Expr(val, typ) = self;
         write!(f, "{:?}", val)?;
         if let Some(typ) = typ { write!(f, "{:?}", typ) }
@@ -37,34 +43,58 @@ impl Debug for Expr {
 }
 
 /// An S-expression as read from a source file
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash)]
 pub enum Clause {
     Literal(Literal),
     Name{
         local: Option<String>,
-        qualified: Vec<String>
+        qualified: Mrc<[String]>
     },
-    S(char, Vec<Expr>),
-    Lambda(String, Vec<Expr>, Vec<Expr>),
-    Auto(Option<String>, Vec<Expr>, Vec<Expr>),
+    S(char, Mrc<[Expr]>),
+    Lambda(String, Mrc<[Expr]>, Mrc<[Expr]>),
+    Auto(Option<String>, Mrc<[Expr]>, Mrc<[Expr]>),
     /// Second parameter:
     ///     None => matches one token
-    ///     Some(prio) => prio is the sizing priority for the vectorial (higher prio grows first)
-    Placeh(String, Option<usize>),
+    ///     Some((prio, nonzero)) =>
+    ///         prio is the sizing priority for the vectorial (higher prio grows first)
+    ///         nonzero is whether the vectorial matches 1..n or 0..n tokens
+    Placeh{
+        key: String,
+        vec: Option<(usize, bool)>
+    },
 }
 impl Clause {
-    pub fn body(&self) -> Option<&Vec<Expr>> {
+    pub fn body(&self) -> Option<Mrc<[Expr]>> {
         match self {
             Clause::Auto(_, _, body) | 
             Clause::Lambda(_, _, body) |
-            Clause::S(_, body) => Some(body),
+            Clause::S(_, body) => Some(Mrc::clone(body)),
             _ => None
         }
     }
-    pub fn typ(&self) -> Option<&Vec<Expr>> {
+    pub fn typ(&self) -> Option<Mrc<[Expr]>> {
         match self {
-            Clause::Auto(_, typ, _) | Clause::Lambda(_, typ, _) => Some(typ),
+            Clause::Auto(_, typ, _) | Clause::Lambda(_, typ, _) => Some(Mrc::clone(typ)),
             _ => None
+        }
+    }
+}
+
+impl Clone for Clause {
+    fn clone(&self) -> Self {
+        match self {
+            Clause::S(c, b) => Clause::S(*c, Mrc::clone(b)),
+            Clause::Auto(n, t, b) => Clause::Auto(
+                n.clone(), Mrc::clone(t), Mrc::clone(b)
+            ),
+            Clause::Name { local: l, qualified: q } => Clause::Name {
+                local: l.clone(), qualified: Mrc::clone(q)
+            },
+            Clause::Lambda(n, t, b) => Clause::Lambda(
+                n.clone(), Mrc::clone(t), Mrc::clone(b)
+            ),
+            Clause::Placeh{key, vec} => Clause::Placeh{key: key.clone(), vec: *vec},
+            Clause::Literal(l) => Clause::Literal(l.clone())
         }
     }
 }
@@ -82,7 +112,7 @@ impl Debug for Clause {
         match self {
             Self::Literal(arg0) => write!(f, "{:?}", arg0),
             Self::Name{local, qualified} =>
-                if let Some(local) = local {write!(f, "{}<{}>", qualified.join("::"), local)}
+                if let Some(local) = local {write!(f, "{}`{}`", qualified.join("::"), local)}
                 else {write!(f, "{}", qualified.join("::"))},
             Self::S(del, items) => {
                 f.write_str(&del.to_string())?;
@@ -104,19 +134,29 @@ impl Debug for Clause {
                 f.write_str(":")?; fmt_expr_seq(&mut argtyp.iter(), f)?; f.write_str(".")?;
                 fmt_expr_seq(&mut body.iter(), f)
             },
-            // Self::Parameter(name) => write!(f, "`{}", name),
-            Self::Placeh(name, None) => write!(f, "${}", name),
-            Self::Placeh(name, Some(prio)) => write!(f, "...${}:{}", name, prio)
+            Self::Placeh{key, vec: None} => write!(f, "${key}"),
+            Self::Placeh{key, vec: Some((prio, true))} => write!(f, "...${key}:{prio}"),
+            Self::Placeh{key, vec: Some((prio, false))} => write!(f, "..${key}:{prio}")
         }
     }
 }
 
 /// A substitution rule as read from the source
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct Rule {
-    pub source: Vec<Expr>,
+    pub source: Mrc<[Expr]>,
     pub prio: NotNan<f64>,
-    pub target: Vec<Expr>
+    pub target: Mrc<[Expr]>
+}
+
+impl Clone for Rule {
+    fn clone(&self) -> Self {
+        Self {
+            source: Mrc::clone(&self.source),
+            prio: self.prio,
+            target: Mrc::clone(&self.target)
+        }
+    }
 }
 
 impl Debug for Rule {

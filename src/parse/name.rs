@@ -3,11 +3,11 @@ use chumsky::{self, prelude::*, Parser};
 /// Matches any one of the passed operators, longest-first
 fn op_parser<'a, T: AsRef<str> + Clone>(ops: &[T]) -> BoxedParser<'a, char, String, Simple<char>> {
     let mut sorted_ops: Vec<String> = ops.iter().map(|t| t.as_ref().to_string()).collect();
-    sorted_ops.sort_by(|a, b| b.len().cmp(&a.len()));
+    sorted_ops.sort_by_key(|op| -(op.len() as i64));
     sorted_ops.into_iter()
         .map(|op| just(op).boxed())
         .reduce(|a, b| a.or(b).boxed())
-        .unwrap_or(empty().map(|()| panic!("Empty isn't meant to match")).boxed())
+        .unwrap_or_else(|| empty().map(|()| panic!("Empty isn't meant to match")).boxed())
         .labelled("operator").boxed()
 }
 

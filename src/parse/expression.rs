@@ -1,13 +1,16 @@
 use chumsky::{self, prelude::*, Parser};
-use crate::{enum_parser, expression::{Clause, Expr, Literal}};
+use mappable_rc::Mrc;
+use crate::enum_parser;
+use crate::expression::{Clause, Expr, Literal};
+use crate::utils::to_mrc_slice;
 
-use super::{lexer::Lexeme};
+use super::lexer::Lexeme;
 
 fn sexpr_parser<P>(
     expr: P
 ) -> impl Parser<Lexeme, Clause, Error = Simple<Lexeme>> + Clone
 where P: Parser<Lexeme, Expr, Error = Simple<Lexeme>> + Clone {
-    Lexeme::paren_parser(expr.repeated()).map(|(del, b)| Clause::S(del, b))
+    Lexeme::paren_parser(expr.repeated()).map(|(del, b)| Clause::S(del, to_mrc_slice(b)))
 }
 
 fn lambda_parser<P>(
@@ -28,9 +31,9 @@ where P: Parser<Lexeme, Expr, Error = Simple<Lexeme>> + Clone {
     .then_ignore(just(Lexeme::name(".")))
     .then_ignore(enum_parser!(Lexeme::Comment).repeated())
     .then(expr.repeated().at_least(1))
-    .map(|((name, typ), mut body): ((String, Vec<Expr>), Vec<Expr>)| {
+    .map(|((name, typ), body): ((String, Vec<Expr>), Vec<Expr>)| {
         // for ent in &mut body { ent.bind_parameter(&name) };
-        Clause::Lambda(name, typ, body)
+        Clause::Lambda(name, to_mrc_slice(typ), to_mrc_slice(body))
     })
 }
 
@@ -51,13 +54,10 @@ where P: Parser<Lexeme, Expr, Error = Simple<Lexeme>> + Clone {
     .then_ignore(just(Lexeme::name(".")))
     .then_ignore(enum_parser!(Lexeme::Comment).repeated())
     .then(expr.repeated().at_least(1))
-    .try_map(|((name, typ), mut body), s| if name == None && typ.is_empty() {
+    .try_map(|((name, typ), body), s| if name.is_none() && typ.is_empty() {
         Err(Simple::custom(s, "Auto without name or type has no effect"))
     } else { 
-        // if let Some(n) = &name {
-        //     for ent in &mut body { ent.bind_parameter(n) }
-        // }
-        Ok(Clause::Auto(name, typ, body))
+        Ok(Clause::Auto(name, to_mrc_slice(typ), to_mrc_slice(body)))
     })
 }
 
@@ -71,8 +71,8 @@ fn name_parser() -> impl Parser<Lexeme, Vec<String>, Error = Simple<Lexeme>> + C
 
 fn placeholder_parser() -> impl Parser<Lexeme, String, Error = Simple<Lexeme>> + Clone {
     enum_parser!(Lexeme::Name).try_map(|name, span| {
-        name.strip_prefix("$").map(&str::to_string)
-            .ok_or(Simple::custom(span, "Not a placeholder"))
+        name.strip_prefix('$').map(&str::to_string)
+            .ok_or_else(|| Simple::custom(span, "Not a placeholder"))
     })
 }
 
@@ -83,18 +83,22 @@ pub fn xpr_parser() -> impl Parser<Lexeme, Expr, Error = Simple<Lexeme>> {
         enum_parser!(Lexeme::Comment).repeated()
         .ignore_then(choice((
             enum_parser!(Lexeme >> Literal; Int, Num, Char, Str).map(Clause::Literal),
-            placeholder_parser().map(|n| Clause::Placeh(n, None)),
-            just(Lexeme::name("..."))
-                .ignore_then(placeholder_parser())
+            placeholder_parser().map(|key| Clause::Placeh{key, vec: None}),
+            just(Lexeme::name("...")).to(true)
+                .or(just(Lexeme::name("..")).to(false))
+                .then(placeholder_parser())
                 .then(
                     just(Lexeme::Type)
                     .ignore_then(enum_parser!(Lexeme::Int))
                     .or_not().map(Option::unwrap_or_default)
                 )
-                .map(|(name, prio)| Clause::Placeh(name, Some(prio.try_into().unwrap()))),
+                .map(|((nonzero, key), prio)| Clause::Placeh{key, vec: Some((
+                    prio.try_into().unwrap(),
+                    nonzero
+                ))}),
             name_parser().map(|qualified| Clause::Name {
                 local: if qualified.len() == 1 {Some(qualified[0].clone())} else {None},
-                qualified
+                qualified: to_mrc_slice(qualified)
             }),
             sexpr_parser(expr.clone()),
             lambda_parser(expr.clone()),
@@ -104,6 +108,6 @@ pub fn xpr_parser() -> impl Parser<Lexeme, Expr, Error = Simple<Lexeme>> {
             just(Lexeme::Type)
             .ignore_then(expr.clone()).or_not()
         )
-        .map(|(val, typ)| Expr(val, typ.map(Box::new)))
+        .map(|(val, typ)| Expr(val, typ.map(Mrc::new)))
     }).labelled("Expression")
 }

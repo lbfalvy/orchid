@@ -2,7 +2,7 @@ use std::{ops::Range, iter, fmt};
 use ordered_float::NotNan;
 use chumsky::{Parser, prelude::*};
 use std::fmt::Debug;
-use crate::utils::BoxedIter;
+use crate::{utils::{BoxedIter, iter::{box_once, box_flatten}}, box_chain};
 
 use super::{number, string, name, comment};
 
@@ -14,9 +14,10 @@ impl Debug for Entry {
         // f.debug_tuple("Entry").field(&self.0).field(&self.1).finish()
     }
 }
-impl Into<(Lexeme, Range<usize>)> for Entry {
-    fn into(self) -> (Lexeme, Range<usize>) {
-        (self.0, self.1)
+
+impl From<Entry> for (Lexeme, Range<usize>) {
+    fn from(ent: Entry) -> Self {
+        (ent.0, ent.1)
     }
 }
 
@@ -107,13 +108,13 @@ fn paren_parser<'a>(
     lp: char, rp: char
 ) -> impl Parser<char, LexSubres<'a>, Error=Simple<char>> + 'a {
     expr.padded().repeated()
-    .map(|x| Box::new(x.into_iter().flatten()) as LexSubres)
+    .map(|x| box_flatten(x.into_iter()))
     .delimited_by(just(lp), just(rp)).map_with_span(move |b, s| {
-        Box::new(
-            iter::once(Entry(Lexeme::LP(lp), s.start..s.start+1))
-            .chain(b)
-            .chain(iter::once(Entry(Lexeme::RP(lp), s.end-1..s.end)))
-        ) as LexSubres
+        box_chain!(
+            iter::once(Entry(Lexeme::LP(lp), s.start..s.start+1)),
+            b,
+            iter::once(Entry(Lexeme::RP(lp), s.end-1..s.end))
+        )
     })
 }
 
@@ -127,7 +128,7 @@ where T: AsRef<str> + Clone {
             paren_parser(recurse.clone(), '[', ']'),
             paren_parser(recurse.clone(), '{', '}'),
             choice((
-                just("==").padded().to(Lexeme::rule(0f64)),
+                just(":=").padded().to(Lexeme::rule(0f64)),
                 just("=").ignore_then(number::float_parser()).then_ignore(just("=>")).map(Lexeme::rule),
                 comment::comment_parser().map(Lexeme::Comment),
                 just("::").padded().to(Lexeme::NS),
@@ -139,7 +140,7 @@ where T: AsRef<str> + Clone {
                 string::char_parser().map(Lexeme::Char),
                 string::str_parser().map(Lexeme::Str),
                 name::name_parser(&all_ops).map(Lexeme::Name), // includes namespacing
-            )).map_with_span(|lx, span| Box::new(iter::once(Entry(lx, span))) as LexSubres)
+            )).map_with_span(|lx, span| box_once(Entry(lx, span)) as LexSubres)
         ))
     }).separated_by(one_of("\t ").repeated())
     .flatten().collect()
