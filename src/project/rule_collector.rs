@@ -26,7 +26,7 @@ pub struct Module {
 pub type RuleCollectionResult<ELoad> = Result<Vec<super::Rule>, ModuleError<ELoad>>;
 
 pub fn rule_collector<F: 'static, ELoad>(
-    mut load_mod: F,
+    load_mod: F,
     prelude: Vec<String>
 ) -> Cache<'static, Mrc<[String]>, RuleCollectionResult<ELoad>>
 where
@@ -131,7 +131,7 @@ where
             } else { Err(ModuleError::None) }
         }
     }));
-    let mut name_resolver_rc = RefCell::new(NameResolver::new({
+    let name_resolver_rc = RefCell::new(NameResolver::new({
         let modname = Rc::clone(&modname);
         move |path| {
             Some(modname.try_find(&path).ok()?.as_ref().clone())

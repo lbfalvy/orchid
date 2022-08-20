@@ -217,8 +217,12 @@ impl SliceMatcherDnC {
             (Clause::Literal(val), Clause::Literal(tgt)) => {
                 if val == tgt {Some(own_state)} else {None}
             }
-            (Clause::Placeh{key, vec: None}, _) => {
-                own_state.insert_scalar(&key, &target[pos])
+            (Clause::Placeh{key, vec: None}, tgt_clause) => {
+                if let Some(real_key) = key.strip_prefix('_') {
+                    if let Clause::Name { local: Some(value), .. } = tgt_clause {
+                        own_state.insert_name(real_key, value)
+                    } else {None}
+                } else {own_state.insert_scalar(&key, &target[pos])}
             }
             (Clause::S(c, _), Clause::S(c_tgt, body_range)) => {
                 if c != c_tgt {return None}
@@ -257,12 +261,10 @@ impl SliceMatcherDnC {
         // Step through valid slicings based on reported size constraints in order
         // from longest own section to shortest and from left to right
         for (left, own, right) in self.valid_subdivisions(target) {
-            let sides_result = unwrap_or_continue!(
-                self.apply_side_with_cache(Side::Left, left, cache)
-            ) + self.apply_side_with_cache(Side::Right, right, cache);
             return Some(unwrap_or_continue!(
-                unwrap_or_continue!(sides_result)
-                    .insert_vec(name, own.as_ref())
+                self.apply_side_with_cache(Side::Left, left, cache)
+                .and_then(|lres| lres + self.apply_side_with_cache(Side::Right, right, cache))
+                .and_then(|side_res| side_res.insert_vec(name, own.as_ref()))
             ))
         }
         None
@@ -276,11 +278,10 @@ impl SliceMatcherDnC {
         if self.pattern.is_empty() {
             return if target.is_empty() {Some(State::new())} else {None}
         }
-        match self.clause.as_ref() {
-            Clause::Placeh{key, vec: Some(_)} =>
-                self.match_range_vectorial_cached(key, target, cache),
-            _ => self.match_range_scalar_cached(target, cache)
-        }
+        if self.clause_is_vectorial() {
+            let key = self.state_key().expect("Vectorial implies key");
+            self.match_range_vectorial_cached(key, target, cache)
+        } else {self.match_range_scalar_cached(target, cache)}
     }
 
     pub fn get_matcher_cache<'a>()

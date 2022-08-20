@@ -4,6 +4,7 @@ mod side;
 mod merge_sorted;
 mod unwrap_or_continue;
 pub mod iter;
+
 pub use cache::Cache;
 use mappable_rc::Mrc;
 pub use substack::Stackframe;
@@ -31,4 +32,8 @@ pub fn collect_to_mrc<I>(iter: I) -> Mrc<[I::Item]> where I: Iterator {
 
 pub fn mrc_derive_slice<T>(mv: &Mrc<Vec<T>>) -> Mrc<[T]> {
     mrc_derive(mv, |v| v.as_slice())
+}
+
+pub fn one_mrc_slice<T>(t: T) -> Mrc<[T]> {
+    Mrc::map(Mrc::new([t; 1]), |v| v.as_slice())
 }

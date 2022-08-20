@@ -1,7 +1,7 @@
 use hashbrown::HashMap;
 use mappable_rc::Mrc;
 
-use crate::{expression::{Expr, Clause}, utils::{iter::{box_once, into_boxed_iter}, to_mrc_slice}};
+use crate::{expression::{Expr, Clause}, utils::{iter::{box_once, into_boxed_iter}, to_mrc_slice, one_mrc_slice}};
 use super::{super::RuleError, state::{State, Entry}, slice_matcher::SliceMatcherDnC};
 
 fn verify_scalar_vec(pattern: &Expr, is_vec: &mut HashMap<String, bool>)
@@ -92,12 +92,14 @@ fn write_slice(state: &State, tpl: &Mrc<[Expr]>) -> Mrc<[Expr]> {
     tpl.iter().flat_map(|Expr(clause, xpr_typ)| match clause {
         Clause::Auto(name_opt, typ, body) => box_once(Expr(Clause::Auto(
             name_opt.as_ref().and_then(|name| {
-                let state_key = name.strip_prefix('$')
-                    .expect("Auto template may only reference, never enforce the name");
-                match &state[state_key] {
-                    Entry::NameOpt(name) => name.as_ref().map(|s| s.as_ref().to_owned()),
-                    Entry::Name(name) => Some(name.as_ref().to_owned()),
-                    _ => panic!("Auto template name may only be derived from Auto or Lambda name")
+                if let Some(state_key) = name.strip_prefix('$') {
+                    match &state[state_key] {
+                        Entry::NameOpt(name) => name.as_ref().map(|s| s.as_ref().to_owned()),
+                        Entry::Name(name) => Some(name.as_ref().to_owned()),
+                        _ => panic!("Auto template name may only be derived from Auto or Lambda name")
+                    }
+                } else {
+                    Some(name.to_owned())
                 }
             }),
             write_slice(state, typ),
@@ -118,9 +120,17 @@ fn write_slice(state: &State, tpl: &Mrc<[Expr]>) -> Mrc<[Expr]> {
             *c,
             write_slice(state, body)
         ), xpr_typ.to_owned())),
-        Clause::Placeh{key, vec: None} => if let Entry::Scalar(x) = &state[key] {
-            box_once(x.as_ref().to_owned())
-        } else {panic!("Scalar template may only be derived from scalar placeholder")},
+        Clause::Placeh{key, vec: None} => {
+            let real_key = if let Some(real_key) = key.strip_prefix('_') {real_key} else {key};
+            match &state[real_key] {
+                Entry::Scalar(x) => box_once(x.as_ref().to_owned()),
+                Entry::Name(n) => box_once(Expr(Clause::Name {
+                    local: Some(n.as_ref().to_owned()),
+                    qualified: one_mrc_slice(n.as_ref().to_owned())
+                }, None)),
+                _ => panic!("Scalar template may only be derived from scalar placeholder"),
+            }
+        },
         Clause::Placeh{key, vec: Some(_)} => if let Entry::Vec(v) = &state[key] {
             into_boxed_iter(v.as_ref().to_owned())
         } else {panic!("Vectorial template may only be derived from vectorial placeholder")},
