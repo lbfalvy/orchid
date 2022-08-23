@@ -18,7 +18,8 @@ use ordered_float::NotNan;
 pub enum FileEntry {
     Import(Vec<import::Import>),
     Comment(String),
-    Rule(Rule, bool)
+    Rule(Rule, bool),
+    Export(Vec<Vec<String>>)
 }
 
 fn visit_all_names_clause_recur<'a, F>(
@@ -107,13 +108,19 @@ pub fn line_parser() -> impl Parser<Lexeme, FileEntry, Error = Simple<Lexeme>> {
             .then_ignore(enum_parser!(Lexeme::Comment)),
         just(Lexeme::name("export")).map_err_with_span(|e, s| {
             println!("{:?} could not yield an export", s); e
-        })
-            .ignore_then(rule_parser())
-            .map(|(source, prio, target)| FileEntry::Rule(Rule {
+        }).ignore_then(
+            just(Lexeme::NS).ignore_then(
+                enum_parser!(Lexeme::Name).map(|n| vec![n])
+                .separated_by(just(Lexeme::name(",")))
+                .delimited_by(just(Lexeme::LP('(')), just(Lexeme::RP('(')))
+            ).map(FileEntry::Export)
+        ).or(rule_parser().map(|(source, prio, target)| {
+            FileEntry::Rule(Rule {
                 source: to_mrc_slice(source),
                 prio,
                 target: to_mrc_slice(target)
-            }, true)),
+            }, true)
+        })),
         // This could match almost anything so it has to go last
         rule_parser().map(|(source, prio, target)| FileEntry::Rule(Rule{
             source: to_mrc_slice(source),
@@ -129,7 +136,11 @@ pub fn exported_names(src: &[FileEntry]) -> HashSet<&[String]> {
         FileEntry::Rule(Rule{source, target, ..}, true) =>
             box_chain!(source.iter(), target.iter()),
         _ => box_empty()
-    }).flat_map(find_all_names).collect()
+    }).flat_map(find_all_names).chain(
+        src.iter().filter_map(|ent| {
+            if let FileEntry::Export(names) = ent {Some(names.iter())} else {None}
+        }).flatten().map(Vec::as_slice)
+    ).collect()
 }
 
 /// Summarize all imports from a file in a single list of qualified names 
