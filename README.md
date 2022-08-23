@@ -251,30 +251,36 @@ list expression into a lambda expression that matches a conslist. Notice
 how the square brackets pair up, as all three variants of brackets
 are considered branches in the S-tree rather than individual tokens.
 
-```
+```orchid
 -- Initial step, eliminates entry condition (square brackets) and constructs
 -- carriage and other working symbols
-export [...$data:(seq 1)] =1000.1=> (cons_start ...$data cons_carriage(none))
+[...$data:1] =1000.1=> (cons_start ...$data cons_carriage(none))
 -- Shortcut with higher priority
-export [] =1000.5=> none
+[] =1000.5=> none
 -- Step
-export , $item cons_carriage($tail) =1000.1=> cons_carriage((some (cons $item $tail)))
+, $item cons_carriage($tail) =1000.1=> cons_carriage((some (cons $item $tail)))
 -- End, removes carriage and working symbols and leaves valid source code
-export cons_start $item cons_carriage($tail) =1000.1=> some (cons $item $tail)
+cons_start $item cons_carriage($tail) =1000.1=> some (cons $item $tail)
 -- Low priority rules should turn leftover symbols into errors.
-export cons_start =0=> cons_err
-export cons_carriage($data) =0=> cons_err
-export cons_err =0=> (macro_error "Malformed conslist expression")
+cons_start =0=> cons_err
+cons_carriage($data) =0=> cons_err
+cons_err =0=> (macro_error "Malformed conslist expression")
 -- macro_error will probably have its own rules for composition and
 -- bubbling such that the output for an erratic expression would be a
 -- single macro_error to be decoded by developer tooling
 ```
+(an up-to-date version of this example can be found in the examples
+folder)
 
 Another thing to note is that although it may look like cons_carriage is
 a global string, it's in fact namespaced to whatever file provides the
-macro. It is however exported, and accidentally importing it may lead to
-unexpected results. I'm still working on a categorical solution to this
-problem.
+macro. Symbols can be exported either by prefixing the pattern with
+`export` or separately via the following syntax if no single rule is
+equipped to dictate the exported token set.
+
+```orchid
+export ::(some_name, other_name)
+```
 
 # Module system
 
