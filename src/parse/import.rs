@@ -10,6 +10,7 @@ use super::lexer::Lexeme;
 #[derive(Debug, Clone)]
 pub struct Import {
     pub path: Mrc<[String]>,
+    /// If name is None, this is a wildcard import
     pub name: Option<String>
 }
 

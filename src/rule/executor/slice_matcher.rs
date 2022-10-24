@@ -2,8 +2,8 @@ use std::fmt::Debug;
 
 use mappable_rc::Mrc;
 
-use crate::expression::{Expr, Clause};
-use crate::unwrap_or_continue;
+use crate::ast::{Expr, Clause};
+use crate::unwrap_or;
 use crate::utils::iter::box_empty;
 use crate::utils::{Side, Cache, mrc_derive, mrc_try_derive, to_mrc_slice};
 
@@ -92,10 +92,7 @@ impl SliceMatcherDnC {
     pub fn valid_subdivisions(&self,
         range: Mrc<[Expr]>
     ) -> impl Iterator<Item = (Mrc<[Expr]>, Mrc<[Expr]>, Mrc<[Expr]>)> {
-        let own_max = {
-            if let Some(x) = self.own_max_size(range.len()) {x}
-            else {return box_empty()}
-        };
+        let own_max = unwrap_or!(self.own_max_size(range.len()); return box_empty());
         let own_min = self.own_min_size();
         let lmin = self.min(Side::Left);
         let _lmax = self.max(Side::Left, range.len());
@@ -261,10 +258,11 @@ impl SliceMatcherDnC {
         // Step through valid slicings based on reported size constraints in order
         // from longest own section to shortest and from left to right
         for (left, own, right) in self.valid_subdivisions(target) {
-            return Some(unwrap_or_continue!(
+            return Some(unwrap_or!(
                 self.apply_side_with_cache(Side::Left, left, cache)
                 .and_then(|lres| lres + self.apply_side_with_cache(Side::Right, right, cache))
-                .and_then(|side_res| side_res.insert_vec(name, own.as_ref()))
+                .and_then(|side_res| side_res.insert_vec(name, own.as_ref()));
+                continue
             ))
         }
         None

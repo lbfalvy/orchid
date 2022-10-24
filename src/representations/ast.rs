@@ -1,35 +1,19 @@
 use mappable_rc::Mrc;
 use itertools::Itertools;
 use ordered_float::NotNan;
+use std::hash::Hash;
 use std::fmt::Debug;
+use crate::executor::{ExternFn, Atom};
 
-/// An exact value
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub enum Literal {
-    Num(NotNan<f64>),
-    Int(u64),
-    Char(char),
-    Str(String),
-}
-
-impl Debug for Literal {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Num(arg0) => write!(f, "{:?}", arg0),
-            Self::Int(arg0) => write!(f, "{:?}", arg0),
-            Self::Char(arg0) => write!(f, "{:?}", arg0),
-            Self::Str(arg0) => write!(f, "{:?}", arg0),
-        }
-    }
-}
+use super::Literal;
 
 /// An S-expression with a type
 #[derive(PartialEq, Eq, Hash)]
-pub struct Expr(pub Clause, pub Option<Mrc<Expr>>);
+pub struct Expr(pub Clause, pub Mrc<[Clause]>);
 
 impl Clone for Expr {
     fn clone(&self) -> Self {
-        Self(self.0.clone(), self.1.as_ref().map(Mrc::clone))
+        Self(self.0.clone(), Mrc::clone(&self.1))
     }
 }
 
@@ -37,8 +21,10 @@ impl Debug for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Expr(val, typ) = self;
         write!(f, "{:?}", val)?;
-        if let Some(typ) = typ { write!(f, "{:?}", typ) }
-        else { Ok(()) }
+        for typ in typ.as_ref() {
+            write!(f, ":{:?}", typ)?
+        }
+        Ok(())
     }
 }
 
@@ -53,13 +39,14 @@ pub enum Clause {
     S(char, Mrc<[Expr]>),
     Lambda(String, Mrc<[Expr]>, Mrc<[Expr]>),
     Auto(Option<String>, Mrc<[Expr]>, Mrc<[Expr]>),
-    /// Second parameter:
-    ///     None => matches one token
-    ///     Some((prio, nonzero)) =>
-    ///         prio is the sizing priority for the vectorial (higher prio grows first)
-    ///         nonzero is whether the vectorial matches 1..n or 0..n tokens
+    ExternFn(ExternFn),
+    Atom(Atom),
     Placeh{
         key: String,
+        /// None => matches one token
+        /// Some((prio, nonzero)) =>
+        ///     prio is the sizing priority for the vectorial (higher prio grows first)
+        ///     nonzero is whether the vectorial matches 1..n or 0..n tokens
         vec: Option<(usize, bool)>
     },
 }
@@ -94,7 +81,9 @@ impl Clone for Clause {
                 n.clone(), Mrc::clone(t), Mrc::clone(b)
             ),
             Clause::Placeh{key, vec} => Clause::Placeh{key: key.clone(), vec: *vec},
-            Clause::Literal(l) => Clause::Literal(l.clone())
+            Clause::Literal(l) => Clause::Literal(l.clone()),
+            Clause::ExternFn(nc) => Clause::ExternFn(nc.clone()),
+            Clause::Atom(a) => Clause::Atom(a.clone())
         }
     }
 }
@@ -136,7 +125,9 @@ impl Debug for Clause {
             },
             Self::Placeh{key, vec: None} => write!(f, "${key}"),
             Self::Placeh{key, vec: Some((prio, true))} => write!(f, "...${key}:{prio}"),
-            Self::Placeh{key, vec: Some((prio, false))} => write!(f, "..${key}:{prio}")
+            Self::Placeh{key, vec: Some((prio, false))} => write!(f, "..${key}:{prio}"),
+            Self::ExternFn(nc) => write!(f, "{nc:?}"),
+            Self::Atom(a) => write!(f, "{a:?}")
         }
     }
 }

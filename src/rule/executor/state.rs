@@ -2,7 +2,7 @@ use std::{ops::{Add, Index}, rc::Rc, fmt::Debug};
 
 use hashbrown::HashMap;
 
-use crate::expression::Expr;
+use crate::ast::Expr;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Entry {
@@ -76,7 +76,9 @@ impl State {
     {
         if let Some(old) = self.0.get(k.as_ref()) {
             if let Entry::NameOpt(val) = old {
-                if val.as_ref().map(|s| s.as_ref().as_str()) != v.map(|s| s.as_ref()) {return None}
+                if val.as_ref().map(|s| s.as_ref().as_str()) != v.map(|s| s.as_ref()) {
+                    return None
+                }
             } else {return None}
         } else {
             self.0.insert(k.to_string(), Entry::NameOpt(v.map(|s| Rc::new(s.to_string()))));

@@ -1,3 +1,9 @@
+/// Produces parsers for tokenized sequences of enum types:
+/// ```rs
+/// enum_parser!(Foo::Bar | "Some error!") // Parses Foo::Bar(T) into T
+/// enum_parser!(Foo::Bar) // same as above but with the default error "Expected Foo::Bar"
+/// enum_parser!(Foo >> Quz; Bar, Baz) // Parses  Foo::Bar(T) into Quz::Bar(T) and Foo::Baz(U) into Quz::Baz(U)
+/// ```
 #[macro_export]
 macro_rules! enum_parser {
     ($p:path | $m:tt) => {

@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use mappable_rc::Mrc;
 
-use crate::expression::Rule;
+use crate::ast::Rule;
 use crate::parse::{self, FileEntry};
 use crate::utils::{Cache, mrc_derive, to_mrc_slice};
 
@@ -40,6 +40,7 @@ where
         (load_mod_rc.borrow_mut())(path).map_err(ModuleError::Load)
     }));
     // Map names to the longest prefix that points to a valid module
+    // At least one segment must be in the prefix, and the prefix must not be the whole name 
     let modname = Rc::new(Cache::new({
         let loaded = Rc::clone(&loaded);
         move |symbol: Mrc<[String]>, _| -> Result<Mrc<[String]>, Vec<ModuleError<ELoad>>> {
@@ -50,7 +51,7 @@ where
                 else { Ok(()) }
             };
             loop {
-                let path = mrc_derive(&symbol, |s| &s[..s.len() - errv.len()]);
+                let path = mrc_derive(&symbol, |s| &s[..s.len() - errv.len() - 1]);
                 match loaded.try_find(&path) {
                     Ok(imports) => match imports.as_ref() {
                         Loaded::Module(_) => break Ok(path),

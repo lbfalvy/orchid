@@ -1,6 +1,6 @@
 use mappable_rc::Mrc;
 
-use crate::{expression::{Expr, Clause}, utils::collect_to_mrc};
+use crate::{ast::{Expr, Clause}, utils::{collect_to_mrc, to_mrc_slice}};
 
 /// Replaces the first element of a name with the matching prefix from a prefix map
 
@@ -36,6 +36,6 @@ fn prefix_clause(
 pub fn prefix_expr(Expr(clause, typ): &Expr, namespace: Mrc<[String]>) -> Expr {
     Expr(
         prefix_clause(clause, Mrc::clone(&namespace)),
-        typ.as_ref().map(|e| Mrc::new(prefix_expr(e, namespace)))
+        to_mrc_slice(typ.iter().map(|e| prefix_clause(e, Mrc::clone(&namespace))).collect())
     )
 }

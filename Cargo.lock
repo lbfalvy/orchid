@@ -160,6 +160,7 @@ dependencies = [
  "itertools",
  "mappable-rc",
  "ordered-float",
+ "smallvec",
  "thiserror",
 ]
 
@@ -195,6 +196,12 @@ checksum = "a1feb54ed693b93a84e14094943b84b7c4eae204c512b7ccb95ab0c66d278ad1"
 dependencies = [
  "proc-macro2",
 ]
+
+[[package]]
+name = "smallvec"
+version = "1.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a507befe795404456341dfab10cef66ead4c041f62b8b11bbb92bffe5d0953e0"
 
 [[package]]
 name = "syn"

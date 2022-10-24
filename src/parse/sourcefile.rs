@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::{enum_parser, box_chain};
-use crate::expression::{Expr, Clause, Rule};
+use crate::ast::{Expr, Clause, Rule};
 use crate::utils::to_mrc_slice;
 use crate::utils::Stackframe;
 use crate::utils::iter::box_empty;
@@ -74,8 +74,8 @@ fn visit_all_names_expr_recur<'a, F>(
 ) where F: FnMut(&'a [String]) {
     let Expr(val, typ) = expr;
     visit_all_names_clause_recur(val, binds.clone(), cb);
-    if let Some(t) = typ {
-        visit_all_names_expr_recur(t, binds, cb)
+    for typ in typ.as_ref() {
+        visit_all_names_clause_recur(typ, binds.clone(), cb);
     }
 }
 

@@ -2,10 +2,11 @@ use std::fmt::Debug;
 
 use mappable_rc::Mrc;
 
-use crate::expression::Expr;
+use crate::representations::ast::Expr;
 
-use super::{super::expression::Rule, executor::execute, RuleError};
+use super::{super::ast::Rule, executor::execute, RuleError};
 
+/// Manages a priority queue of substitution rules and allows to apply them 
 pub struct Repository(Vec<Rule>);
 impl Repository { 
     pub fn new(mut rules: Vec<Rule>) -> Self {
@@ -13,6 +14,7 @@ impl Repository {
         Self(rules)
     }
 
+    /// Attempt to run each rule in priority order once
     pub fn step(&self, mut code: Mrc<[Expr]>) -> Result<Option<Mrc<[Expr]>>, RuleError> {
         let mut ran_once = false;
         for rule in self.0.iter() {
@@ -27,11 +29,16 @@ impl Repository {
         Ok(if ran_once {Some(code)} else {None})
     }
 
-    pub fn long_step(&self, mut code: Mrc<[Expr]>) -> Result<Mrc<[Expr]>, RuleError> {
+    /// Attempt to run each rule in priority order `limit` times. Returns the final
+    /// tree and the number of iterations left to the limit.
+    pub fn long_step(&self, mut code: Mrc<[Expr]>, mut limit: usize)
+    -> Result<(Mrc<[Expr]>, usize), RuleError> {
         while let Some(tmp) = self.step(Mrc::clone(&code))? {
+            if 0 >= limit {break}
+            limit -= 1;
             code = tmp
         }
-        Ok(code)
+        Ok((code, limit))
     }
 }
 

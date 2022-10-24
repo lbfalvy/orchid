@@ -19,6 +19,7 @@ fn op_parser<'a, T: AsRef<str> + Clone>(ops: &[T]) -> BoxedParser<'a, char, Stri
 /// - `"` and `'` are read as primitives and would never match.
 /// - `(` and `)` are strictly balanced and this must remain the case for automation and streaming.
 /// - `.` is the discriminator for parametrics.
+/// - ',' is always a standalone single operator, so it can never be part of a name
 /// 
 /// FIXME: `@name` without a dot should be parsed correctly for overrides. Could be an operator but
 /// then parametrics should take precedence, which might break stuff. investigate.

@@ -1,7 +1,7 @@
 use hashbrown::HashMap;
 use mappable_rc::Mrc;
 
-use crate::{expression::{Expr, Clause}, utils::{iter::{box_once, into_boxed_iter}, to_mrc_slice, one_mrc_slice}};
+use crate::{ast::{Expr, Clause}, utils::{iter::{box_once, into_boxed_iter}, to_mrc_slice, one_mrc_slice}, unwrap_or};
 use super::{super::RuleError, state::{State, Entry}, slice_matcher::SliceMatcherDnC};
 
 fn verify_scalar_vec(pattern: &Expr, is_vec: &mut HashMap<String, bool>)
@@ -36,18 +36,18 @@ fn verify_scalar_vec(pattern: &Expr, is_vec: &mut HashMap<String, bool>)
         };
         Ok(())
     };
-    let Expr(val, typ_opt) = pattern;
+    let Expr(val, typ) = pattern;
     verify_clause(val, is_vec)?;
-    if let Some(typ) = typ_opt {
-        verify_scalar_vec(typ, is_vec)?;
+    for typ in typ.as_ref() {
+        verify_clause(typ, is_vec)?;
     }
     Ok(())
 }
 
 
 fn slice_to_vec(src: &mut Mrc<[Expr]>, tgt: &mut Mrc<[Expr]>) {
-    let prefix_expr = Expr(Clause::Placeh{key: "::prefix".to_string(), vec: Some((0, false))}, None);
-    let postfix_expr = Expr(Clause::Placeh{key: "::postfix".to_string(), vec: Some((0, false))}, None);
+    let prefix_expr = Expr(Clause::Placeh{key: "::prefix".to_string(), vec: Some((0, false))}, to_mrc_slice(vec![]));
+    let postfix_expr = Expr(Clause::Placeh{key: "::postfix".to_string(), vec: Some((0, false))}, to_mrc_slice(vec![]));
     // Prefix or postfix to match the full vector
     let head_multi = matches!(src.first().expect("Src can never be empty!").0, Clause::Placeh{vec: Some(_), ..});
     let tail_multi = matches!(src.last().expect("Impossible branch!").0, Clause::Placeh{vec: Some(_), ..});
@@ -121,13 +121,13 @@ fn write_slice(state: &State, tpl: &Mrc<[Expr]>) -> Mrc<[Expr]> {
             write_slice(state, body)
         ), xpr_typ.to_owned())),
         Clause::Placeh{key, vec: None} => {
-            let real_key = if let Some(real_key) = key.strip_prefix('_') {real_key} else {key};
+            let real_key = unwrap_or!(key.strip_prefix('_'); key);
             match &state[real_key] {
                 Entry::Scalar(x) => box_once(x.as_ref().to_owned()),
                 Entry::Name(n) => box_once(Expr(Clause::Name {
                     local: Some(n.as_ref().to_owned()),
                     qualified: one_mrc_slice(n.as_ref().to_owned())
-                }, None)),
+                }, to_mrc_slice(vec![]))),
                 _ => panic!("Scalar template may only be derived from scalar placeholder"),
             }
         },
@@ -135,7 +135,7 @@ fn write_slice(state: &State, tpl: &Mrc<[Expr]>) -> Mrc<[Expr]> {
             into_boxed_iter(v.as_ref().to_owned())
         } else {panic!("Vectorial template may only be derived from vectorial placeholder")},
         // Explicit base case so that we get an error if Clause gets new values
-        c@Clause::Literal(_) | c@Clause::Name { .. } =>
+        c@Clause::Literal(_) | c@Clause::Name { .. } | c@Clause::ExternFn(_) | c@Clause::Atom(_) =>
             box_once(Expr(c.to_owned(), xpr_typ.to_owned()))
     }).collect()
 }

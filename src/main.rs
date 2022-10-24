@@ -1,13 +1,18 @@
 #![feature(specialization)]
 
-use std::{env::current_dir, process::exit};
+use std::env::current_dir;
 
+mod executor;
 mod parse;
 mod project;
 mod utils;
-mod expression;
+mod representations;
 mod rule;
-use expression::{Expr, Clause};
+mod types;
+use file_loader::LoadingError;
+pub use representations::ast;
+use ast::{Expr, Clause};
+use representations::typed as t;
 use mappable_rc::Mrc;
 use project::{rule_collector, Loaded, file_loader};
 use rule::Repository;
@@ -34,37 +39,60 @@ export (match_sequence $lhs) >>= (match_sequence $rhs) =100=> (bind ($lhs) ($rhs
 fn initial_tree() -> Mrc<[Expr]> {
     to_mrc_slice(vec![Expr(Clause::Name {
         local: None,
-        qualified: to_mrc_slice(vec!["main".to_string(), "main".to_string()])
-    }, None)])
+        qualified: literal(&["main", "main"])
+    }, to_mrc_slice(vec![]))])
 }
 
-fn main() {
+#[allow(unused)]
+fn typed_notation_debug() {
+    let t = t::Clause::Auto(None,
+        t::Clause::Lambda(Some(Mrc::new(t::Clause::Argument(0))), 
+            t::Clause::Lambda(Some(Mrc::new(t::Clause::Argument(1))),
+                t::Clause::Argument(1).wrap_t(t::Clause::Argument(2))
+            ).wrap()
+        ).wrap()
+    ).wrap();
+    let f = t::Clause::Auto(None,
+        t::Clause::Lambda(Some(Mrc::new(t::Clause::Argument(0))),
+            t::Clause::Lambda(Some(Mrc::new(t::Clause::Argument(1))),
+                t::Clause::Argument(0).wrap_t(t::Clause::Argument(2))
+            ).wrap()
+        ).wrap()
+    ).wrap();
+    println!("{:?}", t::Clause::Apply(t::Clause::Apply(Mrc::clone(&t), t).wrap(), f))
+}
+
+#[allow(unused)]
+fn load_project() {
     let cwd = current_dir().unwrap();
-    let collect_rules = rule_collector(move |n| {
+    let collect_rules = rule_collector(move |n| -> Result<Loaded, LoadingError> {
         if n == literal(&["prelude"]) { Ok(Loaded::Module(PRELUDE.to_string())) }
         else { file_loader(cwd.clone())(n) }
     }, vliteral(&["...", ">>", ">>=", "[", "]", ",", "=", "=>"]));
-    match collect_rules.try_find(&literal(&["main"])) {
-        Ok(rules) => {
-            let mut tree = initial_tree();
-            println!("Start processing {tree:?}");
-            let repo = Repository::new(rules.as_ref().to_owned());
-            println!("Ruleset: {repo:?}");
-            let mut i = 0; loop {
-                if 10 <= i {break} else {i += 1}
-                match repo.step(Mrc::clone(&tree)) {
-                    Ok(Some(phase)) => {
-                        tree = phase;
-                        println!("Step {i}: {tree:?}")
-                    },
-                    Ok(None) => exit(0),
-                    Err(e) => {
-                        eprintln!("Rule error: {e:?}");
-                        exit(0)
-                    }
-                }
-            }
+    let rules = match collect_rules.try_find(&literal(&["main"])) {
+        Ok(rules) => rules,
+        Err(err) => panic!("{:#?}", err)
+    };
+    let mut tree = initial_tree();
+    println!("Start processing {tree:?}");
+    let repo = Repository::new(rules.as_ref().to_owned());
+    println!("Ruleset: {repo:?}");
+    xloop!(let mut i = 0; i < 10; i += 1; {
+        match repo.step(Mrc::clone(&tree)) {
+            Ok(Some(phase)) => {
+                println!("Step {i}: {phase:?}");
+                tree = phase;
+            },
+            Ok(None) => {
+                println!("Execution complete");
+                break
+            },
+            Err(e) => panic!("Rule error: {e:?}")
         }
-        Err(err) => println!("{:#?}", err)
-    }
+    }; println!("Macro execution didn't halt"));
+}
+
+fn main() {
+    // lambda_notation_debug();
+    load_project();
 }

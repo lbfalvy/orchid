@@ -1,0 +1,52 @@
+use std::{borrow::Borrow};
+use std::hash::Hash;
+
+use hashbrown::HashMap;
+use mappable_rc::Mrc;
+
+use crate::{ast::{Expr, Clause}, utils::mrc_to_iter};
+
+pub struct Substitution(HashMap<String, Mrc<Expr>>);
+impl Substitution {
+    fn new() -> Self { Self(HashMap::new()) }
+    fn apply<Q: ?Sized + Hash + Eq>(&self, q: &Q) -> Option<Mrc<Expr>>
+    where String: Borrow<Q> {
+        self.0.get(q).map(Mrc::clone)
+    }
+}
+
+pub fn hindley_milner(a: Mrc<[Expr]>, b: Mrc<[Expr]>) -> Result<Substitution, ()> {
+    hindley_milner_rec(Substitution::new(), a, b)
+}
+
+pub fn hindley_milner_rec(mut s: Substitution, a: Mrc<[Expr]>, b: Mrc<[Expr]>)
+-> Result<Substitution, ()> {
+    if a.len() != b.len() {return Err(())}
+    for (mut a, mut b) in mrc_to_iter(a).zip(mrc_to_iter(b)) {
+        if let Clause::Placeh{key, ..} = &a.0 {
+            if let Some(ex) = s.apply(key) { a = ex }
+        }
+        if let Clause::Placeh{key, ..} = &b.0 {
+            if let Some(ex) = s.apply(key) { b = ex }
+        }
+        if !matches!(&a.0, Clause::Placeh{..}) { (a, b) = (b, a) }
+        match (&a.0, &b.0) {
+            (Clause::Placeh{key:a_key,..}, Clause::Placeh{key:b_key,..}) =>
+                if a_key == b_key {return Ok(s)},
+            
+            _ => return Err(())
+        }
+        if let (Clause::Placeh{key: a_key,..}, Clause::Placeh{key: b_key,..}) = (&a.0, &b.0) {
+            if a_key == b_key {return Ok(s)}
+        } else if let (Clause::S(_, a_body), Clause::S(_, b_body)) = (&a.0, &b.0) {
+            s = hindley_milner_rec(s, Mrc::clone(a_body), Mrc::clone(b_body))?
+        } else if let ()
+    }
+    Ok(s)
+}
+
+pub fn occurs(key: &str, val: &Expr) -> bool {
+    match val.0 {
+        Clause::Auto(_, _, body) => body.
+    }
+}

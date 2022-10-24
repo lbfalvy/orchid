@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::utils::{Stackframe, to_mrc_slice};
 
-use crate::expression::{Expr, Clause};
+use crate::ast::{Expr, Clause};
 
 type ImportMap = HashMap<String, Mrc<[String]>>;
 
@@ -50,14 +50,16 @@ where
         symbol: Mrc<[String]>,
         import_path: Stackframe<Mrc<[String]>>
     ) -> Result<Mrc<[String]>, ResolutionError<E>> {
-        if let Some(cached) = self.cache.get(&symbol) { return cached.as_ref().map_err(|e| e.clone()).map(Mrc::clone) }
+        if let Some(cached) = self.cache.get(&symbol) {
+            return cached.as_ref().map_err(|e| e.clone()).map(Mrc::clone)
+        }
         // The imports and path of the referenced file and the local name 
         let path = (self.get_modname)(Mrc::clone(&symbol)).ok_or_else(|| {
             ResolutionError::NoModule(Mrc::clone(&symbol))
         })?;
         let name = &symbol[path.len()..];
         if name.is_empty() {
-            panic!("Something's really broken\n{:?}", import_path)
+            panic!("get_modname matched all to module and nothing to name in {:?}", import_path)
         }
         let imports = (self.get_imports)(Mrc::clone(&path))?;
         let result = if let Some(source) = imports.get(&name[0]) {
@@ -110,7 +112,7 @@ where
     fn process_expression_rec(&mut self, Expr(token, typ): &Expr) -> Result<Expr, ResolutionError<E>> {
         Ok(Expr(
             self.process_clause_rec(token)?,
-            self.process_exprmrcopt_rec(typ)?
+            typ.iter().map(|t| self.process_clause_rec(t)).collect::<Result<_, _>>()?
         ))
     }
 

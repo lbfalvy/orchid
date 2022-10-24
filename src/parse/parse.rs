@@ -4,7 +4,7 @@ use chumsky::{prelude::{Simple, end}, Stream, Parser};
 use itertools::Itertools;
 use thiserror::Error;
 
-use crate::{expression::Rule, parse::lexer::LexedText};
+use crate::{ast::Rule, parse::lexer::LexedText};
 
 use super::{Lexeme, FileEntry, lexer, line_parser, LexerEntry};
 

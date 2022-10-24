@@ -1,7 +1,7 @@
 use mappable_rc::Mrc;
 use itertools::Itertools;
 
-use crate::expression::{Expr, Clause};
+use crate::ast::{Expr, Clause};
 use crate::utils::{mrc_derive, mrc_try_derive};
 
 pub type MaxVecSplit = (Mrc<[Expr]>, (Mrc<str>, usize, bool), Mrc<[Expr]>);
