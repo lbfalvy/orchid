@@ -28,6 +28,10 @@ where P: for<'a> FnOnce(&'a T) -> Option<&'a U> {
     Mrc::try_map(Mrc::clone(m), p).ok()
 }
 
+pub fn mrc_empty_slice<T>() -> Mrc<[T]> {
+    mrc_derive_slice(&Mrc::new(Vec::new()))
+}
+
 pub fn to_mrc_slice<T>(v: Vec<T>) -> Mrc<[T]> {
     Mrc::map(Mrc::new(v), |v| v.as_slice())
 }

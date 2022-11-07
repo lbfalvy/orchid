@@ -1,4 +1,5 @@
 use chumsky::{self, prelude::*, Parser};
+use mappable_rc::Mrc;
 use crate::enum_parser;
 use crate::representations::{Literal, ast::{Clause, Expr}};
 use crate::utils::{to_mrc_slice, one_mrc_slice};
@@ -112,9 +113,8 @@ pub fn xpr_parser() -> impl Parser<Lexeme, Expr, Error = Simple<Lexeme>> {
             sexpr_parser(expr.clone()),
             lambda_parser(expr.clone()),
             auto_parser(expr.clone()),
-            just(Lexeme::At).to(Clause::Name {
-                local: Some("@".to_string()),
-                qualified: one_mrc_slice("@".to_string())
+            just(Lexeme::At).ignore_then(expr.clone()).map(|arg| {
+                Clause::Explicit(Mrc::new(arg))
             })
         ))).then_ignore(enum_parser!(Lexeme::Comment).repeated());
         clause.clone().then(

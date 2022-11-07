@@ -11,6 +11,12 @@ An impl candidate can be used to resolve an auto if
 - it is not present in any other matching impl's override tree
 - all other candidates are present in its override tree
 
+### Impls for types
+
+Impls for types are generally not a good idea as autos with types like Int can
+often be used in dependent typing to represent eg. an index into a type-level conslist to be
+deduced by the compiler, and impls take precedence over resolution by unification.
+
 In Rust impls can be placed in one of two modules; the trait owner, and the type owner. In orchid
 that is not the case, so two additional possibilities arise that Rust's orphan rules prevent.
 

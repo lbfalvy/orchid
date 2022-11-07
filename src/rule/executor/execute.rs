@@ -1,8 +1,13 @@
 use hashbrown::HashMap;
 use mappable_rc::Mrc;
 
-use crate::{ast::{Expr, Clause}, utils::{iter::{box_once, into_boxed_iter}, to_mrc_slice, one_mrc_slice}, unwrap_or};
-use super::{super::RuleError, state::{State, Entry}, slice_matcher::SliceMatcherDnC};
+use crate::unwrap_or;
+use crate::utils::{to_mrc_slice, one_mrc_slice, mrc_empty_slice};
+use crate::utils::iter::{box_once, into_boxed_iter};
+use crate::ast::{Expr, Clause};
+use super::slice_matcher::SliceMatcherDnC;
+use super::state::{State, Entry};
+use super::super::RuleError;
 
 fn verify_scalar_vec(pattern: &Expr, is_vec: &mut HashMap<String, bool>)
 -> Result<(), String> {
@@ -86,10 +91,14 @@ where F: FnMut(Mrc<[Expr]>) -> Option<Mrc<[Expr]>> {
     None
 }
 
-/// Fill in a template from a state as produced by a pattern
-fn write_slice(state: &State, tpl: &Mrc<[Expr]>) -> Mrc<[Expr]> {
-    eprintln!("Writing {tpl:?} with state {state:?}");
-    tpl.iter().flat_map(|Expr(clause, xpr_typ)| match clause {
+// fn write_clause_rec(state: &State, clause: &Clause) -> 
+
+fn write_expr_rec(state: &State, Expr(tpl_clause, tpl_typ): &Expr) -> Box<dyn Iterator<Item = Expr>> {
+    let out_typ = tpl_typ.iter()
+        .flat_map(|c| write_expr_rec(state, &c.clone().into_expr()))
+        .map(Expr::into_clause)
+        .collect::<Mrc<[Clause]>>();
+    match tpl_clause {
         Clause::Auto(name_opt, typ, body) => box_once(Expr(Clause::Auto(
             name_opt.as_ref().and_then(|name| {
                 if let Some(state_key) = name.strip_prefix('$') {
@@ -102,9 +111,9 @@ fn write_slice(state: &State, tpl: &Mrc<[Expr]>) -> Mrc<[Expr]> {
                     Some(name.to_owned())
                 }
             }),
-            write_slice(state, typ),
-            write_slice(state, body)
-        ), xpr_typ.to_owned())),
+            write_slice_rec(state, typ),
+            write_slice_rec(state, body)
+        ), out_typ.to_owned())),
         Clause::Lambda(name, typ, body) => box_once(Expr(Clause::Lambda(
             if let Some(state_key) = name.strip_prefix('$') {
                 if let Entry::Name(name) = &state[state_key] {
@@ -113,13 +122,13 @@ fn write_slice(state: &State, tpl: &Mrc<[Expr]>) -> Mrc<[Expr]> {
             } else {
                 name.to_owned()
             },
-            write_slice(state, typ),
-            write_slice(state, body)
-        ), xpr_typ.to_owned())),
+            write_slice_rec(state, typ),
+            write_slice_rec(state, body)
+        ), out_typ.to_owned())),
         Clause::S(c, body) => box_once(Expr(Clause::S(
             *c,
-            write_slice(state, body)
-        ), xpr_typ.to_owned())),
+            write_slice_rec(state, body)
+        ), out_typ.to_owned())),
         Clause::Placeh{key, vec: None} => {
             let real_key = unwrap_or!(key.strip_prefix('_'); key);
             match &state[real_key] {
@@ -127,17 +136,30 @@ fn write_slice(state: &State, tpl: &Mrc<[Expr]>) -> Mrc<[Expr]> {
                 Entry::Name(n) => box_once(Expr(Clause::Name {
                     local: Some(n.as_ref().to_owned()),
                     qualified: one_mrc_slice(n.as_ref().to_owned())
-                }, to_mrc_slice(vec![]))),
+                }, mrc_empty_slice())),
                 _ => panic!("Scalar template may only be derived from scalar placeholder"),
             }
         },
         Clause::Placeh{key, vec: Some(_)} => if let Entry::Vec(v) = &state[key] {
             into_boxed_iter(v.as_ref().to_owned())
         } else {panic!("Vectorial template may only be derived from vectorial placeholder")},
+        Clause::Explicit(param) => {
+            assert!(out_typ.len() == 0, "Explicit should never have a type annotation");
+            box_once(Clause::Explicit(Mrc::new(
+                Clause::from_exprv(write_expr_rec(state, param).collect())
+                    .expect("Result shorter than template").into_expr()
+            )).into_expr())
+        },
         // Explicit base case so that we get an error if Clause gets new values
         c@Clause::Literal(_) | c@Clause::Name { .. } | c@Clause::ExternFn(_) | c@Clause::Atom(_) =>
-            box_once(Expr(c.to_owned(), xpr_typ.to_owned()))
-    }).collect()
+            box_once(Expr(c.to_owned(), out_typ.to_owned()))
+    }
+}
+
+/// Fill in a template from a state as produced by a pattern
+fn write_slice_rec(state: &State, tpl: &Mrc<[Expr]>) -> Mrc<[Expr]> {
+    eprintln!("Writing {tpl:?} with state {state:?}");
+    tpl.iter().flat_map(|xpr| write_expr_rec(state, xpr)).collect()
 }
 
 /// Apply a rule (a pair of pattern and template) to an expression
@@ -156,6 +178,6 @@ pub fn execute(mut src: Mrc<[Expr]>, mut tgt: Mrc<[Expr]>, input: Mrc<[Expr]>)
     let matcher_cache = SliceMatcherDnC::get_matcher_cache();
     Ok(update_all_seqs(Mrc::clone(&input), &mut |p| {
         let state = matcher.match_range_cached(p, &matcher_cache)?;
-        Some(write_slice(&state, &tgt))
+        Some(write_slice_rec(&state, &tgt))
     }))
 }

@@ -1,6 +1,6 @@
 use mappable_rc::Mrc;
 
-use crate::utils::{Stackframe, to_mrc_slice};
+use crate::utils::{Stackframe, to_mrc_slice, mrc_empty_slice};
 
 use super::{ast, typed};
 
@@ -26,7 +26,9 @@ pub enum Error {
     /// 
     /// [expr] handles this case, so it's only really possible to get this
     /// error if you're calling [clause] directly
-    ExprToClause(typed::Expr)
+    ExprToClause(typed::Expr),
+    /// @ tokens only ever occur between a function and a parameter
+    NonInfixAt
 }
 
 /// Try to convert an expression from AST format to typed lambda
@@ -44,21 +46,37 @@ pub fn exprv(exprv: &[ast::Expr]) -> Result<typed::Expr, Error> {
     exprv_rec(exprv, Stackframe::new(None))
 }
 
+fn apply_rec(f: typed::Expr, x: &ast::Expr, names: Stackframe<Option<&str>>)
+-> Result<typed::Clause, Error> {
+    if let ast::Expr(ast::Clause::Explicit(inner), empty_slice) = x {
+        assert!(empty_slice.len() == 0,
+            "It is assumed that Explicit nodes can never have type annotations as the \
+            wrapped expression node matches all trailing colons."
+        );
+        let x = expr_rec(inner.as_ref(), names)?;
+        Ok(typed::Clause::Explicit(Mrc::new(f), Mrc::new(x)))
+    } else {
+        let x = expr_rec(x, names)?;
+        Ok(typed::Clause::Apply(Mrc::new(f), Mrc::new(x)))
+    }
+}
+
 /// Recursive state of [exprv]
 fn exprv_rec(v: &[ast::Expr], names: Stackframe<Option<&str>>) -> Result<typed::Expr, Error> {
     if v.len() == 0 {return Err(Error::EmptyS)}
     if v.len() == 1 {return expr_rec(&v[0], names)}
     let (head, tail) = v.split_at(2);
     let f = expr_rec(&head[0], names)?;
-    let x = expr_rec(&head[1], names)?;
+    let x = &head[1];
     // TODO this could probably be normalized, it's a third copy. 
-    tail.iter().map(|e| expr_rec(e, names)).fold(
-        Ok(typed::Clause::Apply(Mrc::new(f), Mrc::new(x))),
-        |acc, e| Ok(typed::Clause::Apply(
-            Mrc::new(typed::Expr(acc?, to_mrc_slice(vec![]))),
-            Mrc::new(e?)
-        ))
-    ).map(|cls| typed::Expr(cls, to_mrc_slice(vec![])))
+    tail.iter().fold(
+        apply_rec(f, x, names),
+        |acc, e| apply_rec(
+            typed::Expr(acc?, mrc_empty_slice()),
+            e,
+            names
+        )
+    ).map(|cls| typed::Expr(cls, mrc_empty_slice()))
 }
 
 /// Recursive state of [expr]
@@ -115,6 +133,7 @@ fn clause_rec(cls: &ast::Clause, names: Stackframe<Option<&str>>)
             else {Err(Error::ExprToClause(typed::Expr(val, typ)))}
         },
         ast::Clause::Name { local: None, .. } => Err(Error::Symbol),
-        ast::Clause::Placeh { .. } => Err(Error::Placeholder)
+        ast::Clause::Placeh { .. } => Err(Error::Placeholder),
+        ast::Clause::Explicit(..) => Err(Error::NonInfixAt)
     }
 }

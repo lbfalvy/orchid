@@ -1,15 +1,22 @@
 use mappable_rc::Mrc;
 use itertools::Itertools;
 use ordered_float::NotNan;
-use std::hash::Hash;
+use std::{hash::Hash, intrinsics::likely};
 use std::fmt::Debug;
-use crate::executor::{ExternFn, Atom};
+use crate::utils::mrc_empty_slice;
+use crate::{executor::{ExternFn, Atom}, utils::one_mrc_slice};
 
 use super::Literal;
 
 /// An S-expression with a type
 #[derive(PartialEq, Eq, Hash)]
 pub struct Expr(pub Clause, pub Mrc<[Clause]>);
+impl Expr {
+    pub fn into_clause(self) -> Clause {
+        if likely(self.1.len() == 0) { self.0 }
+        else { Clause::S('(', one_mrc_slice(self)) }
+    }
+}
 
 impl Clone for Expr {
     fn clone(&self) -> Self {
@@ -37,6 +44,7 @@ pub enum Clause {
         qualified: Mrc<[String]>
     },
     S(char, Mrc<[Expr]>),
+    Explicit(Mrc<Expr>),
     Lambda(String, Mrc<[Expr]>, Mrc<[Expr]>),
     Auto(Option<String>, Mrc<[Expr]>, Mrc<[Expr]>),
     ExternFn(ExternFn),
@@ -53,37 +61,49 @@ pub enum Clause {
 impl Clause {
     pub fn body(&self) -> Option<Mrc<[Expr]>> {
         match self {
-            Clause::Auto(_, _, body) | 
-            Clause::Lambda(_, _, body) |
-            Clause::S(_, body) => Some(Mrc::clone(body)),
+            Self::Auto(_, _, body) | 
+            Self::Lambda(_, _, body) |
+            Self::S(_, body) => Some(Mrc::clone(body)),
             _ => None
         }
     }
     pub fn typ(&self) -> Option<Mrc<[Expr]>> {
         match self {
-            Clause::Auto(_, typ, _) | Clause::Lambda(_, typ, _) => Some(Mrc::clone(typ)),
+            Self::Auto(_, typ, _) | Self::Lambda(_, typ, _) => Some(Mrc::clone(typ)),
             _ => None
         }
+    }
+    pub fn into_expr(self) -> Expr {
+        if let Self::S('(', body) = &self {
+            if body.len() == 1 { body[0].clone() }
+            else { Expr(self, mrc_empty_slice()) }
+        } else { Expr(self, mrc_empty_slice()) }
+    }
+    pub fn from_exprv(exprv: Mrc<[Expr]>) -> Option<Clause> {
+        if exprv.len() == 0 { None }
+        else if exprv.len() == 1 { Some(exprv[0].clone().into_clause()) }
+        else { Some(Self::S('(', exprv)) }
     }
 }
 
 impl Clone for Clause {
     fn clone(&self) -> Self {
         match self {
-            Clause::S(c, b) => Clause::S(*c, Mrc::clone(b)),
-            Clause::Auto(n, t, b) => Clause::Auto(
+            Self::S(c, b) => Self::S(*c, Mrc::clone(b)),
+            Self::Auto(n, t, b) => Self::Auto(
                 n.clone(), Mrc::clone(t), Mrc::clone(b)
             ),
-            Clause::Name { local: l, qualified: q } => Clause::Name {
+            Self::Name { local: l, qualified: q } => Self::Name {
                 local: l.clone(), qualified: Mrc::clone(q)
             },
-            Clause::Lambda(n, t, b) => Clause::Lambda(
+            Self::Lambda(n, t, b) => Self::Lambda(
                 n.clone(), Mrc::clone(t), Mrc::clone(b)
             ),
-            Clause::Placeh{key, vec} => Clause::Placeh{key: key.clone(), vec: *vec},
-            Clause::Literal(l) => Clause::Literal(l.clone()),
-            Clause::ExternFn(nc) => Clause::ExternFn(nc.clone()),
-            Clause::Atom(a) => Clause::Atom(a.clone())
+            Self::Placeh{key, vec} => Self::Placeh{key: key.clone(), vec: *vec},
+            Self::Literal(l) => Self::Literal(l.clone()),
+            Self::ExternFn(nc) => Self::ExternFn(nc.clone()),
+            Self::Atom(a) => Self::Atom(a.clone()),
+            Self::Explicit(expr) => Self::Explicit(Mrc::clone(expr))
         }
     }
 }
@@ -127,7 +147,8 @@ impl Debug for Clause {
             Self::Placeh{key, vec: Some((prio, true))} => write!(f, "...${key}:{prio}"),
             Self::Placeh{key, vec: Some((prio, false))} => write!(f, "..${key}:{prio}"),
             Self::ExternFn(nc) => write!(f, "{nc:?}"),
-            Self::Atom(a) => write!(f, "{a:?}")
+            Self::Atom(a) => write!(f, "{a:?}"),
+            Self::Explicit(expr) => write!(f, "@{:?}", expr.as_ref())
         }
     }
 }

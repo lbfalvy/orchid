@@ -10,7 +10,6 @@ pub trait ExternError: Display {}
 
 /// Represents an externally defined function from the perspective of the executor
 /// Since Orchid lacks basic numerical operations, these are also external functions.
-#[derive(Eq)]
 pub struct ExternFn {
     name: String, param: Mrc<Expr>, rttype: Mrc<Expr>,
     function: Mrc<dyn Fn(Clause) -> Result<Clause, Mrc<dyn ExternError>>>
@@ -27,8 +26,8 @@ impl ExternFn {
             })
         }
     }
-    fn name(&self) -> &str {&self.name}
-    fn apply(&self, arg: Clause) -> Result<Clause, Mrc<dyn ExternError>> {(self.function)(arg)}
+    pub fn name(&self) -> &str {&self.name}
+    pub fn apply(&self, arg: Clause) -> Result<Clause, Mrc<dyn ExternError>> {(self.function)(arg)}
 }
 
 impl Clone for ExternFn { fn clone(&self) -> Self { Self {
@@ -37,7 +36,10 @@ impl Clone for ExternFn { fn clone(&self) -> Self { Self {
     rttype: Mrc::clone(&self.rttype),
     function: Mrc::clone(&self.function)
 }}}
-impl PartialEq for ExternFn { fn eq(&self, other: &Self) -> bool { self.name() == other.name() }}
+impl Eq for ExternFn {}
+impl PartialEq for ExternFn {
+    fn eq(&self, other: &Self) -> bool { self.name() == other.name() }
+}
 impl Hash for ExternFn {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) { self.name.hash(state) }
 }
@@ -58,7 +60,6 @@ pub trait Atomic: Any + Debug where Self: 'static {
 /// information in the universe of types or kinds such as the type of signed integers or
 /// the kind of types. Ad absurdum it can also be just a number, although Literal is
 /// preferable for types it's defined on.
-#[derive(Eq)]
 pub struct Atom {
     typ: Mrc<Expr>,
     data: Mrc<dyn Atomic>
@@ -95,6 +96,7 @@ impl Debug for Atom {
         write!(f, "##ATOM[{:?}]:{:?}##", self.data(), self.typ)
     }
 }
+impl Eq for Atom {}
 impl PartialEq for Atom {
     fn eq(&self, other: &Self) -> bool {
         self.data().definitely_eq(other.data().as_any())

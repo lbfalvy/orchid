@@ -157,8 +157,13 @@ where
                     .filter_map(|ent| {
                         if let FileEntry::Rule(Rule{source, prio, target}, _) = ent {
                             Some(Rule {
-                                source: source.iter().map(|ex| prefix_expr(ex, Mrc::clone(&path))).collect(),
-                                target: target.iter().map(|ex| prefix_expr(ex, Mrc::clone(&path))).collect(),
+                                source: source.iter()
+                                    .map(|ex| {
+                                        prefix_expr(ex, Mrc::clone(&path))
+                                    }).collect(),
+                                target: target.iter().map(|ex| {
+                                        prefix_expr(ex, Mrc::clone(&path))
+                                    }).collect(),
                                 prio: *prio,
                             })
                         } else { None }

@@ -1,4 +1,5 @@
 #![feature(specialization)]
+#![feature(core_intrinsics)]
 
 use std::env::current_dir;
 
