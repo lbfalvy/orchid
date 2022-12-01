@@ -17,6 +17,7 @@ pub use side::Side;
 pub use merge_sorted::merge_sorted;
 pub use iter::BoxedIter;
 pub use string_from_charset::string_from_charset;
+pub use protomap::ProtoMap;
 
 pub fn mrc_derive<T: ?Sized, P, U: ?Sized>(m: &Mrc<T>, p: P) -> Mrc<U>
 where P: for<'a> FnOnce(&'a T) -> &'a U {

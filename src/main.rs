@@ -1,5 +1,7 @@
 #![feature(specialization)]
 #![feature(core_intrinsics)]
+#![feature(adt_const_params)]
+#![feature(generic_const_exprs)] 
 
 use std::env::current_dir;
 
@@ -46,21 +48,21 @@ fn initial_tree() -> Mrc<[Expr]> {
 
 #[allow(unused)]
 fn typed_notation_debug() {
-    let t = t::Clause::Auto(None,
+    let true_ex = t::Clause::Auto(None,
         t::Clause::Lambda(Some(Mrc::new(t::Clause::Argument(0))), 
             t::Clause::Lambda(Some(Mrc::new(t::Clause::Argument(1))),
                 t::Clause::Argument(1).wrap_t(t::Clause::Argument(2))
             ).wrap()
         ).wrap()
     ).wrap();
-    let f = t::Clause::Auto(None,
+    let false_ex = t::Clause::Auto(None,
         t::Clause::Lambda(Some(Mrc::new(t::Clause::Argument(0))),
             t::Clause::Lambda(Some(Mrc::new(t::Clause::Argument(1))),
                 t::Clause::Argument(0).wrap_t(t::Clause::Argument(2))
             ).wrap()
         ).wrap()
     ).wrap();
-    println!("{:?}", t::Clause::Apply(t::Clause::Apply(Mrc::clone(&t), t).wrap(), f))
+    println!("{:?}", t::Clause::Apply(t::Clause::Apply(Mrc::clone(&true_ex), true_ex).wrap(), false_ex))
 }
 
 #[allow(unused)]

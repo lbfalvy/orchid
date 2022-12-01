@@ -7,12 +7,17 @@ const INLINE_ENTRIES: usize = 2;
 /// Linked-array-list of key-value pairs.
 /// Lookup and modification is O(n + cachemiss * n / m)
 /// Can be extended by reference in O(m) < O(n)
-pub struct ProtoMap<'a, K, V> {
-    entries: SmallVec<[(K, Option<V>); INLINE_ENTRIES]>,
-    prototype: Option<&'a ProtoMap<'a, K, V>>
+/// 
+/// The number of elements stored inline in a stackframe is 2 by default, which is enough for most
+/// recursive algorithms. The cost of overruns is a heap allocation and subsequent heap indirections,
+/// plus wasted stack space which is likely wasted L1 as well. The cost of underruns is wasted stack
+/// space.
+pub struct ProtoMap<'a, K, V, const STACK_COUNT: usize = 2> {
+    entries: SmallVec<[(K, Option<V>); STACK_COUNT]>,
+    prototype: Option<&'a ProtoMap<'a, K, V, STACK_COUNT>>
 }
 
-impl<'a, K, V> ProtoMap<'a, K, V> {
+impl<'a, K, V, const STACK_COUNT: usize> ProtoMap<'a, K, V, STACK_COUNT> {
     pub fn new() -> Self {
         Self {
             entries: SmallVec::new(),
@@ -104,7 +109,8 @@ impl<'a, K, V> ProtoMap<'a, K, V> {
     }
 
     /// Update the prototype, and correspondingly the lifetime of the map
-    pub fn set_proto<'b>(self, proto: &'b ProtoMap<'b, K, V>) -> ProtoMap<'b, K, V> {
+    pub fn set_proto<'b>(self, proto: &'b ProtoMap<'b, K, V, STACK_COUNT>)
+    -> ProtoMap<'b, K, V, STACK_COUNT> {
         ProtoMap {
             entries: self.entries,
             prototype: Some(proto)

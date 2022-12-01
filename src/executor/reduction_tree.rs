@@ -9,7 +9,7 @@ use super::super::representations::typed::{Clause, Expr};
 
 /// Call the function with the first Expression that isn't an Auto,
 /// wrap all elements in the returned iterator back in the original sequence of Autos.
-fn skip_autos<'a,
+pub fn skip_autos<'a,
     F: 'a + FnOnce(Mrc<Expr>, usize) -> I,
     I: Iterator<Item = Mrc<Expr>> + 'static
 >(

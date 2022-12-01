@@ -13,5 +13,5 @@ hashbrown = "0.12"
 mappable-rc = "0.1"
 ordered-float = "3.0"
 itertools = "0.10"
-smallvec = "1.10.0"
+smallvec = { version = "1.10.0", features = ['const_generics'] }
 lazy_static = "1.4.0"

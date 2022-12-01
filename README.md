@@ -122,36 +122,33 @@ types whose defaults have implmentations based on your defaults.
 For a demonstration, here's a sample implementation of the Option monad.
 ```orchid
 --[[ The definition of Monad ]]--
-Bind := \M:Type -> Type. @T -> @U -> (T -> M U) -> M T -> M U
-Return := \M:Type -> Type. @T -> T -> M T
-Monad := \M:Type -> Type. (
-    @:Bind M.
-    @:Return M.
-    0 --[ Note that empty expressions are forbidden so those that exist
-        purely for their constraints should return a nondescript constant
-        that is likely to raise a type error when used by mistake, such as
-        zero ]--
+define Monad $M:(Type -> Type) as (Pair
+    (@T. @U. (T -> M U) -> M T -> M U) -- bind
+    (@T. T -> M T) -- return
 )
 
+bind := @M:Type -> Type. @monad:Monad M. fst monad
+return := @M:Type -> Type. @monad:Monad M. snd monad
+
 --[[ The definition of Option ]]--
-export Option := \T:Type. @U -> U -> (T -> U) -> U
+define Option $T as @U. U -> (T -> U) -> U
 --[ Constructors ]--
-export Some := @T. \data:T. ( \default. \map. map data ):(Option T)
-export None := @T.          ( \default. \map. default  ):(Option T)
+export Some := @T. \data:T. categorise @(Option T) ( \default. \map. map data )
+export None := @T.          categorise @(Option T) ( \default. \map. default )
 --[ Implement Monad ]--
-default returnOption := Some:(Return Option)
-default bindOption := ( @T:Type. @U:Type.
-    \f:T -> U. \opt:Option T. opt None f
-):(Bind Option)
+impl Monad Option via (makePair
+    ( @T. @U. \f:T -> U. \opt:Option T. opt None \x. Some f ) -- bind
+    Some -- return
+)
 --[ Sample function that works on unknown monad to demonstrate HKTs.
     Turns (Option (M T)) into (M (Option T)), "raising" the unknown monad
     out of the Option ]--
-export raise := @M:Type -> Type. @T:Type. @:Monad M. \opt:Option (M T). (
+export raise := @M:Type -> Type. @T. @:Monad M. \opt:Option (M T). (
     opt (return None) (\m. bind m (\x. Some x))
 ):(M (Option T))
 ```
 
-Defaults may be defined in any module that also defines at least one of
+Typeclasses may be implmented in any module that also defines at least one of
 the types in the definition, which includes both the type of the
 expression and the types of its auto parameters. They always have a name,
 which can be used to override known defaults with which your definiton
@@ -162,30 +159,34 @@ Add has three arguments, two are the types of the operands and one is
 the result:
 
 ```orchid
-default concatListAdd replacing elementwiseAdd := @T. (
+impl @T. Add (List T) (List T) (List T) by concatListAdd over elementwiseAdd via (
     ...
-):(Add (List T) (List T) (List T))
+)
 ```
 
 For completeness' sake, the original definition might look like this:
 
 ```orchid
-default elementwiseAdd := @C:Type -> Type. @T. @U. @V. @:(Applicative C). @:(Add T U V). (
+impl
+    @C:Type -> Type. @T. @U. @V. -- variables
+    @:(Applicative C). @:(Add T U V). -- conditions
+    Add (C T) (C U) (C V) -- target
+by elementwiseAdd via (
     ...
-):(Add (C T) (C U) (C V))
+)
 ```
 
 With the use of autos, here's what the recursive multiplication
 implementation looks like:
 
 ```orchid
-default iterativeMultiply := @T. @:(Add T T T). (
-    \a:int.\b:T. loop \r. (\i.
+impl @T. @:(Add T T T). Multiply T int T by iterativeMultiply via (
+    \a:int. \b:T. loop \r. (\i.
         ifthenelse (ieq i 0)
             b
             (add b (r (isub i 1)) -- notice how iadd is now add
     ) a
-):(Multiply T int T)
+)
 ```
 
 This could then be applied to any type that's closed over addition
@@ -195,6 +196,8 @@ aroundTheWorldLyrics := (
     mult 18 (add (mult 4 "Around the World\n") "\n")
 )
 ```
+
+For my notes on the declare/impl system, see [notes/type_system]
 
 ## Preprocessor
 
@@ -218,25 +221,24 @@ are searched back-to-front. If order is still a problem, you can always
 parenthesize subexpressions at the callsite.
 
 ```orchid
-(..$pre:2 if $1 then $2 else $3 ..$post:1) =2=> (
+(..$pre:2 if ...$cond then ...$true else ...$false) =10=> (
     ..$pre
-    (ifthenelse $1 $2 $3)
-    ...$post
+    (ifthenelse (...$cond) (...$true) (...$false))
 )
-$a + $b =10=> (add $a $b)
-$a = $b =5=> (eq $a $b)
-$a - $b =10=> (sub $a $b)
+...$a + ...$b =2=> (add (...$a) (...$b))
+...$a = ...$b =5=> (eq $a $b)
+...$a - ...$b =2=> (sub (...$a) (...$b))
 ```
 
 The recursive addition function now looks like this
 
 ```orchid
-default iterativeMultiply := @T. @:(Add T T T). (
+impl @T. @:(Add T T T). Multiply T int T by iterativeMultiply via (
     \a:int.\b:T. loop \r. (\i.
         if (i = 0) then b
         else (b + (r (i - 1)))
     ) a
-):(Multiply T int T)
+)
 ```
 
 ### Traversal using carriages

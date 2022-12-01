@@ -6,14 +6,16 @@ use std::fmt::Debug;
 #[derive(Clone, Copy)]
 pub struct Stackframe<'a, T> {
     pub item: T,
-    pub prev: Option<&'a Stackframe<'a, T>>
+    pub prev: Option<&'a Stackframe<'a, T>>,
+    pub len: usize
 }
 
 impl<'a, T: 'a> Stackframe<'a, T> {
     pub fn new(item: T) -> Self {
         Self {
             item,
-            prev: None
+            prev: None,
+            len: 1
         }
     }
     /// Get the item owned by this listlike, very fast O(1)
@@ -27,8 +29,21 @@ impl<'a, T: 'a> Stackframe<'a, T> {
     pub fn push(&self, item: T) -> Stackframe<'_, T>  {
         Stackframe {
             item,
-            prev: Some(self)
+            prev: Some(self),
+            len: self.len + 1
         }
+    }
+    pub fn opush(prev: &Option<Self>, item: T) -> Option<Self> {
+        Some(Self {
+            item,
+            prev: prev.as_ref(),
+            len: prev.map_or(1, |s| s.len)
+        })
+    }
+    pub fn len(&self) -> usize { self.len }
+    pub fn pop(&self, count: usize) -> Option<&Self> {
+        if count == 0 {Some(self)}
+        else {self.prev.and_then(|prev| prev.pop(count - 1))}
     }
 }
 
