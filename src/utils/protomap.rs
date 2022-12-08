@@ -118,7 +118,9 @@ impl<'a, K, V, const STACK_COUNT: usize> ProtoMap<'a, K, V, STACK_COUNT> {
     }
 }
 
-impl<T, K, V> From<T> for ProtoMap<'_, K, V> where T: IntoIterator<Item = (K, V)> {
+impl<T, K, V, const STACK_COUNT: usize>
+From<T> for ProtoMap<'_, K, V, STACK_COUNT>
+where T: IntoIterator<Item = (K, V)> {
     fn from(value: T) -> Self {
         Self {
             entries: value.into_iter().map(|(k, v)| (k, Some(v))).collect(),
@@ -127,14 +129,17 @@ impl<T, K, V> From<T> for ProtoMap<'_, K, V> where T: IntoIterator<Item = (K, V)
     }
 }
 
-impl<Q: ?Sized, K, V> Index<&Q> for ProtoMap<'_, K, V> where K: Borrow<Q>, Q: Eq {
+impl<Q: ?Sized, K, V, const STACK_COUNT: usize>
+Index<&Q> for ProtoMap<'_, K, V, STACK_COUNT>
+where K: Borrow<Q>, Q: Eq {
     type Output = V;
     fn index(&self, index: &Q) -> &Self::Output {
         self.get(index).expect("Index not found in map")
     }
 }
 
-impl<K: Clone, V: Clone> Clone for ProtoMap<'_, K, V> {
+impl<K: Clone, V: Clone, const STACK_COUNT: usize>
+Clone for ProtoMap<'_, K, V, STACK_COUNT> {
     fn clone(&self) -> Self {
         Self {
             entries: self.entries.clone(),
@@ -143,8 +148,9 @@ impl<K: Clone, V: Clone> Clone for ProtoMap<'_, K, V> {
     }
 }
 
-impl<'a, K: 'a, V: 'a> Add<(K, V)> for &'a ProtoMap<'a, K, V> {
-    type Output = ProtoMap<'a, K, V>;
+impl<'a, K: 'a, V: 'a, const STACK_COUNT: usize>
+Add<(K, V)> for &'a ProtoMap<'a, K, V, STACK_COUNT> {
+    type Output = ProtoMap<'a, K, V, STACK_COUNT>;
     fn add(self, rhs: (K, V)) -> Self::Output {
         ProtoMap::from([rhs]).set_proto(self)
     }

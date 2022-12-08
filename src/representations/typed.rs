@@ -16,16 +16,16 @@ struct Wrap(bool, bool);
 #[derive(PartialEq, Eq, Hash)]
 pub struct Expr(pub Clause, pub Mrc<[Clause]>);
 impl Expr {
-    fn deep_fmt(&self, f: &mut std::fmt::Formatter<'_>, depth: usize, tr: Wrap) -> std::fmt::Result {
+    fn deep_fmt(&self, f: &mut std::fmt::Formatter<'_>, tr: Wrap) -> std::fmt::Result {
         let Expr(val, typ) = self;
         if typ.len() > 0 {
-            val.deep_fmt(f, depth, Wrap(true, true))?;
+            val.deep_fmt(f, Wrap(true, true))?;
             for typ in typ.as_ref() {
                 f.write_char(':')?;
-                typ.deep_fmt(f, depth, Wrap(true, true))?;
+                typ.deep_fmt(f, Wrap(true, true))?;
             }
         } else {
-            val.deep_fmt(f, depth, tr)?;
+            val.deep_fmt(f, tr)?;
         }
         Ok(())
     }
@@ -39,7 +39,7 @@ impl Clone for Expr {
 
 impl Debug for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.deep_fmt(f, 0, Wrap(false, false))
+        self.deep_fmt(f, Wrap(false, false))
     }
 }
 
@@ -47,11 +47,9 @@ impl Debug for Expr {
 pub enum Clause {
     Literal(Literal),
     Apply(Mrc<Expr>, Mrc<Expr>),
-    /// Explicit specification of an Auto value
-    Explicit(Mrc<Expr>, Mrc<Expr>),
-    Lambda(Option<Mrc<Clause>>, Mrc<Expr>),
-    Auto(Option<Mrc<Clause>>, Mrc<Expr>),
-    Argument(usize),
+    Lambda(u64, Option<Mrc<Clause>>, Mrc<Expr>),
+    Auto(u64, Option<Mrc<Clause>>, Mrc<Expr>),
+    Argument(u64),
     ExternFn(ExternFn),
     Atom(Atom)
 }
@@ -60,48 +58,40 @@ const ARGNAME_CHARSET: &str = "abcdefghijklmnopqrstuvwxyz";
 
 fn parametric_fmt(
     f: &mut std::fmt::Formatter<'_>,
-    prefix: &str, argtyp: Option<Mrc<Clause>>, body: Mrc<Expr>, depth: usize, wrap_right: bool
+    prefix: &str, argtyp: Option<Mrc<Clause>>, body: Mrc<Expr>, uid: u64, wrap_right: bool
 ) -> std::fmt::Result {
     if wrap_right { f.write_char('(')?; }
     f.write_str(prefix)?;
-    f.write_str(&string_from_charset(depth, ARGNAME_CHARSET))?;
+    f.write_str(&string_from_charset(uid, ARGNAME_CHARSET))?;
     if let Some(typ) = argtyp {
         f.write_str(":")?;
-        typ.deep_fmt(f, depth, Wrap(false, false))?;
+        typ.deep_fmt(f, Wrap(false, false))?;
     }
     f.write_str(".")?;
-    body.deep_fmt(f, depth + 1, Wrap(false, false))?;
+    body.deep_fmt(f, Wrap(false, false))?;
     if wrap_right { f.write_char(')')?; }
     Ok(())
 }
 
 impl Clause {
-    fn deep_fmt(&self, f: &mut std::fmt::Formatter<'_>, depth: usize, Wrap(wl, wr): Wrap)
+    fn deep_fmt(&self, f: &mut std::fmt::Formatter<'_>, Wrap(wl, wr): Wrap)
     -> std::fmt::Result {
         match self {
             Self::Literal(arg0) => write!(f, "{arg0:?}"),
             Self::ExternFn(nc) => write!(f, "{nc:?}"),
             Self::Atom(a) => write!(f, "{a:?}"),
-            Self::Lambda(argtyp, body) => parametric_fmt(f,
-                "\\", argtyp.as_ref().map(Mrc::clone), Mrc::clone(body), depth, wr
+            Self::Lambda(uid, argtyp, body) => parametric_fmt(f,
+                "\\", argtyp.as_ref().map(Mrc::clone), Mrc::clone(body), *uid, wr
             ),
-            Self::Auto(argtyp, body) => parametric_fmt(f,
-                "@", argtyp.as_ref().map(Mrc::clone), Mrc::clone(body), depth, wr
+            Self::Auto(uid, argtyp, body) => parametric_fmt(f,
+                "@", argtyp.as_ref().map(Mrc::clone), Mrc::clone(body), *uid, wr
             ),
-            Self::Argument(up) => f.write_str(&string_from_charset(depth - up - 1, ARGNAME_CHARSET)),
-            Self::Explicit(expr, param) => {
-                if wl { f.write_char('(')?; }
-                expr.deep_fmt(f, depth, Wrap(false, true))?;
-                f.write_str(" @")?;
-                param.deep_fmt(f, depth, Wrap(true, wr && !wl))?;
-                if wl { f.write_char(')')?; }
-                Ok(())
-            }
+            Self::Argument(uid) => f.write_str(&string_from_charset(*uid, ARGNAME_CHARSET)),
             Self::Apply(func, x) => {
                 if wl { f.write_char('(')?; }
-                func.deep_fmt(f, depth, Wrap(false, true) )?;
+                func.deep_fmt(f, Wrap(false, true) )?;
                 f.write_char(' ')?;
-                x.deep_fmt(f, depth, Wrap(true, wr && !wl) )?;
+                x.deep_fmt(f, Wrap(true, wr && !wl) )?;
                 if wl { f.write_char(')')?; }
                 Ok(())
             }
@@ -114,13 +104,12 @@ impl Clause {
 impl Clone for Clause {
     fn clone(&self) -> Self {
         match self {
-            Clause::Auto(t, b) => Clause::Auto(t.as_ref().map(Mrc::clone), Mrc::clone(b)),
-            Clause::Lambda(t, b) => Clause::Lambda(t.as_ref().map(Mrc::clone), Mrc::clone(b)),
+            Clause::Auto(uid,t, b) => Clause::Auto(*uid, t.as_ref().map(Mrc::clone), Mrc::clone(b)),
+            Clause::Lambda(uid, t, b) => Clause::Lambda(*uid, t.as_ref().map(Mrc::clone), Mrc::clone(b)),
             Clause::Literal(l) => Clause::Literal(l.clone()),
             Clause::ExternFn(nc) => Clause::ExternFn(nc.clone()),
             Clause::Atom(a) => Clause::Atom(a.clone()),
             Clause::Apply(f, x) => Clause::Apply(Mrc::clone(f), Mrc::clone(x)),
-            Clause::Explicit(f, x) => Clause::Explicit(Mrc::clone(f), Mrc::clone(x)),
             Clause::Argument(lvl) => Clause::Argument(*lvl)
         }
     }
@@ -128,7 +117,7 @@ impl Clone for Clause {
 
 impl Debug for Clause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.deep_fmt(f, 0, Wrap(false, false))
+        self.deep_fmt(f, Wrap(false, false))
     }
 }
 

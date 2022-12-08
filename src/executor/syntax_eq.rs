@@ -1,88 +1,66 @@
 use std::collections::HashMap;
 use std::hash::{Hasher, Hash};
+use std::iter;
 
 use mappable_rc::Mrc;
 
-use crate::utils::ProtoMap;
+use crate::utils::{ProtoMap, Side};
 
 use super::super::representations::typed::{Clause, Expr};
 use super::super::utils::Stackframe;
 
 pub fn swap<T, U>((t, u): (T, U)) -> (U, T) { (u, t) }
 
+// @ @ (0, (foo 1)) ~ @ (0, 0)
+
+// TODO:
+// - get rid of leftovers from Explicit
+// - adapt to new index-based system
+
+// =@= =&= =%= =#= =$= =?= =!= =/=
+// <@> <&> <%> <#> <$> <?> <!> </>
+// |@| |&| |%| |#| |$| |?| |!| |/|
+// {@} {&} {%} {#} {$} {?} {!} {/}
+// (@) (&) (%) (#) ($) (?) (!) (/)
+// [@] [&] [%] [#] [$] [?] [!] [/]
+
+/// The context associates a given variable (by absolute index) on a given side to
+/// an expression on the opposite side rooted at the specified depth.
+/// The root depths are used to translate betwee de Brujin arguments and absolute indices.
+struct Context(HashMap<u64, Mrc<Expr>>);
+impl Context {
+    fn set(&mut self, id: u64, value: Mrc<Expr>) {
+        // If already defined, then it must be an argument
+        if let Some(value) = self.0.get(&id) {
+            if let Clause::Argument(opposite_up) ex.0
+        }
+    }
+}
+
+const IS_AUTO_INLINE:usize = 5;
+
 // All data to be forwarded during recursion about one half of a unification task
 #[derive(Clone)]
 struct UnifHalfTask<'a> {
     /// The expression to be unified
     expr: &'a Expr,
-    /// Auto parameters with their values from the opposite side
-    ctx: &'a ProtoMap<'a, usize, Mrc<Expr>>,
-    /// Stores whether a given relative upreference is auto or lambda
-    is_auto: Option<Stackframe<'a, bool>>,
-    /// Metastack of explicit arguments not yet resolved. An explicit will always exactly pair with
-    /// the first auto below it. Disjoint autos always bubble with a left-to-right precedence.
-    explicits: Option<Stackframe<'a, Mrc<Expr>>>
+    /// Stores whether a given uid is auto or lambda
+    is_auto: ProtoMap<'a, usize, bool, IS_AUTO_INLINE>
 }
 
 impl<'a> UnifHalfTask<'a> {
-    fn push_auto(&self, body: &Expr) -> (Self, bool) {
-        if let Some(Stackframe{ prev, .. }) = self.explicits {(
-            Self{
-                expr: body,
-                is_auto: Stackframe::opush(&self.is_auto, false),
-                explicits: prev.cloned(),
-                ..*self
-            },
-            true
-        )} else {(
-            Self{
-                expr: body,
-                is_auto: Stackframe::opush(&self.is_auto, true),
-                ..*self
-            },
-            false
-        )}
+    fn push_auto(&mut self, body: &Expr, key: usize) {
+        self.expr = body;
+        self.is_auto.set(&key, true);
     }
 
-    fn push_lambda(&self, body: &Expr) -> Self {Self{
-        expr: body,
-        is_auto: Stackframe::opush(&self.is_auto, false),
-        ..*self
-    }}
-
-    fn push_explicit(&self, subexpr: &Expr, arg: Mrc<Expr>) -> Self {Self{
-        expr: subexpr,
-        explicits: Stackframe::opush(&self.explicits, arg),
-        ..*self
-    }}
-
-    fn push_expr(&self, f: &Expr) -> Self {Self{
-        expr: f,
-        ..*self
-    }}
-}
-
-#[derive(Default)]
-struct UnifResult {
-    /// Collected identities for the given side
-    context: HashMap<usize, Mrc<Expr>>,
-    /// Number of explicits to be eliminated from task before forwarding to the next branch
-    usedExplicits: usize,
-}
-
-impl UnifResult {
-    fn useExplicit(self) -> Self{Self{
-        usedExplicits: self.usedExplicits + 1,
-        context: self.context.clone()
-    }}
-
-    fn dropUsedExplicits(&mut self, task: &mut  UnifHalfTask) {
-        task.explicits = task.explicits.map(|s| {
-            s.pop(self.usedExplicits).expect("More explicits used than provided")
-        }).cloned();
-        self.usedExplicits = 0;
+    fn push_lambda(&mut self, body: &Expr, key: usize) {
+        self.expr = body;
+        self.is_auto.set(&key, false);
     }
 }
+
+type Ctx = HashMap<usize, Mrc<Expr>>;
 
 /// Ascertain syntactic equality. Syntactic equality means that
 /// - lambda elements are verbatim equal
@@ -90,20 +68,17 @@ impl UnifResult {
 /// 
 /// Context associates variables with subtrees resolved on the opposite side
 pub fn unify_syntax_rec( // the stacks store true for autos, false for lambdas
+    ctx: &mut HashMap<(Side, usize), (usize, Mrc<Expr>)>,
     ltask@UnifHalfTask{ expr: lexpr@Expr(lclause, _), .. }: UnifHalfTask,
     rtask@UnifHalfTask{ expr: rexpr@Expr(rclause, _), .. }: UnifHalfTask
 ) -> Option<(UnifResult, UnifResult)> {
     // Ensure that ex1 is a value-level construct
     match lclause {
-        Clause::Auto(_, body) => {
+        Clause::Auto(id, _, body) => {
             let res = unify_syntax_rec(ltask.push_auto(body).0, rtask);
             return if ltask.explicits.is_some() {
                 res.map(|(r1, r2)| (r1.useExplicit(), r2))
             } else {res}
-        }
-        Clause::Explicit(subexpr, arg) => {
-            let new_ltask = ltask.push_explicit(subexpr, Mrc::clone(arg));
-            return unify_syntax_rec(new_ltask, rtask)
         }
         _ => ()
     };

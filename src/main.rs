@@ -48,17 +48,17 @@ fn initial_tree() -> Mrc<[Expr]> {
 
 #[allow(unused)]
 fn typed_notation_debug() {
-    let true_ex = t::Clause::Auto(None,
-        t::Clause::Lambda(Some(Mrc::new(t::Clause::Argument(0))), 
-            t::Clause::Lambda(Some(Mrc::new(t::Clause::Argument(1))),
-                t::Clause::Argument(1).wrap_t(t::Clause::Argument(2))
+    let true_ex = t::Clause::Auto(0, None,
+        t::Clause::Lambda(1, Some(Mrc::new(t::Clause::Argument(0))), 
+            t::Clause::Lambda(2, Some(Mrc::new(t::Clause::Argument(0))),
+                t::Clause::Argument(1).wrap_t(t::Clause::Argument(0))
             ).wrap()
         ).wrap()
     ).wrap();
-    let false_ex = t::Clause::Auto(None,
-        t::Clause::Lambda(Some(Mrc::new(t::Clause::Argument(0))),
-            t::Clause::Lambda(Some(Mrc::new(t::Clause::Argument(1))),
-                t::Clause::Argument(0).wrap_t(t::Clause::Argument(2))
+    let false_ex = t::Clause::Auto(0, None,
+        t::Clause::Lambda(1, Some(Mrc::new(t::Clause::Argument(0))),
+            t::Clause::Lambda(2, Some(Mrc::new(t::Clause::Argument(0))),
+                t::Clause::Argument(2).wrap_t(t::Clause::Argument(0))
             ).wrap()
         ).wrap()
     ).wrap();

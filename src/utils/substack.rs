@@ -33,17 +33,21 @@ impl<'a, T: 'a> Stackframe<'a, T> {
             len: self.len + 1
         }
     }
-    pub fn opush(prev: &Option<Self>, item: T) -> Option<Self> {
-        Some(Self {
+    pub fn opush(prev: Option<&Self>, item: T) -> Self {
+        Self {
             item,
-            prev: prev.as_ref(),
+            prev,
             len: prev.map_or(1, |s| s.len)
-        })
+        }
     }
     pub fn len(&self) -> usize { self.len }
     pub fn pop(&self, count: usize) -> Option<&Self> {
         if count == 0 {Some(self)}
-        else {self.prev.and_then(|prev| prev.pop(count - 1))}
+        else {self.prev.expect("Index out of range").pop(count - 1)}
+    }
+    pub fn opop(cur: Option<&Self>, count: usize) -> Option<&Self> {
+        if count == 0 {cur}
+        else {Self::opop(cur.expect("Index out of range").prev, count - 1)}
     }
 }
 
