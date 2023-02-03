@@ -6,7 +6,7 @@ define Add $L:type $R:type $O:type as $L -> $R -> $O
 define Mappable $C:(type -> type) as @T. @U. (T -> U) -> $C T -> $C U
 -- Dependency on existing typeclass
 define Zippable $C:(type -> type) as @:Mappable $C. (
-    @T. @U. @V. (T -> U -> V) -> $C T -> $C U -> $C V
+  @T. @U. @V. (T -> U -> V) -> $C T -> $C U -> $C V
 )
 define Default $T:type as $T
 -- Is the intersection of typeclasses an operation we need?
@@ -15,16 +15,16 @@ define Default $T:type as $T
 define Cons $elem:type as loop \r. Option (Pair T $elem)
 nil := @T. from @(Cons T) none
 cons := @T. \el:T. (
-    generalise @(Cons T) 
-    |> (\list. some t[el, into list]) 
-    |> categorise @(Cons T)
+  generalise @(Cons T) 
+  |> (\list. some t[el, into list]) 
+  |> categorise @(Cons T)
 )
 export map := @T. @U. \f:T -> U. (
-    generalise @(Cons T)
-    |> loop ( \recurse. \option.
-        map option \pair. t[f (fst pair), recurse (snd pair)] 
-    )
-    |> categorise @(Cons U) 
+  generalise @(Cons T)
+  |> loop ( \recurse. \option.
+    map option \pair. t[f (fst pair), recurse (snd pair)] 
+  )
+  |> categorise @(Cons U) 
 )
 -- Universal typeclass implementation; no parameters, no overrides, no name for overriding
 impl Mappable Cons via map
@@ -34,7 +34,7 @@ impl (@T. Add (Cons T) (Cons T) (Cons T)) by concatenation over elementwiseAddit
 -- Scratchpad
 
 filterBadWords := @C:type -> type. @:Mappable C. \strings:C String. (
-    map strings \s. if intersects badWords (slice " " s) then none else some s
+  map strings \s. if intersects badWords (slice " " s) then none else some s
 ):(C (Option String))
 
 -- /Scratchpad

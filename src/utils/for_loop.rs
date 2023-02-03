@@ -11,10 +11,10 @@
 /// 
 /// ```
 /// xloop!(for i in 0..10; {
-///     connection.try_connect()
-///     if connection.ready() {
-///         break Some(connection)
-///     }
+///   connection.try_connect()
+///   if connection.ready() {
+///     break Some(connection)
+///   }
 /// }; None)
 /// ```
 /// 
@@ -22,17 +22,17 @@
 /// 
 /// ```
 /// xloop!(while socket.is_open(); {
-///     let (data, is_end) = socket.read();
-///     all_data.append(data)
-///     if is_end { break Ok(all_data) }
+///   let (data, is_end) = socket.read();
+///   all_data.append(data)
+///   if is_end { break Ok(all_data) }
 /// }; {
-///     if let Ok(new_sock) = open_socket(socket.position()) {
-///         new_sock.set_position(socket.position());
-///         socket = new_sock;
-///         continue
-///     } else {
-///         Err(DownloadError::ConnectionLost)
-///     }
+///   if let Ok(new_sock) = open_socket(socket.position()) {
+///     new_sock.set_position(socket.position());
+///     socket = new_sock;
+///     continue
+///   } else {
+///     Err(DownloadError::ConnectionLost)
+///   }
 /// })
 /// ```
 /// 
@@ -40,7 +40,7 @@
 /// 
 /// ```
 /// xloop!(let mut leap = 1; own_id*2 + leap < batch_size; leap *= 2; {
-///     batch[own_id*2] += batch[own_id*2 + leap]
+///   batch[own_id*2] += batch[own_id*2 + leap]
 /// })
 /// ```
 /// 
@@ -51,41 +51,41 @@
 /// **todo** find a valid use case for While let for a demo
 #[macro_export]
 macro_rules! xloop {
-    (for $p:pat in $it:expr; $body:stmt) => {
-        xloop!(for $p in $it; $body; ())
-    };
-    (for $p:pat in $it:expr; $body:stmt; $exit:stmt) => {
-        {
-            let mut __xloop__ = $it.into_iter();
-            xloop!(let Some($p) = __xloop__.next(); $body; $exit)
-        }
-    };
-    (let $p:pat = $e:expr; $body:stmt) => {
-        xloop!(let $p = $e; $body; ())
-    };
-    (let $p:pat = $e:expr; $body:stmt; $exit:stmt) => {
-        {
-            loop {
-                if let $p = $e { $body }
-                else { break { $exit } }
-            }
-        }
-    };
-    (while $cond:expr; $body:stmt) => {
-        xloop!($cond; $body; ())
-    };
-    (while $cond:expr; $body:stmt; $exit:stmt) => {
-        {
-            loop {
-                if $cond { break { $exit } }
-                else { $body }
-            }
-        }
-    };
-    ($init:stmt; $cond:expr; $step:stmt; $body:stmt) => {
-        xloop!(for ( $init; $cond; $step ) $body; ())
-    };
-    ($init:stmt; $cond:expr; $step:stmt; $body:stmt; $exit:stmt) => {
-        { $init; xloop!(while !($cond); { $body; $step }; $exit) }
-    };
+  (for $p:pat in $it:expr; $body:stmt) => {
+    xloop!(for $p in $it; $body; ())
+  };
+  (for $p:pat in $it:expr; $body:stmt; $exit:stmt) => {
+    {
+      let mut __xloop__ = $it.into_iter();
+      xloop!(let Some($p) = __xloop__.next(); $body; $exit)
+    }
+  };
+  (let $p:pat = $e:expr; $body:stmt) => {
+    xloop!(let $p = $e; $body; ())
+  };
+  (let $p:pat = $e:expr; $body:stmt; $exit:stmt) => {
+    {
+      loop {
+        if let $p = $e { $body }
+        else { break { $exit } }
+      }
+    }
+  };
+  (while $cond:expr; $body:stmt) => {
+    xloop!($cond; $body; ())
+  };
+  (while $cond:expr; $body:stmt; $exit:stmt) => {
+    {
+      loop {
+        if $cond { break { $exit } }
+        else { $body }
+      }
+    }
+  };
+  ($init:stmt; $cond:expr; $step:stmt; $body:stmt) => {
+    xloop!(for ( $init; $cond; $step ) $body; ())
+  };
+  ($init:stmt; $cond:expr; $step:stmt; $body:stmt; $exit:stmt) => {
+    { $init; xloop!(while !($cond); { $body; $step }; $exit) }
+  };
 }

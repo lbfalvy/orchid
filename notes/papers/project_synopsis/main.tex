@@ -57,16 +57,16 @@ provisional feature set.
 A working type system should have the following parts, which I will implement in roughly this order
 
 \begin{itemize}
-    \item \textbf{Type inference engine and type checker} This will be an extension of
-        the Hindley-Milner algorithm, which simultaneously unifies and completes partial type
-        annotations, and recognizes conflicts.
-    \item \textbf{Typeclass solver} At the moment this appears to be a relatively simple piece of
-        code but I'm not entirely confident that complications won't arise as its responsibilities
-        become clearer, so I consider it a separate component
-    \item \textbf{Executor} Orchid is a statically typed language so it should eventually be compiled
-        with LLVM, but in order to demonstrate the usability of my type system I will have to write
-        an experimental interpreter. Since types are already basically expressions of type type,
-        parts of the executor will coincide with parts of the type inference engine.
+  \item \textbf{Type inference engine and type checker} This will be an extension of
+    the Hindley-Milner algorithm, which simultaneously unifies and completes partial type
+    annotations, and recognizes conflicts.
+  \item \textbf{Typeclass solver} At the moment this appears to be a relatively simple piece of
+    code but I'm not entirely confident that complications won't arise as its responsibilities
+    become clearer, so I consider it a separate component
+  \item \textbf{Executor} Orchid is a statically typed language so it should eventually be compiled
+    with LLVM, but in order to demonstrate the usability of my type system I will have to write
+    an experimental interpreter. Since types are already basically expressions of type type,
+    parts of the executor will coincide with parts of the type inference engine.
 \end{itemize}
 
 \section{Literature Review}
@@ -99,12 +99,12 @@ in the same group.
 At a minimum, the following must be valid reduction steps:
 
 \begin{itemize}
-    \item $\beta$-reduction
-    \item fixed point normalization, which simply means identifying that a subexpression has
-        reduced to an expression that contains the original. When a fixed point is detected, the
-        recursive expression is converted to a form that uses the Y-combinator. This operation
-        is ordered before $\beta$-reductions of the expression in the BFS tree but otherwise has
-        the same precedence.
+  \item $\beta$-reduction
+  \item fixed point normalization, which simply means identifying that a subexpression has
+    reduced to an expression that contains the original. When a fixed point is detected, the
+    recursive expression is converted to a form that uses the Y-combinator. This operation
+    is ordered before $\beta$-reductions of the expression in the BFS tree but otherwise has
+    the same precedence.
 \end{itemize}
 
 \subsection{Typeclass solver}

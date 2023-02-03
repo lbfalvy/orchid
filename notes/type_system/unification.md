@@ -4,13 +4,13 @@
 - enqueue evaluation steps for each of them and put them in a unification group
 - evaluation step refers to previous step, complete expression tree
   - unification **succeeds** if either
-    - the trees are syntactically identical in any two steps between the targets
-    - unification succeeds for all substeps:
-      - try to find an ancestor step that provably produces the same value as any lambda in this
-        step (for example, by syntactic equality)
-        - if found, substitute it with the recursive normal form of the lambda
-          - recursive normal form is `Apply(Y, \r.[body referencing r on point of recursion])`
-      - find all `Apply(\x.##, ##)` nodes in the tree and execute them
+  - the trees are syntactically identical in any two steps between the targets
+  - unification succeeds for all substeps:
+    - try to find an ancestor step that provably produces the same value as any lambda in this
+      step (for example, by syntactic equality)
+    - if found, substitute it with the recursive normal form of the lambda
+      - recursive normal form is `Apply(Y, \r.[body referencing r on point of recursion])`
+    - find all `Apply(\x.##, ##)` nodes in the tree and execute them
   - unification **fails** if a member of the concrete tree differs (only outermost steps add to
     the concrete tree so it belongs to the group and not the resolution) or no substeps are found
     for a resolution step _(failure: unresolved higher kinded type)_
