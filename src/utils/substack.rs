@@ -33,7 +33,7 @@ impl<'a, T: 'a> Stackframe<'a, T> {
             len: self.len + 1
         }
     }
-    pub fn opush(prev: Option<&Self>, item: T) -> Self {
+    pub fn opush(prev: Option<&'a Self>, item: T) -> Self {
         Self {
             item,
             prev,

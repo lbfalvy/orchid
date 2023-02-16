@@ -2,7 +2,7 @@ use mappable_rc::Mrc;
 
 use crate::utils::{Stackframe, to_mrc_slice, mrc_empty_slice, ProtoMap};
 
-use super::{ast, typed};
+use super::{ast, typed, get_name::get_name};
 
 #[derive(Clone)]
 pub enum Error {
@@ -33,43 +33,42 @@ pub enum Error {
 
 /// Try to convert an expression from AST format to typed lambda
 pub fn expr(expr: &ast::Expr) -> Result<typed::Expr, Error> {
-    Ok(expr_rec(expr, ProtoMap::new(), &mut 0, None)?.0)
+    Ok(expr_rec(expr, ProtoMap::new(), None)?.0)
 }
 
 /// Try and convert a single clause from AST format to typed lambda
 pub fn clause(clause: &ast::Clause) -> Result<typed::Clause, Error> {
-    Ok(clause_rec(clause, ProtoMap::new(), &mut 0, None)?.0)
+    Ok(clause_rec(clause, ProtoMap::new(), None)?.0)
 }
 
 /// Try and convert a sequence of expressions from AST format to typed lambda 
 pub fn exprv(exprv: &[ast::Expr]) -> Result<typed::Expr, Error> {
-    Ok(exprv_rec(exprv, ProtoMap::new(), &mut 0, None)?.0)
+    Ok(exprv_rec(exprv, ProtoMap::new(), None)?.0)
 }
 
 const NAMES_INLINE_COUNT:usize = 3;
 
 /// Recursive state of [exprv]
-fn exprv_rec(
-    v: &[ast::Expr],
-    names: ProtoMap<&str, u64, NAMES_INLINE_COUNT>,
-    next_id: &mut u64,
+fn exprv_rec<'a>(
+    v: &'a [ast::Expr],
+    names: ProtoMap<&'a str, u64, NAMES_INLINE_COUNT>,
     explicits: Option<&Stackframe<Mrc<typed::Expr>>>,
 ) -> Result<(typed::Expr, usize), Error> {
     let (last, rest) = v.split_last().ok_or(Error::EmptyS)?;
-    if rest.len() == 0 {return expr_rec(&v[0], names, next_id, explicits)}
+    if rest.len() == 0 {return expr_rec(&v[0], names, explicits)}
     if let ast::Expr(ast::Clause::Explicit(inner), empty_slice) = last {
         assert!(empty_slice.len() == 0,
             "It is assumed that Explicit nodes can never have type annotations as the \
             wrapped expression node matches all trailing colons."
         );
-        let (x, _) = expr_rec(inner.as_ref(), names, next_id, None)?;
-        let new_explicits = Some(&Stackframe::opush(explicits, Mrc::new(x)));
-        let (body, used_expls) = exprv_rec(rest, names, next_id, new_explicits)?;
+        let (x, _) = expr_rec(inner.as_ref(), names.clone(), None)?;
+        let new_explicits = Stackframe::opush(explicits, Mrc::new(x));
+        let (body, used_expls) = exprv_rec(rest, names, Some(&new_explicits))?;
         Ok((body, used_expls.saturating_sub(1)))
     } else {
-        let (f, f_used_expls) = exprv_rec(rest, names, next_id, explicits)?;
+        let (f, f_used_expls) = exprv_rec(rest, names.clone(), explicits)?;
         let x_explicits = Stackframe::opop(explicits, f_used_expls);
-        let (x, x_used_expls) = expr_rec(last, names, next_id, x_explicits)?;
+        let (x, x_used_expls) = expr_rec(last, names, x_explicits)?;
         Ok((typed::Expr(
             typed::Clause::Apply(Mrc::new(f), Mrc::new(x)),
             mrc_empty_slice()
@@ -78,19 +77,18 @@ fn exprv_rec(
 }
 
 /// Recursive state of [expr]
-fn expr_rec(
-    ast::Expr(val, typ): &ast::Expr,
-    names: ProtoMap<&str, u64, NAMES_INLINE_COUNT>,
-    next_id: &mut u64,
+fn expr_rec<'a>(
+    ast::Expr(val, typ): &'a ast::Expr,
+    names: ProtoMap<&'a str, u64, NAMES_INLINE_COUNT>,
     explicits: Option<&Stackframe<Mrc<typed::Expr>>> // known explicit values
 ) -> Result<(typed::Expr, usize), Error> { // (output, used_explicits)
     let typ: Vec<typed::Clause> = typ.iter()
-        .map(|c| Ok(clause_rec(c, names, next_id, None)?.0))
+        .map(|c| Ok(clause_rec(c, names.clone(), None)?.0))
         .collect::<Result<_, _>>()?;
     if let ast::Clause::S(paren, body) = val {
         if *paren != '(' {return Err(Error::BadGroup(*paren))}
         let (typed::Expr(inner, inner_t), used_expls) = exprv_rec(
-            body.as_ref(), names, next_id, explicits
+            body.as_ref(), names, explicits
         )?;
         let new_t = if typ.len() == 0 { inner_t } else {
             to_mrc_slice(if inner_t.len() == 0 { typ } else {
@@ -99,16 +97,15 @@ fn expr_rec(
         };
         Ok((typed::Expr(inner, new_t), used_expls))
     } else {
-        let (cls, used_expls) = clause_rec(&val, names, next_id, explicits)?;
+        let (cls, used_expls) = clause_rec(&val, names, explicits)?;
         Ok((typed::Expr(cls, to_mrc_slice(typ)), used_expls))
     }
 }
 
 /// Recursive state of [clause]
-fn clause_rec(
-    cls: &ast::Clause,
-    names: ProtoMap<&str, u64, NAMES_INLINE_COUNT>,
-    next_id: &mut u64,
+fn clause_rec<'a>(
+    cls: &'a ast::Clause,
+    mut names: ProtoMap<&'a str, u64, NAMES_INLINE_COUNT>,
     mut explicits: Option<&Stackframe<Mrc<typed::Expr>>>
 ) -> Result<(typed::Clause, usize), Error> {
     match cls { // (\t:(@T. Pair T T). t \left.\right. left) @number -- this will fail
@@ -116,8 +113,7 @@ fn clause_rec(
         ast::Clause::Atom(a) => Ok((typed::Clause::Atom(a.clone()), 0)),
         ast::Clause::Auto(no, t, b) => {
             // Allocate id
-            let id = *next_id;
-            *next_id += 1;
+            let id = get_name();
             // Pop an explicit if available
             let (value, rest_explicits) = explicits.map(
                 |Stackframe{ prev, item, .. }| {
@@ -128,7 +124,7 @@ fn clause_rec(
             // Convert the type
             let typ = if t.len() == 0 {None} else {
                 let (typed::Expr(c, t), _) = exprv_rec(
-                    t.as_ref(), names, next_id, None
+                    t.as_ref(), names.clone(), None
                 )?;
                 if t.len() > 0 {return Err(Error::ExplicitBottomKind)}
                 else {Some(Mrc::new(c))}
@@ -136,7 +132,7 @@ fn clause_rec(
             // Traverse body with extended context
             if let Some(name) = no {names.set(&&**name, id)}
             let (body, used_expls) = exprv_rec(
-                b.as_ref(), names, next_id, explicits
+                b.as_ref(), names, explicits
             )?;
             // Produce a binding instead of an auto if explicit was available
             if let Some(known_value) = value {
@@ -150,20 +146,15 @@ fn clause_rec(
         }
         ast::Clause::Lambda(n, t, b) => {
             // Allocate id
-            let id = *next_id;
-            *next_id += 1;
+            let id = get_name();
             // Convert the type
             let typ = if t.len() == 0 {None} else {
-                let (typed::Expr(c, t), _) = exprv_rec(
-                    t.as_ref(), names, next_id, None
-                )?;
+                let (typed::Expr(c, t), _) = exprv_rec(t.as_ref(), names.clone(), None)?;
                 if t.len() > 0 {return Err(Error::ExplicitBottomKind)}
                 else {Some(Mrc::new(c))}
             };
             names.set(&&**n, id);
-            let (body, used_expls) = exprv_rec(
-                b.as_ref(), names, next_id, explicits
-            )?;
+            let (body, used_expls) = exprv_rec(b.as_ref(), names, explicits)?;
             Ok((typed::Clause::Lambda(id, typ, Mrc::new(body)), used_expls))
         }
         ast::Clause::Literal(l) => Ok((typed::Clause::Literal(l.clone()), 0)),
@@ -175,7 +166,7 @@ fn clause_rec(
         ast::Clause::S(paren, entries) => {
             if *paren != '(' {return Err(Error::BadGroup(*paren))}
             let (typed::Expr(val, typ), used_expls) = exprv_rec(
-                entries.as_ref(), names, next_id, explicits
+                entries.as_ref(), names, explicits
             )?;
             if typ.len() == 0 {Ok((val, used_expls))}
             else {Err(Error::ExprToClause(typed::Expr(val, typ)))}

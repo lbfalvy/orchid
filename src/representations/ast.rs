@@ -38,17 +38,28 @@ impl Debug for Expr {
 /// An S-expression as read from a source file
 #[derive(PartialEq, Eq, Hash)]
 pub enum Clause {
+    /// A literal value, eg. `1`, `"hello"`
     Literal(Literal),
+    /// A c-style name or an operator, eg. `+`, `i`, `foo::bar`
     Name{
         local: Option<String>,
         qualified: Mrc<[String]>
     },
+    /// A parenthesized expression, eg. `(print out "hello")`, `[1, 2, 3]`, `{Some(t) => t}`
     S(char, Mrc<[Expr]>),
+    /// An explicit expression associated with the leftmost, outermost [Clause::Auto], eg. `read @Int`
     Explicit(Mrc<Expr>),
+    /// A function expression, eg. `\x. x + 1`
     Lambda(String, Mrc<[Expr]>, Mrc<[Expr]>),
+    /// A parameterized expression with type inference, eg. `@T. T -> T`
     Auto(Option<String>, Mrc<[Expr]>, Mrc<[Expr]>),
+    /// An opaque function, eg. an effectful function employing CPS.
+    /// Preferably wrap these in an Orchid monad.
     ExternFn(ExternFn),
+    /// An opaque non-callable value, eg. a file handle.
+    /// Preferably wrap these in an Orchid structure.
     Atom(Atom),
+    /// A placeholder for macros, eg. `$name`, `...$body`, `...$lhs:1` 
     Placeh{
         key: String,
         /// None => matches one token
