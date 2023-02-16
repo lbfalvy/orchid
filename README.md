@@ -15,15 +15,15 @@ Basic command line calculator
 import std::io::(readln, printf, in, out)
 
 main := (
-    readln in >>= int |> \a. 
-    readln in >>= \op.
-    readln in >>= int |> \b.
-    printf out "the result is {}\n", [match op (
-        "+" => a + b,
-        "-" => a - b,
-        "*" => a * b,
-        "/" => a / b
-    )]
+  readln in >>= int |> \a. 
+  readln in >>= \op.
+  readln in >>= int |> \b.
+  printf out "the result is {}\n", [match op (
+    "+" => a + b,
+    "-" => a - b,
+    "*" => a * b,
+    "/" => a / b
+  )]
 )
 ```
 
@@ -32,17 +32,17 @@ Grep
 import std::io::(readln, println, in, out, getarg)
 
 main := loop \r. (
-    readln in >>= \line.
-    if (substring (getarg 1) line)
-    then (println out ln >>= r)
-    else r
+  readln in >>= \line.
+  if (substring (getarg 1) line)
+  then (println out ln >>= r)
+  else r
 )
 ```
 
 Filter through an arbitrary collection
 ```orchid
 filter := @C:Type -> Type. @:Map C. @T. \f:T -> Bool. \coll:C T. (
-    coll >> \el. if (f el) then (Some el) else Nil
+  coll >> \el. if (f el) then (Some el) else Nil
 ):(C T)
 ```
 
@@ -76,9 +76,9 @@ it to itself. A naiive implementation of `imul` might look like this.
 
 ```orchid
 \a:int.\b:int. loop \r. (\i.
-    ifthenelse (ieq i 0)
-        b
-        (iadd b (r (isub i 1))
+  ifthenelse (ieq i 0)
+    b
+    (iadd b (r (isub i 1))
 ) a
 ```
 
@@ -123,8 +123,8 @@ For a demonstration, here's a sample implementation of the Option monad.
 ```orchid
 --[[ The definition of Monad ]]--
 define Monad $M:(Type -> Type) as (Pair
-    (@T. @U. (T -> M U) -> M T -> M U) -- bind
-    (@T. T -> M T) -- return
+  (@T. @U. (T -> M U) -> M T -> M U) -- bind
+  (@T. T -> M T) -- return
 )
 
 bind := @M:Type -> Type. @monad:Monad M. fst monad
@@ -134,17 +134,17 @@ return := @M:Type -> Type. @monad:Monad M. snd monad
 define Option $T as @U. U -> (T -> U) -> U
 --[ Constructors ]--
 export Some := @T. \data:T. categorise @(Option T) ( \default. \map. map data )
-export None := @T.          categorise @(Option T) ( \default. \map. default )
+export None := @T.      categorise @(Option T) ( \default. \map. default )
 --[ Implement Monad ]--
 impl Monad Option via (makePair
-    ( @T. @U. \f:T -> U. \opt:Option T. opt None \x. Some f ) -- bind
-    Some -- return
+  ( @T. @U. \f:T -> U. \opt:Option T. opt None \x. Some f ) -- bind
+  Some -- return
 )
 --[ Sample function that works on unknown monad to demonstrate HKTs.
-    Turns (Option (M T)) into (M (Option T)), "raising" the unknown monad
-    out of the Option ]--
+  Turns (Option (M T)) into (M (Option T)), "raising" the unknown monad
+  out of the Option ]--
 export raise := @M:Type -> Type. @T. @:Monad M. \opt:Option (M T). (
-    opt (return None) (\m. bind m (\x. Some x))
+  opt (return None) (\m. bind m (\x. Some x))
 ):(M (Option T))
 ```
 
@@ -160,7 +160,7 @@ the result:
 
 ```orchid
 impl @T. Add (List T) (List T) (List T) by concatListAdd over elementwiseAdd via (
-    ...
+  ...
 )
 ```
 
@@ -168,11 +168,11 @@ For completeness' sake, the original definition might look like this:
 
 ```orchid
 impl
-    @C:Type -> Type. @T. @U. @V. -- variables
-    @:(Applicative C). @:(Add T U V). -- conditions
-    Add (C T) (C U) (C V) -- target
+  @C:Type -> Type. @T. @U. @V. -- variables
+  @:(Applicative C). @:(Add T U V). -- conditions
+  Add (C T) (C U) (C V) -- target
 by elementwiseAdd via (
-    ...
+  ...
 )
 ```
 
@@ -181,11 +181,11 @@ implementation looks like:
 
 ```orchid
 impl @T. @:(Add T T T). Multiply T int T by iterativeMultiply via (
-    \a:int. \b:T. loop \r. (\i.
-        ifthenelse (ieq i 0)
-            b
-            (add b (r (isub i 1)) -- notice how iadd is now add
-    ) a
+  \a:int. \b:T. loop \r. (\i.
+    ifthenelse (ieq i 0)
+      b
+      (add b (r (isub i 1)) -- notice how iadd is now add
+  ) a
 )
 ```
 
@@ -193,7 +193,7 @@ This could then be applied to any type that's closed over addition
 
 ```orchid
 aroundTheWorldLyrics := (
-    mult 18 (add (mult 4 "Around the World\n") "\n")
+  mult 18 (add (mult 4 "Around the World\n") "\n")
 )
 ```
 
@@ -222,8 +222,8 @@ parenthesize subexpressions at the callsite.
 
 ```orchid
 (..$pre:2 if ...$cond then ...$true else ...$false) =10=> (
-    ..$pre
-    (ifthenelse (...$cond) (...$true) (...$false))
+  ..$pre
+  (ifthenelse (...$cond) (...$true) (...$false))
 )
 ...$a + ...$b =2=> (add (...$a) (...$b))
 ...$a = ...$b =5=> (eq $a $b)
@@ -234,10 +234,10 @@ The recursive addition function now looks like this
 
 ```orchid
 impl @T. @:(Add T T T). Multiply T int T by iterativeMultiply via (
-    \a:int.\b:T. loop \r. (\i.
-        if (i = 0) then b
-        else (b + (r (i - 1)))
-    ) a
+  \a:int.\b:T. loop \r. (\i.
+    if (i = 0) then b
+    else (b + (r (i - 1)))
+  ) a
 )
 ```
 
@@ -302,13 +302,13 @@ This is very far away so I don't want to make promises, but I have some
 ideas. 
 
 - [ ] early execution of functions on any subset of their arguments where
-    it could provide substantial speedup
+  it could provide substantial speedup
 - [ ] tracking copies of expressions and evaluating them only once
 - [ ] Many cases of single recursion converted to loops
-    - [ ] tail recursion
-    - [ ] 2 distinct loops where the tail doesn't use the arguments
-        - [ ] reorder operations to favour this scenario 
+  - [ ] tail recursion
+  - [ ] 2 distinct loops where the tail doesn't use the arguments
+    - [ ] reorder operations to favour this scenario 
 - [ ] reactive calculation of values that are deemed to be read more often
-    than written
+  than written
 - [ ] automatic profiling based on performance metrics generated by debug
-    builds
+  builds

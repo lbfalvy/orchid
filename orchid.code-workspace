@@ -1,15 +1,14 @@
 {
 	"folders": [
 		{
-			"path": ".."
+			"path": "."
 		}
 	],
 	"settings": {},
 	"extensions": {
 		"recommendations": [
 			"tomoki1207.pdf",
-			"James-Yu.latex-workshop",
-			"rust-lang.rust-analyzer",
+			"james-yu.latex-workshop",
 			"bungcip.better-toml"
 		]
 	}

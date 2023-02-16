@@ -2,13 +2,13 @@ use chumsky::{self, prelude::*, Parser};
 
 /// Matches any one of the passed operators, longest-first
 fn op_parser<'a, T: AsRef<str> + Clone>(ops: &[T]) -> BoxedParser<'a, char, String, Simple<char>> {
-    let mut sorted_ops: Vec<String> = ops.iter().map(|t| t.as_ref().to_string()).collect();
-    sorted_ops.sort_by_key(|op| -(op.len() as i64));
-    sorted_ops.into_iter()
-        .map(|op| just(op).boxed())
-        .reduce(|a, b| a.or(b).boxed())
-        .unwrap_or_else(|| empty().map(|()| panic!("Empty isn't meant to match")).boxed())
-        .labelled("operator").boxed()
+  let mut sorted_ops: Vec<String> = ops.iter().map(|t| t.as_ref().to_string()).collect();
+  sorted_ops.sort_by_key(|op| -(op.len() as i64));
+  sorted_ops.into_iter()
+    .map(|op| just(op).boxed())
+    .reduce(|a, b| a.or(b).boxed())
+    .unwrap_or_else(|| empty().map(|()| panic!("Empty isn't meant to match")).boxed())
+    .labelled("operator").boxed()
 }
 
 /// Matches anything that's allowed as an operator
@@ -30,31 +30,31 @@ fn op_parser<'a, T: AsRef<str> + Clone>(ops: &[T]) -> BoxedParser<'a, char, Stri
 /// TODO: `.` could possibly be parsed as an operator depending on context. This operator is very
 /// common in maths so it's worth a try. Investigate.
 pub fn modname_parser<'a>() -> impl Parser<char, String, Error = Simple<char>> + 'a {
-    let not_name_char: Vec<char> = vec![':', '\\', '@', '"', '\'', '(', ')', '[', ']', '{', '}', ',', '.'];
-    filter(move |c| !not_name_char.contains(c) && !c.is_whitespace())
-        .repeated().at_least(1)
-        .collect()
-        .labelled("modname")
+  let not_name_char: Vec<char> = vec![':', '\\', '@', '"', '\'', '(', ')', '[', ']', '{', '}', ',', '.'];
+  filter(move |c| !not_name_char.contains(c) && !c.is_whitespace())
+    .repeated().at_least(1)
+    .collect()
+    .labelled("modname")
 }
 
 /// Parse an operator or name. Failing both, parse everything up to the next whitespace or
 /// blacklisted character as a new operator.
 pub fn name_parser<'a, T: AsRef<str> + Clone>(
-    ops: &[T]
+  ops: &[T]
 ) -> impl Parser<char, String, Error = Simple<char>> + 'a {
-    choice((
-        op_parser(ops), // First try to parse a known operator
-        text::ident().labelled("plain text"), // Failing that, parse plain text
-        modname_parser() // Finally parse everything until tne next terminal as a new operator
-    ))
-    .labelled("name")
+  choice((
+    op_parser(ops), // First try to parse a known operator
+    text::ident().labelled("plain text"), // Failing that, parse plain text
+    modname_parser() // Finally parse everything until tne next terminal as a new operator
+  ))
+  .labelled("name")
 }
 
 /// Decide if a string can be an operator. Operators can include digits and text, just not at the
 /// start.
 pub fn is_op<T: AsRef<str>>(s: T) -> bool {
-    return match s.as_ref().chars().next() {
-        Some(x) => !x.is_alphanumeric(), 
-        None => false
-    }
+  return match s.as_ref().chars().next() {
+    Some(x) => !x.is_alphanumeric(), 
+    None => false
+  }
 }
