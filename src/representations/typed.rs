@@ -137,3 +137,5 @@ impl TryFrom<&ast::Clause> for Clause {
     ast_to_typed::clause(value)
   }
 }
+
+pub fn count_references(id: u64, clause: &Clause)

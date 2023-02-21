@@ -64,6 +64,12 @@ impl Context {
     })
   }
 
+  fn unify_clauses(&mut self,
+    left: &Mrc<[Clause]>, right: &Mrc<[Clause]>, lambdas: LambdaMap
+  ) -> Result<Product2<Clause>, UnifError> {
+    if left.len() != right.len() {return Err(UnifError::Conflict)}
+  }
+
   fn unify_clause(&mut self,
     left: &Clause, right: &Clause, lambdas: LambdaMap
   ) -> Result<Product2<Clause>, UnifError> {

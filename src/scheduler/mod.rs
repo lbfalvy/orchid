@@ -25,7 +25,7 @@ pub trait Task {
   }
 
   fn run_to_completion(&mut self) -> Self::Result {
-    loop { if let TaskState::Complete(r) = self.run_once() {return r} }
+    loop { if let TaskState::Complete(r) = self.run_n_times(u64::MAX) {return r} }
   }
 
   fn boxed<'a>(self) -> TaskBox<'a, Self::Result> where Self: 'a + Sized { Box::new(self) }

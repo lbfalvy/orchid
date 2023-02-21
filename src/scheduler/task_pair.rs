@@ -26,42 +26,65 @@ impl<T: Task, U: Task> TaskPair<T, U> {
   }
 }
 
-impl<T: Task, U: Task> Task for TaskPair<T, U> {
-  type Result = (T::Result, U::Result);
-
-  fn run_once(&mut self) -> TaskState<Self::Result> {
-    let TaskPair{ state, tally, l_nice, r_nice } = self;
+/// The state machine logic, abstracted from the subtask handling system
+macro_rules! main_logic {
+  ($self:ident, $task:ident, $task_runner:expr) => {{
+    let TaskPair{ state, tally, l_nice, r_nice } = $self;
     let ret = process(state, |s| match s {
       TaskPairState::Empty => panic!("Generator completed and empty"),
-      TaskPairState::Left(mut l_task, r_res) => {
-        match l_task.run_once() {
+      TaskPairState::Left(mut $task, r_res) => {
+        match $task_runner {
           TaskState::Complete(r) => (TaskPairState::Empty, TaskState::Complete((r, r_res))),
-          TaskState::Yield => (TaskPairState::Left(l_task, r_res), TaskState::Yield),
+          TaskState::Yield => (TaskPairState::Left($task, r_res), TaskState::Yield),
         }
       }
-      TaskPairState::Right(l_res, mut r_task) => {
-        match r_task.run_once() {
+      TaskPairState::Right(l_res, mut $task) => {
+        match $task_runner {
           TaskState::Complete(r) => (TaskPairState::Empty, TaskState::Complete((l_res, r))),
-          TaskState::Yield => (TaskPairState::Right(l_res, r_task), TaskState::Yield),
+          TaskState::Yield => (TaskPairState::Right(l_res, $task), TaskState::Yield),
         }
       }
-      TaskPairState::Both(mut l_task, mut r_task) => {
+      TaskPairState::Both(l_task, r_task) => {
         let state = if 0 <= *tally {
           *tally -= *l_nice as Priority;
-          match l_task.run_once() {
+          let mut $task = l_task;
+          match $task_runner {
             TaskState::Complete(r) => TaskPairState::Right(r, r_task),
-            TaskState::Yield => TaskPairState::Both(l_task, r_task),
+            TaskState::Yield => TaskPairState::Both($task, r_task),
           }
         } else {
           *tally += *r_nice as Priority;
-          match r_task.run_once() {
+          let mut $task = r_task;
+          match $task_runner {
             TaskState::Complete(r) => TaskPairState::Left(l_task, r),
-            TaskState::Yield => TaskPairState::Both(l_task, r_task),
+            TaskState::Yield => TaskPairState::Both(l_task, $task),
           }
         };
         (state, TaskState::Yield)
       }
     });
     ret
+  }};
+}
+
+impl<T: Task, U: Task> Task for TaskPair<T, U> {
+  type Result = (T::Result, U::Result);
+
+  fn run_n_times(&mut self, mut count: u64) -> TaskState<Self::Result> {
+    loop {
+      if count == 0 {return TaskState::Yield}
+      match self.state {
+        TaskPairState::Left(..) | TaskPairState::Right(..) => {
+          return main_logic!(self, task, task.run_n_times(count));
+        }
+        _ => ()
+      }
+      if let r@TaskState::Complete(_) = self.run_once() {return r}
+      count -= 1;
+    }
+  }
+
+  fn run_once(&mut self) -> TaskState<Self::Result> {
+    main_logic!(self, task, task.run_once())
   }
 }

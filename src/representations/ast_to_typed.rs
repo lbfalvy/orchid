@@ -49,9 +49,9 @@ pub fn exprv(exprv: &[ast::Expr]) -> Result<typed::Expr, Error> {
 const NAMES_INLINE_COUNT:usize = 3;
 
 /// Recursive state of [exprv]
-fn exprv_rec(
-  v: &[ast::Expr],
-  names: ProtoMap<&str, (u64, bool), NAMES_INLINE_COUNT>,
+fn exprv_rec<'a>(
+  v: &'a [ast::Expr],
+  names: ProtoMap<&'a str, (u64, bool), NAMES_INLINE_COUNT>,
   explicits: Option<&Stackframe<Mrc<typed::Expr>>>,
 ) -> Result<(typed::Expr, usize), Error> {
   let (last, rest) = v.split_last().ok_or(Error::EmptyS)?;
@@ -61,12 +61,12 @@ fn exprv_rec(
       "It is assumed that Explicit nodes can never have type annotations as the \
       wrapped expression node matches all trailing colons."
     );
-    let (x, _) = expr_rec(inner.as_ref(), names, None)?;
-    let new_explicits = Some(&Stackframe::opush(explicits, Mrc::new(x)));
-    let (body, used_expls) = exprv_rec(rest, names, new_explicits)?;
+    let (x, _) = expr_rec(inner.as_ref(), names.clone(), None)?;
+    let new_explicits = Stackframe::opush(explicits, Mrc::new(x));
+    let (body, used_expls) = exprv_rec(rest, names, Some(&new_explicits))?;
     Ok((body, used_expls.saturating_sub(1)))
   } else {
-    let (f, f_used_expls) = exprv_rec(rest, names, explicits)?;
+    let (f, f_used_expls) = exprv_rec(rest, names.clone(), explicits)?;
     let x_explicits = Stackframe::opop(explicits, f_used_expls);
     let (x, x_used_expls) = expr_rec(last, names, x_explicits)?;
     Ok((typed::Expr(
@@ -77,13 +77,13 @@ fn exprv_rec(
 }
 
 /// Recursive state of [expr]
-fn expr_rec(
-  ast::Expr(val, typ): &ast::Expr,
-  names: ProtoMap<&str, (u64, bool), NAMES_INLINE_COUNT>,
+fn expr_rec<'a>(
+  ast::Expr(val, typ): &'a ast::Expr,
+  names: ProtoMap<&'a str, (u64, bool), NAMES_INLINE_COUNT>,
   explicits: Option<&Stackframe<Mrc<typed::Expr>>> // known explicit values
 ) -> Result<(typed::Expr, usize), Error> { // (output, used_explicits)
   let typ: Vec<typed::Clause> = typ.iter()
-    .map(|c| Ok(clause_rec(c, names, None)?.0))
+    .map(|c| Ok(clause_rec(c, names.clone(), None)?.0))
     .collect::<Result<_, _>>()?;
   if let ast::Clause::S(paren, body) = val {
     if *paren != '(' {return Err(Error::BadGroup(*paren))}
@@ -101,9 +101,9 @@ fn expr_rec(
 }
 
 /// Recursive state of [clause]
-fn clause_rec(
-  cls: &ast::Clause,
-  names: ProtoMap<&str, (u64, bool), NAMES_INLINE_COUNT>,
+fn clause_rec<'a>(
+  cls: &'a ast::Clause,
+  mut names: ProtoMap<&'a str, (u64, bool), NAMES_INLINE_COUNT>,
   mut explicits: Option<&Stackframe<Mrc<typed::Expr>>>
 ) -> Result<(typed::Clause, usize), Error> {
   match cls { // (\t:(@T. Pair T T). t \left.\right. left) @number -- this will fail
@@ -121,7 +121,7 @@ fn clause_rec(
       explicits = rest_explicits;
       // Convert the type
       let typ = if t.len() == 0 {mrc_empty_slice()} else {
-        let (typed::Expr(c, t), _) = exprv_rec(t.as_ref(), names, None)?;
+        let (typed::Expr(c, t), _) = exprv_rec(t.as_ref(), names.clone(), None)?;
         if t.len() > 0 {return Err(Error::ExplicitBottomKind)}
         else {one_mrc_slice(c)}
       };
@@ -143,7 +143,7 @@ fn clause_rec(
       let id = get_name();
       // Convert the type
       let typ = if t.len() == 0 {mrc_empty_slice()} else {
-        let (typed::Expr(c, t), _) = exprv_rec(t.as_ref(), names, None)?;
+        let (typed::Expr(c, t), _) = exprv_rec(t.as_ref(), names.clone(), None)?;
         if t.len() > 0 {return Err(Error::ExplicitBottomKind)}
         else {one_mrc_slice(c)}
       };

@@ -7,7 +7,7 @@
 
 use std::env::current_dir;
 
-// mod executor;
+mod executor;
 mod parse;
 mod project;
 mod utils;

@@ -1,4 +1,4 @@
-use std::iter;
+use std::{iter, mem};
 
 use itertools::Itertools;
 
@@ -36,8 +36,9 @@ impl<T: Task> TaskVec<T> {
     if self.task_heap.len() <= i {None}
     else {self.task_heap[i].as_mut()}
   }
+  /// Returns the tally of the given record. Empty records always sink to the bottom
   fn tally(&self, i: usize) -> Nice {
-    self.task_heap[i].as_ref().map(|e| e.tally).unwrap_or(0)
+    self.task_heap[i].as_ref().map(|e| e.tally).unwrap_or(Nice::MAX)
   }
   fn swap(&mut self, a: usize, b: usize) {
     self.task_heap.swap(a, b);
@@ -49,7 +50,7 @@ impl<T: Task> TaskVec<T> {
   fn normalize(&mut self) {
     let shrink_count = self.task_heap.iter().rev().take_while(|e| e.is_none()).count();
     let new_len = self.task_heap.len() - shrink_count;
-    self.task_heap.splice(0..new_len, iter::empty());
+    self.task_heap.splice(new_len.., iter::empty());
     let head = self.entry_mut(0);
     let offset = if let Some(e) = head {
       let offset = e.tally - 1;
@@ -86,10 +87,43 @@ impl<T: Task> TaskVec<T> {
     self.swap(i, mchi);
     self.sink(mchi);
   }
+
+  fn take_results(&mut self) -> Vec<T::Result> {
+    let mut swap = Vec::new();
+    mem::swap(&mut self.results, &mut swap);
+    return swap.into_iter().collect::<Option<_>>()
+      .expect("Results not full but the heap is empty");
+  }
+
+  fn one_left(&mut self) -> bool {
+    self.entry(0).is_some() && self.entry(1).is_none() && self.entry(2).is_none()
+  }
 }
 
 impl<T: Task> Task for TaskVec<T> {
+  type Result = Vec<T::Result>;
+
+  fn run_n_times(&mut self, mut count: u64) -> TaskState<Self::Result> {
+    loop {
+      if count == 0 {return TaskState::Yield}
+      if self.one_left() {
+        let head = &mut self.task_heap[0];
+        let head_entry = head.as_mut().expect("one_left faulty");
+        return match head_entry.task.run_n_times(count) {
+          TaskState::Yield => TaskState::Yield,
+          TaskState::Complete(r) => {
+            self.results[head_entry.position] = Some(r);
+            *head = None;
+            return TaskState::Complete(self.take_results());
+          }
+        }
+      } else if let r@TaskState::Complete(_) = self.run_once() {return r}
+      count -= 1;
+    }
+  }
+
   fn run_once(&mut self) -> super::TaskState<Self::Result> {
+    self.normalize();
     let head = &mut self.task_heap[0];
     let head_entry = head.as_mut().expect("All completed, cannot run further");
     head_entry.tally += head_entry.nice;
@@ -98,9 +132,13 @@ impl<T: Task> Task for TaskVec<T> {
         self.results[head_entry.position] = Some(r);
         *head = None;
         self.sink(0);
-        if self.entry(0).is_some() {
-          
-        }
+        if self.entry(0).is_some() { return TaskState::Yield }
+        TaskState::Complete(self.take_results())
+      }
+      TaskState::Yield => {
+        head_entry.tally += head_entry.nice;
+        self.sink(0);
+        TaskState::Yield
       }
     }
   }

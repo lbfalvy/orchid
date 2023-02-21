@@ -95,3 +95,8 @@ fn direct_reductions(ex: Mrc<Expr>) -> impl Iterator<Item = Mrc<Expr>> {
   })
 }
 
+/*
+
+
+
+ */
