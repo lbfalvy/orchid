@@ -1,53 +1,58 @@
+use itertools::Itertools;
 use mappable_rc::Mrc;
 
 use crate::utils::{collect_to_mrc, to_mrc_slice};
 
-use super::super::representations::typed::{Clause, Expr};
+use crate::representations::typed::{Clause, Expr};
 
-pub fn apply_lambda(id: u64, value: Mrc<Expr>, body: Mrc<Expr>) -> Mrc<Expr> {
-  apply_lambda_expr_rec(id, value, Mrc::clone(&body))
-    .unwrap_or(body)
+#[derive(Clone)]
+struct Application<'a> {
+  id: u64,
+  value: &'a Expr,
+  types: bool
 }
 
+// pub fn apply_lambda(app: Application, body: Expr) -> Expr {
+//   apply_lambda_expr_rec(id, value, body)
+//     .unwrap_or(body)
+// }
+
 fn apply_lambda_expr_rec(
-  id: u64, value: Mrc<Expr>, expr: Mrc<Expr>
-) -> Option<Mrc<Expr>> {
-  let Expr(clause, typ) = expr.as_ref();
+  app@Application{ id, types, value }: Application, expr: &Expr
+) -> Option<Expr> {
+  let Expr(clause, typ) = expr;
   match clause {
     Clause::LambdaArg(arg_id) | Clause::AutoArg(arg_id) if *arg_id == id => {
-      let full_typ = collect_to_mrc(
+      let full_typ = 
         value.1.iter()
         .chain(typ.iter())
-        .cloned()
-      );
-      Some(Mrc::new(Expr(value.0.to_owned(), full_typ)))
+        .cloned().collect_vec();
+      Some(Expr(value.0.to_owned(), full_typ))
     }
     cl => {
-      apply_lambda_clause_rec(id, value, cl.clone())
-        .map(|c| Mrc::new(Expr(c, Mrc::clone(typ))))
+      let new_cl = apply_lambda_clause_rec(app, cl);
+      let new_typ = if !types {None} else {
+        typ.
+      }
     }
   }
 }
 
 fn apply_lambda_clause_rec(
-  id: u64, value: Mrc<Expr>, clause: Clause
+  app: Application, clause: &Clause
 ) -> Option<Clause> {
   match clause {
     // Only element actually manipulated
-    Clause::LambdaArg(_) | Clause::AutoArg(_) => Some(clause),
+    Clause::LambdaArg(_) | Clause::AutoArg(_) => None,
     // Traverse, yield Some if either had changed.
     Clause::Apply(f, x) => {
-      let new_f = apply_lambda_expr_rec(
-        id, Mrc::clone(&value), Mrc::clone(&f)
-      );
-      let new_x = apply_lambda_expr_rec(
-        id, value, Mrc::clone(&x)
-      );
+      let new_f = apply_lambda_expr_rec(app, f.as_ref());
+      let new_x = apply_lambda_expr_rec(app, x.as_ref());
       match (new_f, new_x) { // Mind the shadows
         (None, None) => None,
-        (None, Some(x)) => Some(Clause::Apply(f, x)),
-        (Some(f), None) => Some(Clause::Apply(f, x)),
-        (Some(f), Some(x)) => Some(Clause::Apply(f, x))
+        (None, Some(x)) => Some(Clause::Apply(f.clone(), Box::new(x))),
+        (Some(f), None) => Some(Clause::Apply(Box::new(f), x.clone())),
+        (Some(f), Some(x)) => Some(Clause::Apply(Box::new(f), Box::new(x)))
       }
     },
     Clause::Lambda(own_id, t, b) => apply_lambda__traverse_param(id, value, own_id, t, b, Clause::Lambda),

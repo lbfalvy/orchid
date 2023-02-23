@@ -9,7 +9,6 @@ define Zippable $C:(type -> type) as @:Mappable $C. (
   @T. @U. @V. (T -> U -> V) -> $C T -> $C U -> $C V
 )
 define Default $T:type as $T
--- Is the intersection of typeclasses an operation we need?
 
 --[ Type definition ]--
 define Cons $elem:type as loop \r. Option (Pair T $elem)

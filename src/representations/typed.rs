@@ -1,39 +1,35 @@
 use mappable_rc::Mrc;
+use crate::executor::apply_lambda;
 use crate::foreign::{Atom, ExternFn};
 use crate::utils::{to_mrc_slice, one_mrc_slice};
 use crate::utils::string_from_charset;
 
-use super::{Literal, ast_to_typed};
+use super::get_name::get_name;
+use super::{Literal, ast_to_typed, get_name};
 use super::ast;
 
 use std::fmt::{Debug, Write};
 
 /// Indicates whether either side needs to be wrapped. Syntax whose end is ambiguous on that side
 /// must use parentheses, or forward the flag
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 struct Wrap(bool, bool);
 
-#[derive(PartialEq, Eq, Hash)]
-pub struct Expr(pub Clause, pub Mrc<[Clause]>);
+#[derive(PartialEq, Eq, Hash, Clone)]
+pub struct Expr(pub Clause, pub Vec<Clause>);
 impl Expr {
   fn deep_fmt(&self, f: &mut std::fmt::Formatter<'_>, tr: Wrap) -> std::fmt::Result {
     let Expr(val, typ) = self;
     if typ.len() > 0 {
       val.deep_fmt(f, Wrap(true, true))?;
-      for typ in typ.as_ref() {
+      for typterm in typ {
         f.write_char(':')?;
-        typ.deep_fmt(f, Wrap(true, true))?;
+        typterm.deep_fmt(f, Wrap(true, true))?;
       }
     } else {
       val.deep_fmt(f, tr)?;
     }
     Ok(())
-  }
-}
-
-impl Clone for Expr {
-  fn clone(&self) -> Self {
-    Self(self.0.clone(), Mrc::clone(&self.1))
   }
 }
 
@@ -46,9 +42,9 @@ impl Debug for Expr {
 #[derive(PartialEq, Eq, Hash)]
 pub enum Clause {
   Literal(Literal),
-  Apply(Mrc<Expr>, Mrc<Expr>),
-  Lambda(u64, Mrc<[Clause]>, Mrc<Expr>),
-  Auto(u64, Mrc<[Clause]>, Mrc<Expr>),
+  Apply(Box<Expr>, Box<Expr>),
+  Lambda(u64, Box<[Clause]>, Box<Expr>),
+  Auto(u64, Box<[Clause]>, Box<Expr>),
   LambdaArg(u64), AutoArg(u64),
   ExternFn(ExternFn),
   Atom(Atom)
@@ -58,7 +54,7 @@ const ARGNAME_CHARSET: &str = "abcdefghijklmnopqrstuvwxyz";
 
 fn parametric_fmt(
   f: &mut std::fmt::Formatter<'_>,
-  prefix: &str, argtyp: Mrc<[Clause]>, body: Mrc<Expr>, uid: u64, wrap_right: bool
+  prefix: &str, argtyp: &[Clause], body: &Expr, uid: u64, wrap_right: bool
 ) -> std::fmt::Result {
   if wrap_right { f.write_char('(')?; }
   f.write_str(prefix)?;
@@ -80,12 +76,8 @@ impl Clause {
       Self::Literal(arg0) => write!(f, "{arg0:?}"),
       Self::ExternFn(nc) => write!(f, "{nc:?}"),
       Self::Atom(a) => write!(f, "{a:?}"),
-      Self::Lambda(uid, argtyp, body) => parametric_fmt(f,
-        "\\", Mrc::clone(argtyp), Mrc::clone(body), *uid, wr
-      ),
-      Self::Auto(uid, argtyp, body) => parametric_fmt(f,
-        "@", Mrc::clone(argtyp), Mrc::clone(body), *uid, wr
-      ),
+      Self::Lambda(uid, argtyp, body) => parametric_fmt(f, "\\", argtyp, body, *uid, wr),
+      Self::Auto(uid, argtyp, body) => parametric_fmt(f, "@", argtyp, body, *uid, wr),
       Self::LambdaArg(uid) | Self::AutoArg(uid) => f.write_str(&
         string_from_charset(*uid, ARGNAME_CHARSET)
       ),
@@ -99,19 +91,27 @@ impl Clause {
       }
     }
   }
-  pub fn wrap(self) -> Mrc<Expr> { Mrc::new(Expr(self, to_mrc_slice(vec![]))) }
-  pub fn wrap_t(self, t: Clause) -> Mrc<Expr> { Mrc::new(Expr(self, one_mrc_slice(t))) }
+  pub fn wrap(self) -> Box<Expr> { Box::new(Expr(self, vec![])) }
+  pub fn wrap_t(self, t: Clause) -> Box<Expr> { Box::new(Expr(self, vec![t])) }
 }
 
 impl Clone for Clause {
   fn clone(&self) -> Self {
     match self {
-      Clause::Auto(uid,t, b) => Clause::Auto(*uid, Mrc::clone(t), Mrc::clone(b)),
-      Clause::Lambda(uid, t, b) => Clause::Lambda(*uid, Mrc::clone(t), Mrc::clone(b)),
+      Clause::Auto(uid, t, b) => {
+        let new_id = get_name();
+        let new_body = apply_lambda(*uid, Clause::AutoArg(new_id).wrap(), b.clone());
+        Clause::Auto(new_id, t.clone(), new_body)
+      },
+      Clause::Lambda(uid, t, b) => {
+        let new_id = get_name();
+        let new_body = apply_lambda(*uid, Clause::LambdaArg(new_id).wrap(), b.clone());
+        Clause::Lambda(new_id, t.clone(), new_body)
+      },
       Clause::Literal(l) => Clause::Literal(l.clone()),
       Clause::ExternFn(nc) => Clause::ExternFn(nc.clone()),
       Clause::Atom(a) => Clause::Atom(a.clone()),
-      Clause::Apply(f, x) => Clause::Apply(Mrc::clone(f), Mrc::clone(x)),
+      Clause::Apply(f, x) => Clause::Apply(Box::clone(&f), x.clone()),
       Clause::LambdaArg(id) => Clause::LambdaArg(*id),
       Clause::AutoArg(id) => Clause::AutoArg(*id)
     }
@@ -138,4 +138,26 @@ impl TryFrom<&ast::Clause> for Clause {
   }
 }
 
-pub fn count_references(id: u64, clause: &Clause)
+pub fn is_used_clause(id: u64, is_auto: bool, clause: &Clause) -> bool {
+  match clause {
+    Clause::Atom(_) | Clause::ExternFn(_) | Clause::Literal(_) => false,
+    Clause::AutoArg(x) => is_auto && *x == id,
+    Clause::LambdaArg(x) => !is_auto && *x == id,
+    Clause::Apply(f, x) => is_used_expr(id, is_auto, &f) || is_used_expr(id, is_auto, &x),
+    Clause::Auto(n, t, b) => {
+      assert!(*n != id, "Shadowing should have been eliminated");
+      if is_auto && t.iter().any(|c| is_used_clause(id, is_auto, c)) {return true};
+      is_used_expr(id, is_auto, b)
+    }
+    Clause::Lambda(n, t, b) => {
+      assert!(*n != id, "Shadowing should have been eliminated");
+      if is_auto && t.iter().any(|c| is_used_clause(id, is_auto, c)) {return true};
+      is_used_expr(id, is_auto, b)
+    }
+  }
+}
+
+pub fn is_used_expr(id: u64, is_auto: bool, Expr(val, typ): &Expr) -> bool {
+  if is_auto && typ.iter().any(|c| is_used_clause(id, is_auto, c)) {return true};
+  is_used_clause(id, is_auto, val)
+}
