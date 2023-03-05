@@ -5,34 +5,40 @@ use std::fmt::Debug;
 use std::rc::Rc;
 use std::hash::Hash;
 
-use crate::{atomic_impl, atomic_redirect, externfn_impl, xfn_initial, xfn_middle, xfn_last, xfn};
+use crate::{atomic_impl, atomic_redirect, externfn_impl};
 use crate::foreign::{ExternError, ExternFn, Atom, Atomic};
 use crate::representations::Primitive;
 use crate::representations::interpreted::{Clause, InternalError};
 
-// xfn_initial!(
-//   /// Multiply function
-//   Multiply2, Multiply1
-// );
-// xfn_middle!(
-//   /// Partially applied multiply function
-//   Multiply2, Multiply1, Multiply0, (
-//     a: Numeric: |c: &Clause| c.clone().try_into()
-//   )
-// );
-// xfn_last!(
-//   /// Fully applied Multiply function.
-//   Multiply1, Multiply0, (
-//     b: Numeric: |c: &Clause| c.clone().try_into(),
-//     a: Numeric: |c: &Clause| c.clone().try_into()
-//   ), Ok((*a * b).into())
-// );
+/// Multiply function
+/// 
+/// Next state: [Multiply1]
 
-xfn!((
-  /// Multiply function
-  a: Numeric: |c: &Clause| c.clone().try_into(),
-  /// Partially applied multiply function
-  b: Numeric: |c: &Clause| c.clone().try_into()
-), {
+#[derive(Clone)]
+pub struct Multiply2;
+externfn_impl!(Multiply2, |_: &Self, c: Clause| {Ok(Multiply1{c})});
+
+/// Partially applied Multiply function
+/// 
+/// Prev state: [Multiply2]; Next state: [Multiply0]
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub struct Multiply1{ c: Clause }
+atomic_redirect!(Multiply1, c);
+atomic_impl!(Multiply1);
+externfn_impl!(Multiply1, |this: &Self, c: Clause| {
+  let a: Numeric = this.c.clone().try_into()?;
+  Ok(Multiply0{ a, c })
+});
+
+/// Fully applied Multiply function.
+/// 
+/// Prev state: [Multiply1]
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub struct Multiply0 { a: Numeric, c: Clause }
+atomic_redirect!(Multiply0, c);
+atomic_impl!(Multiply0, |Self{ a, c }: &Self| {
+  let b: Numeric = c.clone().try_into()?;
   Ok((*a * b).into())
 });
