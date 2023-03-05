@@ -1,5 +1,8 @@
 mod cache;
 pub mod translate;
+mod replace_first;
+// mod visitor;
+pub use replace_first::replace_first;
 pub use cache::Cache;
 mod substack;
 pub use substack::Stackframe;

@@ -54,10 +54,10 @@ macro_rules! xloop {
   (for $p:pat in $it:expr; $body:stmt) => {
     xloop!(for $p in $it; $body; ())
   };
-  (for $p:pat in $it:expr; $body:stmt; $exit:stmt) => {
+  (for $p:pat in $iit:expr; $body:stmt; $exit:stmt) => {
     {
-      let mut __xloop__ = $it.into_iter();
-      xloop!(let Some($p) = __xloop__.next(); $body; $exit)
+      let mut i = $iit.into_iter();
+      xloop!(let Some($p) = i.next(); $body; $exit)
     }
   };
   (let $p:pat = $e:expr; $body:stmt) => {

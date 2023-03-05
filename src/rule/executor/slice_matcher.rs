@@ -211,7 +211,7 @@ impl SliceMatcherDnC {
       + self.apply_side_with_cache(Side::Right, mrc_derive(&target, |t| &t[pos+1..]), cache)
     )?;
     match (self.clause.as_ref(), &target.as_ref()[pos].0) {
-      (Clause::Literal(val), Clause::Literal(tgt)) => {
+      (Clause::P(val), Clause::P(tgt)) => {
         if val == tgt {Some(own_state)} else {None}
       }
       (Clause::Placeh{key, vec: None}, tgt_clause) => {

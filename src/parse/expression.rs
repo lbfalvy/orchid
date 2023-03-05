@@ -1,8 +1,9 @@
 use chumsky::{self, prelude::*, Parser};
 use mappable_rc::Mrc;
 use crate::enum_parser;
+use crate::representations::Primitive;
 use crate::representations::{Literal, ast::{Clause, Expr}};
-use crate::utils::{to_mrc_slice, one_mrc_slice};
+use crate::utils::to_mrc_slice;
 
 use super::lexer::Lexeme;
 
@@ -92,7 +93,7 @@ pub fn xpr_parser() -> impl Parser<Lexeme, Expr, Error = Simple<Lexeme>> {
     let clause = 
     enum_parser!(Lexeme::Comment).repeated()
     .ignore_then(choice((
-      enum_parser!(Lexeme >> Literal; Int, Num, Char, Str).map(Clause::Literal),
+      enum_parser!(Lexeme >> Literal; Int, Num, Char, Str).map(Primitive::Literal).map(Clause::P),
       placeholder_parser().map(|key| Clause::Placeh{key, vec: None}),
       just(Lexeme::name("...")).to(true)
         .or(just(Lexeme::name("..")).to(false))

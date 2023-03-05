@@ -1,13 +1,16 @@
+use std::iter;
+
 use hashbrown::HashMap;
 use mappable_rc::Mrc;
 
 use crate::unwrap_or;
-use crate::utils::{to_mrc_slice, one_mrc_slice, mrc_empty_slice};
+use crate::utils::{to_mrc_slice, one_mrc_slice, mrc_empty_slice, replace_first};
 use crate::utils::iter::{box_once, into_boxed_iter};
 use crate::ast::{Expr, Clause};
 use super::slice_matcher::SliceMatcherDnC;
 use super::state::{State, Entry};
 use super::super::RuleError;
+use super::update_first_seq_rec;
 
 fn verify_scalar_vec(pattern: &Expr, is_vec: &mut HashMap<String, bool>)
 -> Result<(), String> {
@@ -62,30 +65,12 @@ fn slice_to_vec(src: &mut Mrc<[Expr]>, tgt: &mut Mrc<[Expr]>) {
   *tgt = to_mrc_slice(prefix_vec.iter().chain(tgt.iter()).chain(postfix_vec.iter()).cloned().collect());
 }
 
-/// Traverse the tree, calling pred on every sibling list until it returns some vec
-/// then replace the sibling list with that vec and return true
-/// return false if pred never returned some
-fn update_first_seq_rec<F>(input: Mrc<[Expr]>, pred: &mut F) -> Option<Mrc<[Expr]>>
-where F: FnMut(Mrc<[Expr]>) -> Option<Mrc<[Expr]>> {
-  if let o@Some(_) = pred(Mrc::clone(&input)) {o} else {
-    for Expr(cls, _) in input.iter() {
-      if let Some(t) = cls.typ() {
-        if let o@Some(_) = update_first_seq_rec(t, pred) {return o}
-      }
-      if let Some(b) = cls.body() {
-        if let o@Some(_) = update_first_seq_rec(b, pred) {return o}
-      }
-    }
-    None
-  }
-}
-
 /// keep re-probing the input with pred until it stops matching
 fn update_all_seqs<F>(input: Mrc<[Expr]>, pred: &mut F) -> Option<Mrc<[Expr]>>
 where F: FnMut(Mrc<[Expr]>) -> Option<Mrc<[Expr]>> {
-  let mut tmp = update_first_seq_rec(input, pred);
+  let mut tmp = update_first_seq_rec::exprv(input, pred);
   while let Some(xv) = tmp {
-    tmp = update_first_seq_rec(Mrc::clone(&xv), pred);
+    tmp = update_first_seq_rec::exprv(Mrc::clone(&xv), pred);
     if tmp.is_none() {return Some(xv)}
   }
   None
@@ -151,14 +136,12 @@ fn write_expr_rec(state: &State, Expr(tpl_clause, tpl_typ): &Expr) -> Box<dyn It
       )).into_expr())
     },
     // Explicit base case so that we get an error if Clause gets new values
-    c@Clause::Literal(_) | c@Clause::Name { .. } | c@Clause::ExternFn(_) | c@Clause::Atom(_) =>
-      box_once(Expr(c.to_owned(), out_typ.to_owned()))
+    c@Clause::P(_) | c@Clause::Name { .. } => box_once(Expr(c.to_owned(), out_typ.to_owned()))
   }
 }
 
 /// Fill in a template from a state as produced by a pattern
 fn write_slice_rec(state: &State, tpl: &Mrc<[Expr]>) -> Mrc<[Expr]> {
-  eprintln!("Writing {tpl:?} with state {state:?}");
   tpl.iter().flat_map(|xpr| write_expr_rec(state, xpr)).collect()
 }
 

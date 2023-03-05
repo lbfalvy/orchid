@@ -4,9 +4,9 @@ use ordered_float::NotNan;
 use std::{hash::Hash, intrinsics::likely};
 use std::fmt::Debug;
 use crate::utils::mrc_empty_slice;
-use crate::{foreign::{ExternFn, Atom}, utils::one_mrc_slice};
+use crate::utils::one_mrc_slice;
 
-use super::Literal;
+use super::primitive::Primitive;
 
 /// An S-expression with a type
 #[derive(PartialEq, Eq, Hash)]
@@ -38,8 +38,7 @@ impl Debug for Expr {
 /// An S-expression as read from a source file
 #[derive(PartialEq, Eq, Hash)]
 pub enum Clause {
-  /// A literal value, eg. `1`, `"hello"`
-  Literal(Literal),
+  P(Primitive),
   /// A c-style name or an operator, eg. `+`, `i`, `foo::bar`
   Name{
     local: Option<String>,
@@ -53,12 +52,6 @@ pub enum Clause {
   Lambda(String, Mrc<[Expr]>, Mrc<[Expr]>),
   /// A parameterized expression with type inference, eg. `@T. T -> T`
   Auto(Option<String>, Mrc<[Expr]>, Mrc<[Expr]>),
-  /// An opaque function, eg. an effectful function employing CPS.
-  /// Preferably wrap these in an Orchid monad.
-  ExternFn(ExternFn),
-  /// An opaque non-callable value, eg. a file handle.
-  /// Preferably wrap these in an Orchid structure.
-  Atom(Atom),
   /// A placeholder for macros, eg. `$name`, `...$body`, `...$lhs:1` 
   Placeh{
     key: String,
@@ -111,9 +104,7 @@ impl Clone for Clause {
         n.clone(), Mrc::clone(t), Mrc::clone(b)
       ),
       Self::Placeh{key, vec} => Self::Placeh{key: key.clone(), vec: *vec},
-      Self::Literal(l) => Self::Literal(l.clone()),
-      Self::ExternFn(nc) => Self::ExternFn(nc.clone()),
-      Self::Atom(a) => Self::Atom(a.clone()),
+      Self::P(p) => Self::P(p.clone()),
       Self::Explicit(expr) => Self::Explicit(Mrc::clone(expr))
     }
   }
@@ -130,7 +121,7 @@ fn fmt_expr_seq(it: &mut dyn Iterator<Item = &Expr>, f: &mut std::fmt::Formatter
 impl Debug for Clause {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Self::Literal(arg0) => write!(f, "{:?}", arg0),
+      Self::P(p) => write!(f, "{:?}", p),
       Self::Name{local, qualified} =>
         if let Some(local) = local {write!(f, "{}`{}`", qualified.join("::"), local)}
         else {write!(f, "{}", qualified.join("::"))},
@@ -157,8 +148,6 @@ impl Debug for Clause {
       Self::Placeh{key, vec: None} => write!(f, "${key}"),
       Self::Placeh{key, vec: Some((prio, true))} => write!(f, "...${key}:{prio}"),
       Self::Placeh{key, vec: Some((prio, false))} => write!(f, "..${key}:{prio}"),
-      Self::ExternFn(nc) => write!(f, "{nc:?}"),
-      Self::Atom(a) => write!(f, "{a:?}"),
       Self::Explicit(expr) => write!(f, "@{:?}", expr.as_ref())
     }
   }

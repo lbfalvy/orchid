@@ -3,11 +3,15 @@
 #![feature(adt_const_params)]
 #![feature(generic_const_exprs)] 
 #![feature(generators, generator_trait)]
+#![feature(never_type)]
+#![feature(unwrap_infallible)]
+#![feature(arc_unwrap_or_clone)]
+#![feature(hasher_prefixfree_extras)]
+#![feature(closure_lifetime_binder)]
 
+use std::{env::current_dir, io};
 
-use std::env::current_dir;
-
-mod executor;
+// mod executor;
 mod parse;
 mod project;
 mod utils;
@@ -15,14 +19,18 @@ mod representations;
 mod rule;
 mod scheduler;
 pub(crate) mod foreign;
+mod external;
+mod foreign_macros;
 use file_loader::LoadingError;
 pub use representations::ast;
 use ast::{Expr, Clause};
-use representations::typed as t;
+// use representations::typed as t;
 use mappable_rc::Mrc;
 use project::{rule_collector, Loaded, file_loader};
 use rule::Repository;
 use utils::{to_mrc_slice, mrc_empty_slice, one_mrc_slice};
+
+use crate::representations::{ast_to_postmacro, postmacro_to_interpreted, interpreted};
 
 fn literal(orig: &[&str]) -> Mrc<[String]> {
   to_mrc_slice(vliteral(orig))
@@ -50,23 +58,23 @@ fn initial_tree() -> Mrc<[Expr]> {
 }
 
 #[allow(unused)]
-fn typed_notation_debug() {
-  let true_ex = t::Clause::Auto(0, mrc_empty_slice(),
-    t::Clause::Lambda(1, one_mrc_slice(t::Clause::AutoArg(0)), 
-      t::Clause::Lambda(2, one_mrc_slice(t::Clause::AutoArg(0)),
-        t::Clause::LambdaArg(1).wrap_t(t::Clause::AutoArg(0))
-      ).wrap()
-    ).wrap()
-  ).wrap();
-  let false_ex = t::Clause::Auto(0, mrc_empty_slice(),
-    t::Clause::Lambda(1, one_mrc_slice(t::Clause::AutoArg(0)),
-      t::Clause::Lambda(2, one_mrc_slice(t::Clause::AutoArg(0)),
-        t::Clause::LambdaArg(2).wrap_t(t::Clause::AutoArg(0))
-      ).wrap()
-    ).wrap()
-  ).wrap();
-  println!("{:?}", t::Clause::Apply(t::Clause::Apply(Mrc::clone(&true_ex), true_ex).wrap(), false_ex))
-}
+// fn typed_notation_debug() {
+//   let true_ex = t::Clause::Auto(0, mrc_empty_slice(),
+//     t::Clause::Lambda(1, one_mrc_slice(t::Clause::AutoArg(0)), 
+//       t::Clause::Lambda(2, one_mrc_slice(t::Clause::AutoArg(0)),
+//         t::Clause::LambdaArg(1).wrap_t(t::Clause::AutoArg(0))
+//       ).wrap()
+//     ).wrap()
+//   ).wrap();
+//   let false_ex = t::Clause::Auto(0, mrc_empty_slice(),
+//     t::Clause::Lambda(1, one_mrc_slice(t::Clause::AutoArg(0)),
+//       t::Clause::Lambda(2, one_mrc_slice(t::Clause::AutoArg(0)),
+//         t::Clause::LambdaArg(2).wrap_t(t::Clause::AutoArg(0))
+//       ).wrap()
+//     ).wrap()
+//   ).wrap();
+//   println!("{:?}", t::Clause::Apply(t::Clause::Apply(Mrc::clone(&true_ex), true_ex).wrap(), false_ex))
+// }
 
 #[allow(unused)]
 fn load_project() {
@@ -95,7 +103,14 @@ fn load_project() {
       },
       Err(e) => panic!("Rule error: {e:?}")
     }
-  }; println!("Macro execution didn't halt"));
+  }; panic!("Macro execution didn't halt"));
+  let pmtree = ast_to_postmacro::exprv(tree.as_ref())
+    .unwrap_or_else(|e| panic!("Postmacro conversion error: {e}"));
+  let runtree = postmacro_to_interpreted::expr_rec(&pmtree)
+    .unwrap_or_else(|e| panic!("Interpreted conversion error: {e}"));
+  let stable = runtree.run_to_completion()
+    .unwrap_or_else(|e| panic!("Runtime error {e}"));
+  println!("Settled at {stable:?}")
 }
 
 fn main() {
