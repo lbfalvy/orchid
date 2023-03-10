@@ -1,14 +1,11 @@
-mod numeric;
-use numeric::Numeric;
+
+use super::super::Numeric;
 
 use std::fmt::Debug;
-use std::rc::Rc;
 use std::hash::Hash;
 
 use crate::{atomic_impl, atomic_redirect, externfn_impl};
-use crate::foreign::{ExternError, ExternFn, Atom, Atomic};
-use crate::representations::Primitive;
-use crate::representations::interpreted::{Clause, InternalError};
+use crate::representations::interpreted::Clause;
 
 /// Multiply function
 /// 

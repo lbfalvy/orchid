@@ -1,10 +1,14 @@
 mod rule_collector;
-pub use rule_collector::rule_collector;
+mod loading;
 mod prefix;
 mod name_resolver;
-mod loaded;
-pub use loaded::Loaded;
 mod module_error;
-pub mod file_loader;
-pub use file_loader::file_loader;
+
+pub use module_error::ModuleError;
+pub use rule_collector::rule_collector;
+pub use loading::{
+  Loader, Loaded, LoadingError,
+  ext_loader, file_loader, string_loader, map_loader, fnlib_loader,
+  overlay_loader, prefix_loader
+};
 use crate::ast::Rule;

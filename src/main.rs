@@ -8,12 +8,13 @@
 #![feature(arc_unwrap_or_clone)]
 #![feature(hasher_prefixfree_extras)]
 #![feature(closure_lifetime_binder)]
+#![feature(generic_arg_infer)]
 
-use std::{env::current_dir, io};
+use std::{env::current_dir, collections::HashMap};
 
 // mod executor;
 mod parse;
-mod project;
+pub(crate) mod project;
 mod utils;
 mod representations;
 mod rule;
@@ -21,16 +22,17 @@ mod scheduler;
 pub(crate) mod foreign;
 mod external;
 mod foreign_macros;
-use file_loader::LoadingError;
 pub use representations::ast;
 use ast::{Expr, Clause};
 // use representations::typed as t;
 use mappable_rc::Mrc;
-use project::{rule_collector, Loaded, file_loader};
+use project::{rule_collector, file_loader};
 use rule::Repository;
-use utils::{to_mrc_slice, mrc_empty_slice, one_mrc_slice};
+use utils::to_mrc_slice;
 
-use crate::representations::{ast_to_postmacro, postmacro_to_interpreted, interpreted};
+use crate::external::std::std;
+use crate::project::{map_loader, string_loader, Loader, ModuleError};
+use crate::representations::{ast_to_postmacro, postmacro_to_interpreted};
 
 fn literal(orig: &[&str]) -> Mrc<[String]> {
   to_mrc_slice(vliteral(orig))
@@ -41,60 +43,68 @@ fn vliteral(orig: &[&str]) -> Vec<String> {
 }
 
 static PRELUDE:&str = r#"
-export ... $name =1000=> (match_seqence $name)
-export ] =1000=> conslist_carriage(none)
-export , $name conslist_carriage($tail) =1000=> conslist_carriage((some (cons $name $tail)))
-export [ $name conslist_carriage($tail) =1000=> (some (cons $name $tail))
-export (match_sequence $lhs) >> (match_sequence $rhs) =100=> (bind ($lhs) (\_. $rhs))
-export (match_sequence $lhs) >>= (match_sequence $rhs) =100=> (bind ($lhs) ($rhs))
-"#;
+import std::(
+  num::(add, subtract, multiply, remainder, divide),
+  bool::(equals, ifthenelse),
+  str::concatenate
+)
 
+export (...$a + ...$b) =1001=> (add (...$a) (...$b))
+export (...$a - ...$b:1) =1001=> (subtract (...$a) (...$b))
+export (...$a * ...$b) =1000=> (multiply (...$a) (...$b))
+export (...$a % ...$b:1) =1000=> (remainder (...$a) (...$b))
+export (...$a / ...$b:1) =1000=> (divide (...$a) (...$b))
+export (...$a = ...$b) =1002=> (equals (...$a) (...$b))
+export (...$a ++ ...$b) =1003=> (concatenate (...$a) (...$b))
+
+export do { ...$statement ; ...$rest:1 } =10_001=> (
+  statement (...$statement) do { ...$rest } 
+)
+export do { ...$statement } =10_000=> (...$statement)
+
+export statement (let $_name = ...$value) ...$next =10_000=> (
+  (\$_name. ...$next) (...$value)
+)
+export statement (cps $_name = ...$operation) ...$next =10_001=> (
+  (...$operation) \$_name. ...$next
+)
+export statement (cps ...$operation) ...$next =10_000=> (
+  (...$operation) (...$next)
+)
+
+export if ...$cond then ...$true else ...$false:1 =5_000=> (
+  ifthenelse (...$cond) (...$true) (...$false)
+)
+"#;
 
 fn initial_tree() -> Mrc<[Expr]> {
   to_mrc_slice(vec![Expr(Clause::Name {
     local: None,
-    qualified: literal(&["main", "main"])
+    qualified: literal(&["mod", "main", "main"])
   }, to_mrc_slice(vec![]))])
 }
 
 #[allow(unused)]
-// fn typed_notation_debug() {
-//   let true_ex = t::Clause::Auto(0, mrc_empty_slice(),
-//     t::Clause::Lambda(1, one_mrc_slice(t::Clause::AutoArg(0)), 
-//       t::Clause::Lambda(2, one_mrc_slice(t::Clause::AutoArg(0)),
-//         t::Clause::LambdaArg(1).wrap_t(t::Clause::AutoArg(0))
-//       ).wrap()
-//     ).wrap()
-//   ).wrap();
-//   let false_ex = t::Clause::Auto(0, mrc_empty_slice(),
-//     t::Clause::Lambda(1, one_mrc_slice(t::Clause::AutoArg(0)),
-//       t::Clause::Lambda(2, one_mrc_slice(t::Clause::AutoArg(0)),
-//         t::Clause::LambdaArg(2).wrap_t(t::Clause::AutoArg(0))
-//       ).wrap()
-//     ).wrap()
-//   ).wrap();
-//   println!("{:?}", t::Clause::Apply(t::Clause::Apply(Mrc::clone(&true_ex), true_ex).wrap(), false_ex))
-// }
-
-#[allow(unused)]
 fn load_project() {
-  let cwd = current_dir().unwrap();
-  let collect_rules = rule_collector(move |n| -> Result<Loaded, LoadingError> {
-    if n == literal(&["prelude"]) { Ok(Loaded::Module(PRELUDE.to_string())) }
-    else { file_loader(cwd.clone())(n) }
-  }, vliteral(&["...", ">>", ">>=", "[", "]", ",", "=", "=>"]));
-  let rules = match collect_rules.try_find(&literal(&["main"])) {
+  let collect_rules = rule_collector(map_loader(HashMap::from([
+    ("std", std().boxed()),
+    ("prelude", string_loader(PRELUDE).boxed()),
+    ("mod", file_loader(current_dir().expect("Missing CWD!")).boxed())
+  ])));
+  let rules = match collect_rules.try_find(&literal(&["mod", "main"])) {
     Ok(rules) => rules,
-    Err(err) => panic!("{:#?}", err)
+    Err(err) => if let ModuleError::Syntax(pe) = err {
+      panic!("{}", pe);
+    } else {panic!("{:#?}", err)}
   };
   let mut tree = initial_tree();
   println!("Start processing {tree:?}");
   let repo = Repository::new(rules.as_ref().to_owned());
   println!("Ruleset: {repo:?}");
-  xloop!(let mut i = 0; i < 10; i += 1; {
+  xloop!(let mut i = 0; i < 100; i += 1; {
     match repo.step(Mrc::clone(&tree)) {
       Ok(Some(phase)) => {
-        println!("Step {i}: {phase:?}");
+        //println!("Step {i}: {phase:?}");
         tree = phase;
       },
       Ok(None) => {
@@ -116,4 +126,9 @@ fn load_project() {
 fn main() {
   // lambda_notation_debug();
   load_project();
+  // let mut std = std();
+  // match std.load(&["parse_float"]) {
+  //   Ok(_) => println!("wtf"),
+  //   Err(e) => panic!("{:?}", e)
+  // }
 }

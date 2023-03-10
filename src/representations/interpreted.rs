@@ -4,6 +4,7 @@ use std::rc::Rc;
 use crate::utils::Side;
 use crate::foreign::{ExternError, Atom};
 
+use super::Literal;
 use super::path_set::PathSet;
 use super::primitive::Primitive;
 
@@ -38,6 +39,22 @@ impl Debug for Clause {
         write!(f, "{:?}", body.as_ref())
       }
     }
+  }
+}
+
+impl TryFrom<Clause> for Literal {
+  type Error = Clause;
+  fn try_from(value: Clause) -> Result<Self, Self::Error> {
+    if let Clause::P(Primitive::Literal(l)) = value {Ok(l)}
+    else {Err(value)}
+  }
+}
+
+impl<'a> TryFrom<&'a Clause> for &'a Literal {
+  type Error = ();
+  fn try_from(value: &'a Clause) -> Result<Self, Self::Error> {
+    if let Clause::P(Primitive::Literal(l)) = value {Ok(l)}
+    else {Err(())}
   }
 }
 
@@ -114,6 +131,10 @@ fn substitute(PathSet { steps, next }: &PathSet, value: &Clause, body: &Clause) 
 
 fn apply(f: &Clause, x: Rc<Clause>, id: usize) -> Result<Clause, InternalError> {
   match f {
+    Clause::P(Primitive::Atom(Atom(a))) => Ok(Clause::Apply { // Don't execute a pre-application
+      f: Rc::new(a.run_once()?), // take a step in expanding the atom instead
+      x, id
+    }),
     Clause::P(Primitive::ExternFn(f)) => f.apply(x.as_ref().clone())
       .map_err(|e| InternalError::Runtime(RuntimeError::Extern(e))),
     fex@Clause::Apply{..} => Ok(Clause::Apply{ // Don't execute the pre-function expression

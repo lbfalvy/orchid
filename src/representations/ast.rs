@@ -46,7 +46,7 @@ pub enum Clause {
   },
   /// A parenthesized expression, eg. `(print out "hello")`, `[1, 2, 3]`, `{Some(t) => t}`
   S(char, Mrc<[Expr]>),
-  /// An explicit expression associated with the leftmost, outermost [Clause::Auto], eg. `read @Int`
+  /// An explicit expression associated with the leftmost, outermost [Clause::Auto], eg. `read @Uint`
   Explicit(Mrc<Expr>),
   /// A function expression, eg. `\x. x + 1`
   Lambda(String, Mrc<[Expr]>, Mrc<[Expr]>),

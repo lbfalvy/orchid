@@ -93,14 +93,14 @@ pub fn xpr_parser() -> impl Parser<Lexeme, Expr, Error = Simple<Lexeme>> {
     let clause = 
     enum_parser!(Lexeme::Comment).repeated()
     .ignore_then(choice((
-      enum_parser!(Lexeme >> Literal; Int, Num, Char, Str).map(Primitive::Literal).map(Clause::P),
+      enum_parser!(Lexeme >> Literal; Uint, Num, Char, Str).map(Primitive::Literal).map(Clause::P),
       placeholder_parser().map(|key| Clause::Placeh{key, vec: None}),
       just(Lexeme::name("...")).to(true)
         .or(just(Lexeme::name("..")).to(false))
         .then(placeholder_parser())
         .then(
           just(Lexeme::Type)
-          .ignore_then(enum_parser!(Lexeme::Int))
+          .ignore_then(enum_parser!(Lexeme::Uint))
           .or_not().map(Option::unwrap_or_default)
         )
         .map(|((nonzero, key), prio)| Clause::Placeh{key, vec: Some((

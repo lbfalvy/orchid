@@ -4,7 +4,20 @@
 			"path": "."
 		}
 	],
-	"settings": {},
+	"settings": {
+		"[markdown]": {
+			"editor.unicodeHighlight.ambiguousCharacters": false,
+			"editor.unicodeHighlight.invisibleCharacters": false,
+			"diffEditor.ignoreTrimWhitespace": false,
+			"editor.wordWrap": "bounded",
+			"editor.wordWrapColumn": 100,
+			"editor.quickSuggestions": {
+				"comments": "off",
+				"strings": "off",
+				"other": "off"
+			}
+		}
+	},
 	"extensions": {
 		"recommendations": [
 			"tomoki1207.pdf",

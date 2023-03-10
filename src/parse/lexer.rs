@@ -24,7 +24,7 @@ impl From<Entry> for (Lexeme, Range<usize>) {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Lexeme {
   Num(NotNan<f64>),
-  Int(u64),
+  Uint(u64),
   Char(char),
   Str(String),
   Name(String),
@@ -35,14 +35,16 @@ pub enum Lexeme {
   BS, // Backslash
   At,
   Type, // type operator
-  Comment(String)
+  Comment(String),
+  Export,
+  Import,
 }
 
 impl Debug for Lexeme {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Num(n) => write!(f, "{}", n),
-      Self::Int(i) => write!(f, "{}", i),
+      Self::Uint(i) => write!(f, "{}", i),
       Self::Char(c) => write!(f, "{:?}", c),
       Self::Str(s) => write!(f, "{:?}", s),
       Self::Name(name) => write!(f, "{}", name),
@@ -59,6 +61,8 @@ impl Debug for Lexeme {
       Self::At => write!(f, "@"),
       Self::Type => write!(f, ":"),
       Self::Comment(text) => write!(f, "--[{}]--", text),
+      Self::Export => write!(f, "export"),
+      Self::Import => write!(f, "import"),
     }
   }
 }
@@ -118,11 +122,14 @@ fn paren_parser<'a>(
   })
 }
 
-pub fn lexer<'a, T: 'a>(ops: &[T]) -> impl Parser<char, LexedText, Error=Simple<char>> + 'a
+pub fn lexer<'a, T: 'a>(ops: &[T]) -> impl Parser<char, Vec<Entry>, Error=Simple<char>> + 'a
 where T: AsRef<str> + Clone {
   let all_ops = ops.iter().map(|o| o.as_ref().to_string())
-    .chain(iter::once(".".to_string())).collect::<Vec<_>>();
-  recursive(move |recurse: Recursive<char, LexSubres, Simple<char>>| {
+    .chain([",", ".", "..", "..."].into_iter().map(str::to_string))
+    .collect::<Vec<_>>();
+  just("export").padded().to(Lexeme::Export)
+  .or(just("import").padded().to(Lexeme::Import))
+  .or_not().then(recursive(move |recurse: Recursive<char, LexSubres, Simple<char>>| {
     choice((
       paren_parser(recurse.clone(), '(', ')'),
       paren_parser(recurse.clone(), '[', ']'),
@@ -135,7 +142,7 @@ where T: AsRef<str> + Clone {
         just('\\').padded().to(Lexeme::BS),
         just('@').padded().to(Lexeme::At),
         just(':').to(Lexeme::Type),
-        number::int_parser().map(Lexeme::Int), // all ints are valid floats so it takes precedence
+        number::int_parser().map(Lexeme::Uint), // all ints are valid floats so it takes precedence
         number::float_parser().map(Lexeme::Num),
         string::char_parser().map(Lexeme::Char),
         string::str_parser().map(Lexeme::Str),
@@ -143,7 +150,9 @@ where T: AsRef<str> + Clone {
       )).map_with_span(|lx, span| box_once(Entry(lx, span)) as LexSubres)
     ))
   }).separated_by(one_of("\t ").repeated())
-  .flatten().collect()
-  .separated_by(just('\n').then(text::whitespace()).ignored())
-  .map(LexedText)
+  .flatten().collect())
+  .map(|(prefix, rest): (Option<Lexeme>, Vec<Entry>)| {
+    prefix.into_iter().map(|l| Entry(l, 0..6)).chain(rest.into_iter()).collect()
+  })
+  .then_ignore(text::whitespace()).then_ignore(end())
 }

@@ -1,27 +1,10 @@
-use std::io;
-use std::rc::Rc;
 use std::fs::read_to_string;
 use std::path::PathBuf;
 
-use mappable_rc::Mrc;
+use super::{Loaded, Loader, LoadingError};
 
-use super::loaded::Loaded;
-
-#[derive(Clone, Debug)]
-pub enum LoadingError {
-  IOErr(Rc<io::Error>),
-  UnknownNode(String),
-  Missing(String)
-}
-
-impl From<io::Error> for LoadingError {
-  fn from(inner: io::Error) -> Self {
-    LoadingError::IOErr(Rc::new(inner))
-  }
-}
-
-pub fn file_loader(proj: PathBuf) -> impl FnMut(Mrc<[String]>) -> Result<Loaded, LoadingError> + 'static {
-  move |path| {
+pub fn file_loader(proj: PathBuf) -> impl Loader + 'static {
+  move |path: &[&str]| {
     let dirpath = proj.join(path.join("/"));
     if dirpath.is_dir() || dirpath.is_symlink() {
       return Ok(Loaded::Namespace(

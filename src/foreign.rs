@@ -7,15 +7,17 @@ use dyn_clone::DynClone;
 
 use crate::representations::interpreted::{Clause, RuntimeError, InternalError};
 
-pub trait ExternError: Display {}
+pub trait ExternError: Display {
+  fn into_extern(self) -> Rc<dyn ExternError> where Self: 'static + Sized {
+    Rc::new(self)
+  }
+}
 
 /// Represents an externally defined function from the perspective of the executor
 /// Since Orchid lacks basic numerical operations, these are also external functions.
 pub trait ExternFn: DynClone {
   fn name(&self) -> &str;
   fn apply(&self, arg: Clause) -> Result<Clause, Rc<dyn ExternError>>;
-  fn argstr(&self) -> &str { "clause" }
-  fn retstr(&self) -> &str { "clause" }
   fn hash(&self, state: &mut dyn std::hash::Hasher) { state.write_str(self.name()) }
 }
 
@@ -28,7 +30,7 @@ impl Hash for dyn ExternFn {
 }
 impl Debug for dyn ExternFn {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "##EXTERN[{}]:{:?} -> {:?}##", self.name(), self.argstr(), self.retstr())
+    write!(f, "##EXTERN[{}]##", self.name())
   }
 }
 

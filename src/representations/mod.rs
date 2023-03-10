@@ -7,6 +7,7 @@ pub(crate) mod interpreted;
 mod postmacro;
 mod primitive;
 mod path_set;
+pub use path_set::PathSet;
 pub use primitive::Primitive;
 pub mod postmacro_to_interpreted;
 pub use literal::Literal;

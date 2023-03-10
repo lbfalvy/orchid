@@ -4,7 +4,7 @@ use chumsky::{prelude::{Simple, end}, Stream, Parser};
 use itertools::Itertools;
 use thiserror::Error;
 
-use crate::{ast::Rule, parse::lexer::LexedText};
+use crate::{ast::Rule, parse::{lexer::LexedText, sourcefile::split_lines}};
 
 use super::{Lexeme, FileEntry, lexer, line_parser, LexerEntry};
 
@@ -17,14 +17,13 @@ pub enum ParseError {
   Ast(Vec<Simple<Lexeme>>)
 }
 
-pub fn parse<'a, Iter, S, Op>(ops: &[Op], stream: S) -> Result<Vec<FileEntry>, ParseError>
-where
-  Op: 'a + AsRef<str> + Clone,
-  Iter: Iterator<Item = (char, Range<usize>)> + 'a,
-  S: Into<Stream<'a, char, Range<usize>, Iter>> {
-  let lexed = lexer(ops).parse(stream).map_err(ParseError::Lex)?;
-  println!("Lexed:\n{:?}", lexed);
-  let LexedText(token_batchv) = lexed;
+pub fn parse<'a, Op>(ops: &[Op], data: &str) -> Result<Vec<FileEntry>, ParseError>
+where Op: 'a + AsRef<str> + Clone {
+  let lexie = lexer(ops);
+  let token_batchv = split_lines(data).map(|line| {
+    lexie.parse(line).map_err(ParseError::Lex)
+  }).collect::<Result<Vec<_>, _>>()?;
+  println!("Lexed:\n{:?}", LexedText(token_batchv.clone()));
   let parsr = line_parser().then_ignore(end());
   let (parsed_lines, errors_per_line) = token_batchv.into_iter().filter(|v| {
     !v.is_empty()
@@ -34,7 +33,7 @@ where
     // Stream expects tuples, lexer outputs structs
     let tuples = v.into_iter().map_into::<(Lexeme, Range<usize>)>();
     parsr.parse(Stream::from_iter(end..end+1, tuples))
-    //              ^^^^^^^^^^
+    //                            ^^^^^^^^^^
     // I haven't the foggiest idea why this is needed, parsers are supposed to be lazy so the
     // end of input should make little difference
   }).map(|res| match res {
@@ -48,13 +47,10 @@ where
   else { Ok(parsed_lines.into_iter().map(Option::unwrap).collect()) } 
 }
 
-pub fn reparse<'a, Iter, S, Op>(ops: &[Op], stream: S, pre: &[FileEntry])
+pub fn reparse<'a, Op>(ops: &[Op], data: &str, pre: &[FileEntry])
 -> Result<Vec<FileEntry>, ParseError>
-where
-  Op: 'a + AsRef<str> + Clone,
-  Iter: Iterator<Item = (char, Range<usize>)> + 'a,
-  S: Into<Stream<'a, char, Range<usize>, Iter>> {
-  let result = parse(ops, stream)?;
+where Op: 'a + AsRef<str> + Clone {
+  let result = parse(ops, data)?;
   Ok(result.into_iter().zip(pre.iter()).map(|(mut output, donor)| {
     if let FileEntry::Rule(Rule{source, ..}, _) = &mut output {
       if let FileEntry::Rule(Rule{source: s2, ..}, _) = donor {

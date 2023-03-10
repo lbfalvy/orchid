@@ -100,7 +100,7 @@ fn write_expr_rec(state: &State, Expr(tpl_clause, tpl_typ): &Expr) -> Box<dyn It
       write_slice_rec(state, body)
     ), out_typ.to_owned())),
     Clause::Lambda(name, typ, body) => box_once(Expr(Clause::Lambda(
-      if let Some(state_key) = name.strip_prefix('$') {
+      if let Some(state_key) = name.strip_prefix("$_") {
         if let Entry::Name(name) = &state[state_key] {
           name.as_ref().to_owned()
         } else {panic!("Lambda template name may only be derived from Lambda name")}

@@ -16,8 +16,8 @@ impl AssertionError {
     return Err(Self { value, assertion }.into_extern())
   }
 
-  pub fn into_extern(self) -> Rc<dyn ExternError> {
-    Rc::new(self)
+  pub fn ext(value: Clause, assertion: &'static str) -> Rc<dyn ExternError> {
+    return Self { value, assertion }.into_extern()
   }
 }
 

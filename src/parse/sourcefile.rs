@@ -1,23 +1,27 @@
 use std::collections::HashSet;
+use std::iter;
 
 use crate::{enum_parser, box_chain};
 use crate::ast::{Expr, Clause, Rule};
-use crate::utils::to_mrc_slice;
+use crate::utils::{to_mrc_slice, one_mrc_slice};
 use crate::utils::Stackframe;
 use crate::utils::iter::box_empty;
 
 use super::expression::xpr_parser;
-use super::import;
+use super::import::{self, Import};
 use super::import::import_parser;
 use super::lexer::Lexeme;
 use chumsky::{Parser, prelude::*};
 use ordered_float::NotNan;
+use lazy_static::lazy_static;
 
 /// Anything we might encounter in a file
 #[derive(Debug, Clone)]
 pub enum FileEntry {
   Import(Vec<import::Import>),
   Comment(String),
+  /// The bool indicates whether the rule is exported - whether tokens uniquely defined inside it
+  /// should be exported
   Rule(Rule, bool),
   Export(Vec<Vec<String>>)
 }
@@ -103,10 +107,10 @@ pub fn line_parser() -> impl Parser<Lexeme, FileEntry, Error = Simple<Lexeme>> {
   choice((
     // In case the usercode wants to parse doc
     enum_parser!(Lexeme >> FileEntry; Comment),
-    just(Lexeme::name("import"))
+    just(Lexeme::Import)
       .ignore_then(import_parser().map(FileEntry::Import))
-      .then_ignore(enum_parser!(Lexeme::Comment)),
-    just(Lexeme::name("export")).map_err_with_span(|e, s| {
+      .then_ignore(enum_parser!(Lexeme::Comment).or_not()),
+    just(Lexeme::Export).map_err_with_span(|e, s| {
       println!("{:?} could not yield an export", s); e
     }).ignore_then(
       just(Lexeme::NS).ignore_then(
@@ -114,13 +118,14 @@ pub fn line_parser() -> impl Parser<Lexeme, FileEntry, Error = Simple<Lexeme>> {
         .separated_by(just(Lexeme::name(",")))
         .delimited_by(just(Lexeme::LP('(')), just(Lexeme::RP('(')))
       ).map(FileEntry::Export)
-    ).or(rule_parser().map(|(source, prio, target)| {
-      FileEntry::Rule(Rule {
-        source: to_mrc_slice(source),
-        prio,
-        target: to_mrc_slice(target)
-      }, true)
-    })),
+      .or(rule_parser().map(|(source, prio, target)| {
+        FileEntry::Rule(Rule {
+          source: to_mrc_slice(source),
+          prio,
+          target: to_mrc_slice(target)
+        }, true)
+      }))
+    ),
     // This could match almost anything so it has to go last
     rule_parser().map(|(source, prio, target)| FileEntry::Rule(Rule{
       source: to_mrc_slice(source),
@@ -152,4 +157,25 @@ where I: Iterator<Item = &'b FileEntry> + 'a {
     FileEntry::Import(impv) => Some(impv.iter()),
     _ => None
   }).flatten()
+}
+
+pub fn split_lines(data: &str) -> impl Iterator<Item = &str> {
+  let mut source = data.char_indices();
+  let mut last_slice = 0;
+  iter::from_fn(move || {
+    let mut paren_count = 0;
+    while let Some((i, c)) = source.next() {
+      match c {
+        '(' | '{' | '[' => paren_count += 1,
+        ')' | '}' | ']'  => paren_count -= 1,
+        '\n' if paren_count == 0 => {
+          let begin = last_slice;
+          last_slice = i;
+          return Some(&data[begin..i]);
+        },
+        _ => (),
+      }
+    }
+    None
+  })
 }

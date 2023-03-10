@@ -1,6 +1,7 @@
 mod cache;
 pub mod translate;
 mod replace_first;
+mod interner;
 // mod visitor;
 pub use replace_first::replace_first;
 pub use cache::Cache;
