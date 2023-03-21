@@ -2,16 +2,18 @@ use std::{iter, ops::{Index, Add}, borrow::Borrow};
 
 use smallvec::SmallVec;
 
-const INLINE_ENTRIES: usize = 2;
+// TODO: make this a crate alongside substack
 
 /// Linked-array-list of key-value pairs.
-/// Lookup and modification is O(n + cachemiss * n / m)
-/// Can be extended by reference in O(m) < O(n)
+/// - Lookup and modification is O(n + cachemiss * n / m)
+/// - Can be extended by reference in O(m) < O(n)
 /// 
-/// The number of elements stored inline in a stackframe is 2 by default, which is enough for most
-/// recursive algorithms. The cost of overruns is a heap allocation and subsequent heap indirections,
-/// plus wasted stack space which is likely wasted L1 as well. The cost of underruns is wasted stack
-/// space.
+/// The number of elements stored inline in a stackframe is 2 by default,
+/// which is enough for most recursive algorithms.
+/// - The cost of overruns is a heap allocation and subsequent
+/// heap indirections, plus wasted stack space which is likely wasted L1
+/// as well.
+/// - The cost of underruns is wasted stack space.
 pub struct ProtoMap<'a, K, V, const STACK_COUNT: usize = 2> {
   entries: SmallVec<[(K, Option<V>); STACK_COUNT]>,
   prototype: Option<&'a ProtoMap<'a, K, V, STACK_COUNT>>

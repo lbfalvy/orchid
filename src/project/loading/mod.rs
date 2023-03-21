@@ -2,21 +2,19 @@ mod file_loader;
 mod ext_loader;
 mod string_loader;
 mod map_loader;
-mod fnlib_loader;
-mod overlay_loader;
+mod extlib_loader;
 mod prefix_loader;
 
 pub use file_loader::file_loader;
 pub use ext_loader::ext_loader;
-pub use fnlib_loader::fnlib_loader;
+pub use extlib_loader::extlib_loader;
 pub use string_loader::string_loader;
 pub use map_loader::map_loader;
-pub use overlay_loader::overlay_loader;
 pub use prefix_loader::prefix_loader;
 
 use std::{rc::Rc, io};
 
-use crate::parse::FileEntry;
+use crate::representations::sourcefile::FileEntry;
 
 #[derive(Clone, Debug)]
 pub enum LoadingError {
@@ -34,11 +32,10 @@ impl From<io::Error> for LoadingError {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Loaded {
-  Module(String),
-  Namespace(Vec<String>),
-  External(Vec<FileEntry>)
+  Source(String),
+  AST(Vec<FileEntry>)
 }
 
 pub trait Loader {

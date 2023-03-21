@@ -1,6 +1,6 @@
 /// Utility functions to get rid of explicit casts to BoxedIter which are tedious
 
-use std::iter;
+use std::{iter, mem};
 
 pub type BoxedIter<'a, T> = Box<dyn Iterator<Item = T> + 'a>;
 pub type BoxedIterIter<'a, T> = BoxedIter<'a, BoxedIter<'a, T>>;
@@ -30,6 +30,7 @@ where
 {
   Box::new(i.flatten())
 }
+
 pub fn into_boxed_iter<'a, T: 'a>(t: T) -> BoxedIter<'a, <T as IntoIterator>::Item>
 where T: IntoIterator {
   Box::new(t.into_iter())

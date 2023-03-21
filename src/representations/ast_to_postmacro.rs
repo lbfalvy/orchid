@@ -1,5 +1,7 @@
 use std::{rc::Rc, fmt::Display};
 
+use lasso::{Spur, RodeoResolver};
+
 use crate::utils::Stackframe;
 
 use super::{ast, postmacro};
@@ -8,27 +10,30 @@ use super::{ast, postmacro};
 pub enum Error {
   /// `()` as a clause is meaningless in lambda calculus
   EmptyS,
-  /// Only `(...)` may be converted to typed lambdas. `[...]` and `{...}` left in the code are
-  /// signs of incomplete macro execution
+  /// Only `(...)` may be converted to typed lambdas. `[...]` and `{...}`
+  /// left in the code are signs of incomplete macro execution
   BadGroup(char),
-  /// `foo:bar:baz` will be parsed as `(foo:bar):baz`. Explicitly specifying `foo:(bar:baz)`
-  /// is forbidden and it's also meaningless since `baz` can only ever be the kind of types
+  /// `foo:bar:baz` will be parsed as `(foo:bar):baz`. Explicitly
+  /// specifying `foo:(bar:baz)` is forbidden and it's also meaningless
+  /// since `baz` can only ever be the kind of types
   ExplicitKindOfType,
-  /// Name never bound in an enclosing scope - indicates incomplete macro substitution
-  Unbound(String),
-  /// Namespaced names can never occur in the code, these are signs of incomplete macro execution
-  Symbol,
-  /// Placeholders shouldn't even occur in the code during macro execution. Something is clearly
-  /// terribly wrong
+  /// Name never bound in an enclosing scope - indicates incomplete
+  /// macro substitution
+  Unbound(Vec<String>),
+  /// Placeholders shouldn't even occur in the code during macro execution.
+  /// Something is clearly terribly wrong
   Placeholder,
-  /// It's possible to try and transform the clause `(foo:bar)` into a typed clause,
-  /// however the correct value of this ast clause is a typed expression (included in the error)
+  /// It's possible to try and transform the clause `(foo:bar)` into a
+  /// typed clause, however the correct value of this ast clause is a
+  /// typed expression (included in the error)
   /// 
   /// [expr] handles this case, so it's only really possible to get this
   /// error if you're calling [clause] directly
   ExprToClause(postmacro::Expr),
   /// @ tokens only ever occur between a function and a parameter
-  NonInfixAt
+  NonInfixAt,
+  /// Arguments can be either [ast::Clause::Name] or [ast::Clause::Placeh]
+  InvalidArg
 }
 
 impl Display for Error {
@@ -37,44 +42,64 @@ impl Display for Error {
       Error::EmptyS => write!(f, "`()` as a clause is meaningless in lambda calculus"),
       Error::BadGroup(c) => write!(f, "Only `(...)` may be converted to typed lambdas. `[...]` and `{{...}}` left in the code are signs of incomplete macro execution"),
       Error::ExplicitKindOfType => write!(f, "`foo:bar:baz` will be parsed as `(foo:bar):baz`. Explicitly specifying `foo:(bar:baz)` is forbidden and meaningless since `baz` can only ever be the kind of types"),
-      Error::Unbound(name) => write!(f, "Name \"{name}\" never bound in an enclosing scope. This indicates incomplete macro substitution"),
-      Error::Symbol => write!(f, "Namespaced names not matching any macros found in the code."),
+      Error::Unbound(name) => {
+        write!(f, "Name \"");
+        for el in itertools::intersperse(
+          name.iter().map(String::as_str),
+          "::"
+        ) { write!(f, "{}", el)? }
+        write!(f, "\" never bound in an enclosing scope. This indicates incomplete macro substitution")
+      }
       Error::Placeholder => write!(f, "Placeholders shouldn't even occur in the code during macro execution, this is likely a compiler bug"),
       Error::ExprToClause(expr) => write!(f, "Attempted to transform the clause (foo:bar) into a typed clause. This is likely a compiler bug"),
-      Error::NonInfixAt => write!(f, "@ as a token can only ever occur between a generic and a type parameter.")
+      Error::NonInfixAt => write!(f, "@ as a token can only ever occur between a generic and a type parameter."),
+      Error::InvalidArg => write!(f, "Arguments can be either Name or Placeholder nodes")
     }
   }
 }
 
+#[derive(Clone, Copy)]
+struct Init<'a>(&'a RodeoResolver);
+
 /// Try to convert an expression from AST format to typed lambda
-pub fn expr(expr: &ast::Expr) -> Result<postmacro::Expr, Error> {
-  expr_rec(expr, Context::default())
+pub fn expr(expr: &ast::Expr, i: Init) -> Result<postmacro::Expr, Error> {
+  expr_rec(expr, Context::new(i))
 }
 
 /// Try and convert a single clause from AST format to typed lambda
-pub fn clause(clause: &ast::Clause) -> Result<postmacro::Clause, Error> {
-  clause_rec(clause, Context::default())
+pub fn clause(
+  clause: &ast::Clause, i: Init
+) -> Result<postmacro::Clause, Error> {
+  clause_rec(clause, Context::new(i))
 }
 
-/// Try and convert a sequence of expressions from AST format to typed lambda 
-pub fn exprv(exprv: &[ast::Expr]) -> Result<postmacro::Expr, Error> {
-  exprv_rec(exprv, Context::default())
+/// Try and convert a sequence of expressions from AST format to
+/// typed lambda 
+pub fn exprv(
+  exprv: &[ast::Expr], i: Init
+) -> Result<postmacro::Expr, Error> {
+  exprv_rec(exprv, Context::new(i))
 }
 
 #[derive(Clone, Copy)]
 struct Context<'a> {
-  names: Stackframe<'a, (&'a str, bool)>
+  names: Stackframe<'a, (&'a [Spur], bool)>,
+  rr: &'a RodeoResolver
 }
 
 impl<'a> Context<'a> {
-  fn w_name<'b>(&'b self, name: &'b str, is_auto: bool) -> Context<'b> where 'a: 'b {
-    Context { names: self.names.push((name, is_auto)) }
+  fn w_name<'b>(&'b self,
+    name: &'b [Spur],
+    is_auto: bool
+  ) -> Context<'b> where 'a: 'b {
+    Context {
+      names: self.names.push((name, is_auto)),
+      rr: self.rr
+    }
   }
-}
 
-impl Default for Context<'static> {
-  fn default() -> Self {
-    Self { names: Stackframe::new(("", false)) }
+  fn new(i: Init) -> Context<'static> {
+    Context { names: Stackframe::new((&[], false)), rr: i.0 }
   }
 }
 
@@ -138,8 +163,12 @@ fn clause_rec<'a>(
         if t.len() > 0 {return Err(Error::ExplicitKindOfType)}
         else {Rc::new(vec![c])}
       };
-      let body_ctx = if let Some(name) = no {
-        ctx.w_name(&&**name, true)
+      let body_ctx = if let Some(rc) = no {
+        match rc.as_ref() {
+          ast::Clause::Name(name) => ctx.w_name(&&**name, true),
+          ast::Clause::Placeh { .. } => return Err(Error::Placeholder),
+          _ => return Err(Error::InvalidArg)
+        }
       } else {ctx};
       let body = exprv_rec(b.as_ref(), body_ctx)?;
       Ok(postmacro::Clause::Auto(typ, Rc::new(body)))
@@ -150,14 +179,22 @@ fn clause_rec<'a>(
         if t.len() > 0 {return Err(Error::ExplicitKindOfType)}
         else {Rc::new(vec![c])}
       };
-      let body_ctx = ctx.w_name(&&**n, false);
+      let body_ctx = match n.as_ref() {
+        ast::Clause::Name(name) => ctx.w_name(&&**name, true),
+        ast::Clause::Placeh { .. } => return Err(Error::Placeholder),
+        _ => return Err(Error::InvalidArg)
+      };
       let body = exprv_rec(b.as_ref(), body_ctx)?;
       Ok(postmacro::Clause::Lambda(typ, Rc::new(body)))
     }
-    ast::Clause::Name { local: Some(arg), .. } => {
-      let (level, (_, is_auto)) = ctx.names.iter().enumerate().find(|(_, (n, _))| n == arg)
-        .ok_or_else(|| Error::Unbound(arg.clone()))?;
-      let label = if *is_auto {postmacro::Clause::AutoArg} else {postmacro::Clause::LambdaArg};
+    ast::Clause::Name(name) => {
+      let (level, (_, is_auto)) = ctx.names.iter().enumerate()
+        .find(|(_, (n, _))| n == &name.as_slice())
+        .ok_or_else(|| Error::Unbound(
+          name.iter().map(|s| ctx.rr.resolve(s).to_string()).collect()
+        ))?;
+      let label = if *is_auto {postmacro::Clause::AutoArg}
+      else {postmacro::Clause::LambdaArg};
       Ok(label(level))
     }
     ast::Clause::S(paren, entries) => {
@@ -166,7 +203,6 @@ fn clause_rec<'a>(
       if typ.len() == 0 {Ok(val)}
       else {Err(Error::ExprToClause(postmacro::Expr(val, typ)))}
     },
-    ast::Clause::Name { local: None, .. } => Err(Error::Symbol),
     ast::Clause::Placeh { .. } => Err(Error::Placeholder),
     ast::Clause::Explicit(..) => Err(Error::NonInfixAt)
   }

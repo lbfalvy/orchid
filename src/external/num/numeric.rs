@@ -14,15 +14,29 @@ pub enum Numeric {
   Num(NotNan<f64>)
 }
 
+impl Numeric {
+  /// Wrap a f64 in a Numeric
+  /// 
+  /// # Panics
+  /// 
+  /// if the value is NaN or Infinity.try_into()
+  fn num<T>(value: T) -> Self where T: Into<f64> {
+    let f = value.into();
+    assert!(f.is_finite(), "unrepresentable number");
+    NotNan::try_from(f).map(Self::Num).expect("not a number")
+  }
+}
+
 impl Add for Numeric {
   type Output = Numeric;
 
   fn add(self, rhs: Self) -> Self::Output {
     match (self, rhs) {
       (Numeric::Uint(a), Numeric::Uint(b)) => Numeric::Uint(a + b),
-      (Numeric::Num(a), Numeric::Num(b)) => Numeric::Num(a + b),
-      (Numeric::Uint(a), Numeric::Num(b)) | (Numeric::Num(b), Numeric::Uint(a))
-        => Numeric::Num(NotNan::new(a as f64).unwrap() + b)
+      (Numeric::Num(a), Numeric::Num(b)) => Numeric::num(a + b),
+      (Numeric::Uint(a), Numeric::Num(b)) |
+      (Numeric::Num(b), Numeric::Uint(a))
+        => Numeric::num::<f64>(a as f64 + *b)
     }
   }
 }
@@ -34,10 +48,10 @@ impl Sub for Numeric {
     match (self, rhs) {
       (Numeric::Uint(a), Numeric::Uint(b)) if b < a => Numeric::Uint(a - b),
       (Numeric::Uint(a), Numeric::Uint(b))
-        => Numeric::Num(NotNan::new(a as f64 - b as f64).unwrap()),
-      (Numeric::Num(a), Numeric::Num(b)) => Numeric::Num(a - b),
-      (Numeric::Uint(a), Numeric::Num(b)) | (Numeric::Num(b), Numeric::Uint(a))
-        => Numeric::Num(NotNan::new(a as f64).unwrap() - b)
+        => Numeric::num(a as f64 - b as f64),
+      (Numeric::Num(a), Numeric::Num(b)) => Numeric::num(a - b),
+      (Numeric::Uint(a), Numeric::Num(b)) => Numeric::num(a as f64 - *b),
+      (Numeric::Num(a), Numeric::Uint(b)) => Numeric::num(*a - b as f64)
     }
   }
 }
@@ -48,8 +62,9 @@ impl Mul for Numeric {
   fn mul(self, rhs: Self) -> Self::Output {
     match (self, rhs) {
       (Numeric::Uint(a), Numeric::Uint(b)) => Numeric::Uint(a * b),
-      (Numeric::Num(a), Numeric::Num(b)) => Numeric::Num(a * b),
-      (Numeric::Uint(a), Numeric::Num(b)) | (Numeric::Num(b), Numeric::Uint(a))
+      (Numeric::Num(a), Numeric::Num(b)) => Numeric::num(a * b),
+      (Numeric::Uint(a), Numeric::Num(b)) |
+      (Numeric::Num(b), Numeric::Uint(a))
         => Numeric::Num(NotNan::new(a as f64).unwrap() * b)
     }
   }
@@ -59,9 +74,9 @@ impl Div for Numeric {
   type Output = Numeric;
 
   fn div(self, rhs: Self) -> Self::Output {
-    let a = match self { Numeric::Uint(i) => i as f64, Numeric::Num(f) => *f };
-    let b = match rhs { Numeric::Uint(i) => i as f64, Numeric::Num(f) => *f };
-    Numeric::Num(NotNan::new(a / b).unwrap())
+    let a: f64 = self.into();
+    let b: f64 = rhs.into();
+    Numeric::num(a / b)
   }
 }
 
@@ -71,9 +86,9 @@ impl Rem for Numeric {
   fn rem(self, rhs: Self) -> Self::Output {
     match (self, rhs) {
       (Numeric::Uint(a), Numeric::Uint(b)) => Numeric::Uint(a % b),
-      (Numeric::Num(a), Numeric::Num(b)) => Numeric::Num(a % b),
-      (Numeric::Uint(a), Numeric::Num(b)) | (Numeric::Num(b), Numeric::Uint(a))
-        => Numeric::Num(NotNan::new(a as f64).unwrap() % b)
+      (Numeric::Num(a), Numeric::Num(b)) => Numeric::num(a % b),
+      (Numeric::Uint(a), Numeric::Num(b)) => Numeric::num(a as f64 % *b),
+      (Numeric::Num(a), Numeric::Uint(b)) => Numeric::num(*a % b as f64)
     }
   }
 }
@@ -106,6 +121,15 @@ impl From<Numeric> for String {
     match value {
       Numeric::Uint(i) => i.to_string(),
       Numeric::Num(n) => n.to_string()
+    }
+  }
+}
+
+impl Into<f64> for Numeric {
+  fn into(self) -> f64 {
+    match self {
+      Numeric::Num(n) => *n,
+      Numeric::Uint(i) => i as f64
     }
   }
 }

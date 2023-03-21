@@ -2,11 +2,12 @@ use std::{ops::Range, fmt::Debug};
 
 use chumsky::{prelude::{Simple, end}, Stream, Parser};
 use itertools::Itertools;
+use lasso::Spur;
 use thiserror::Error;
 
-use crate::{ast::Rule, parse::{lexer::LexedText, sourcefile::split_lines}};
+use crate::{ast::Rule, parse::{lexer::LexedText, sourcefile::split_lines}, representations::sourcefile::FileEntry};
 
-use super::{Lexeme, FileEntry, lexer, line_parser, LexerEntry};
+use super::{Lexeme, lexer, line_parser, LexerEntry};
 
 
 #[derive(Error, Debug, Clone)]
@@ -17,14 +18,19 @@ pub enum ParseError {
   Ast(Vec<Simple<Lexeme>>)
 }
 
-pub fn parse<'a, Op>(ops: &[Op], data: &str) -> Result<Vec<FileEntry>, ParseError>
-where Op: 'a + AsRef<str> + Clone {
+pub fn parse<'a, Op, F>(
+  ops: &[Op], data: &str, intern: &F
+) -> Result<Vec<FileEntry>, ParseError>
+where
+  Op: 'a + AsRef<str> + Clone,
+  F: Fn(&str) -> Spur
+{
   let lexie = lexer(ops);
   let token_batchv = split_lines(data).map(|line| {
     lexie.parse(line).map_err(ParseError::Lex)
   }).collect::<Result<Vec<_>, _>>()?;
   println!("Lexed:\n{:?}", LexedText(token_batchv.clone()));
-  let parsr = line_parser().then_ignore(end());
+  let parsr = line_parser(intern).then_ignore(end());
   let (parsed_lines, errors_per_line) = token_batchv.into_iter().filter(|v| {
     !v.is_empty()
   }).map(|v| {
@@ -47,10 +53,15 @@ where Op: 'a + AsRef<str> + Clone {
   else { Ok(parsed_lines.into_iter().map(Option::unwrap).collect()) } 
 }
 
-pub fn reparse<'a, Op>(ops: &[Op], data: &str, pre: &[FileEntry])
+pub fn reparse<'a, Op, F>(
+  ops: &[Op], data: &str, pre: &[FileEntry], intern: &F
+)
 -> Result<Vec<FileEntry>, ParseError>
-where Op: 'a + AsRef<str> + Clone {
-  let result = parse(ops, data)?;
+where
+  Op: 'a + AsRef<str> + Clone,
+  F: Fn(&str) -> Spur
+{
+  let result = parse(ops, data, intern)?;
   Ok(result.into_iter().zip(pre.iter()).map(|(mut output, donor)| {
     if let FileEntry::Rule(Rule{source, ..}, _) = &mut output {
       if let FileEntry::Rule(Rule{source: s2, ..}, _) = donor {

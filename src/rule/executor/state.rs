@@ -1,15 +1,16 @@
 use std::{ops::{Add, Index}, rc::Rc, fmt::Debug};
 
 use hashbrown::HashMap;
+use lasso::Spur;
 
 use crate::ast::Expr;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub enum Entry {
   Vec(Rc<Vec<Expr>>),
   Scalar(Rc<Expr>),
-  Name(Rc<String>),
-  NameOpt(Option<Rc<String>>)
+  Name(Rc<Vec<Spur>>),
+  NameOpt(Option<Rc<Vec<Spur>>>)
 }
 
 /// A bucket of indexed expression fragments. Addition may fail if there's a conflict.
@@ -55,33 +56,32 @@ impl State {
     }
     Some(self)
   }
-  pub fn insert_name<S1, S2>(mut self, k: &S1, v: &S2) -> Option<Self>
+  pub fn insert_name<S1>(mut self, k: &S1, v: &[Spur]) -> Option<Self>
   where
-    S1: AsRef<str> + ToString + ?Sized,
-    S2: AsRef<str> + ToString + ?Sized
+    S1: AsRef<str> + ToString + ?Sized
   {
     if let Some(old) = self.0.get(k.as_ref()) {
       if let Entry::Name(val) = old {
-        if val.as_str() != v.as_ref() {return None}
+        if val.as_ref() != v.as_ref() {return None}
       } else {return None}
     } else {
-      self.0.insert(k.to_string(), Entry::Name(Rc::new(v.to_string())));
+      self.0.insert(k.to_string(), Entry::Name(Rc::new(v.to_vec())));
     }
     Some(self)
   }
-  pub fn insert_name_opt<S1, S2>(mut self, k: &S1, v: Option<&S2>) -> Option<Self>
-  where
-    S1: AsRef<str> + ToString + ?Sized,
-    S2: AsRef<str> + ToString + ?Sized
+  pub fn insert_name_opt<S1, S2>(mut self, k: &S1, v: Option<&[Spur]>)
+  -> Option<Self>
+  where S1: AsRef<str> + ToString + ?Sized
   {
     if let Some(old) = self.0.get(k.as_ref()) {
       if let Entry::NameOpt(val) = old {
-        if val.as_ref().map(|s| s.as_ref().as_str()) != v.map(|s| s.as_ref()) {
+        if val.as_ref().map(|s| s.as_ref().as_slice()) != v {
           return None
         }
       } else {return None}
     } else {
-      self.0.insert(k.to_string(), Entry::NameOpt(v.map(|s| Rc::new(s.to_string()))));
+      let data = v.map(|s| Rc::new(s.to_vec()));
+      self.0.insert(k.to_string(), Entry::NameOpt(data));
     }
     Some(self)
   }
@@ -137,11 +137,5 @@ impl IntoIterator for State {
 
   fn into_iter(self) -> Self::IntoIter {
     self.0.into_iter()
-  }
-}
-
-impl Debug for State {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{:?}", self.0)
   }
 }

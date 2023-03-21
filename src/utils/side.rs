@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+/// A primitive for encoding the two sides Left and Right. While booleans
+/// are technically usable for this purpose, they're less descriptive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Side {Left, Right}
 
@@ -32,8 +34,11 @@ impl Side {
   pub fn crop<'a, T>(&self, margin: usize, slice: &'a [T]) -> &'a [T] {
     self.opposite().slice(slice.len() - margin, slice)
   }
-  /// ignore N elements from this end and M elements from the other end of a slice
-  pub fn crop_both<'a, T>(&self, margin: usize, opposite: usize, slice: &'a [T]) -> &'a [T] {
+  /// ignore N elements from this end and M elements from the other end
+  /// of a slice
+  pub fn crop_both<'a, T>(&self,
+    margin: usize, opposite: usize, slice: &'a [T]
+  ) -> &'a [T] {
     self.crop(margin, self.opposite().crop(opposite, slice))
   }
   /// Pick this side from a pair of things

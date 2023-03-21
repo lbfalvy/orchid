@@ -48,7 +48,8 @@
 /// to these as well just like the others. In all cases the exit expression is optional, its
 /// default value is `()`.
 /// 
-/// **todo** find a valid use case for While let for a demo
+/// TODO: find a valid use case for While let for a demo
+/// TODO: break out into crate
 #[macro_export]
 macro_rules! xloop {
   (for $p:pat in $it:expr; $body:stmt) => {

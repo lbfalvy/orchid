@@ -1,10 +1,11 @@
 use std::iter;
+use std::rc::Rc;
 
 use hashbrown::HashMap;
 use mappable_rc::Mrc;
 
 use crate::unwrap_or;
-use crate::utils::{to_mrc_slice, one_mrc_slice, mrc_empty_slice, replace_first};
+use crate::utils::{to_mrc_slice, one_mrc_slice, mrc_empty_slice};
 use crate::utils::iter::{box_once, into_boxed_iter};
 use crate::ast::{Expr, Clause};
 use super::slice_matcher::SliceMatcherDnC;
@@ -14,7 +15,7 @@ use super::update_first_seq_rec;
 
 fn verify_scalar_vec(pattern: &Expr, is_vec: &mut HashMap<String, bool>)
 -> Result<(), String> {
-  let verify_clause = |clause: &Clause, is_vec: &mut HashMap<String, bool>| -> Result<(), String> {
+  let verify_clause = |clause: &Clause, is_vec: &mut HashMap<String, bool>| {
     match clause {
       Clause::Placeh{key, vec} => {
         if let Some(known) = is_vec.get(key) {
@@ -23,16 +24,24 @@ fn verify_scalar_vec(pattern: &Expr, is_vec: &mut HashMap<String, bool>)
           is_vec.insert(key.clone(), vec.is_some());
         }
       }
-      Clause::Auto(name, typ, body) => {
-        if let Some(key) = name.as_ref().and_then(|key| key.strip_prefix('$')) {
-          if is_vec.get(key) == Some(&true) { return Err(key.to_string()) }
+      Clause::Auto(name_opt, typ, body) => {
+        if let Some(name) = name_opt.as_ref() {
+          if let Clause::Placeh { key, vec } = name.as_ref() {
+            if vec.is_some() || is_vec.get(key) == Some(&true) {
+              return Err(key.to_string())
+            }
+            is_vec.insert(key.to_owned(), false);
+          }
         }
         typ.iter().try_for_each(|e| verify_scalar_vec(e, is_vec))?;
         body.iter().try_for_each(|e| verify_scalar_vec(e, is_vec))?;
       }
       Clause::Lambda(name, typ, body) => {
-        if let Some(key) = name.strip_prefix('$') {
-          if is_vec.get(key) == Some(&true) { return Err(key.to_string()) }
+        if let Clause::Placeh { key, vec } = name.as_ref() {
+          if vec.is_some() || is_vec.get(key) == Some(&true) {
+            return Err(key.to_string())
+          }
+          is_vec.insert(key.to_owned(), false);
         }
         typ.iter().try_for_each(|e| verify_scalar_vec(e, is_vec))?;
         body.iter().try_for_each(|e| verify_scalar_vec(e, is_vec))?;
@@ -52,33 +61,56 @@ fn verify_scalar_vec(pattern: &Expr, is_vec: &mut HashMap<String, bool>)
   Ok(())
 }
 
-
-fn slice_to_vec(src: &mut Mrc<[Expr]>, tgt: &mut Mrc<[Expr]>) {
-  let prefix_expr = Expr(Clause::Placeh{key: "::prefix".to_string(), vec: Some((0, false))}, to_mrc_slice(vec![]));
-  let postfix_expr = Expr(Clause::Placeh{key: "::postfix".to_string(), vec: Some((0, false))}, to_mrc_slice(vec![]));
+/// Ensure that src starts and ends with a vectorial placeholder without
+/// modifying the meaning of the substitution rule
+fn slice_to_vec(src: &mut Rc<Vec<Expr>>, tgt: &mut Rc<Vec<Expr>>) {
+  let prefix_expr = Expr(Clause::Placeh{
+    key: "::prefix".to_string(),
+    vec: Some((0, false))
+  }, Rc::default());
+  let postfix_expr = Expr(Clause::Placeh{
+    key: "::postfix".to_string(),
+    vec: Some((0, false))
+  }, Rc::default());
   // Prefix or postfix to match the full vector
-  let head_multi = matches!(src.first().expect("Src can never be empty!").0, Clause::Placeh{vec: Some(_), ..});
-  let tail_multi = matches!(src.last().expect("Impossible branch!").0, Clause::Placeh{vec: Some(_), ..});
+  let head_multi = matches!(
+    src.first().expect("Src can never be empty!").0,
+    Clause::Placeh{vec: Some(_), ..}
+  );
+  let tail_multi = matches!(
+    src.last().expect("Impossible branch!").0,
+    Clause::Placeh{vec: Some(_), ..}
+  );
   let prefix_vec = if head_multi {vec![]} else {vec![prefix_expr]};
   let postfix_vec = if tail_multi {vec![]} else {vec![postfix_expr]};
-  *src = to_mrc_slice(prefix_vec.iter().chain(src.iter()).chain(postfix_vec.iter()).cloned().collect());
-  *tgt = to_mrc_slice(prefix_vec.iter().chain(tgt.iter()).chain(postfix_vec.iter()).cloned().collect());
+  *src = Rc::new(
+    prefix_vec.iter()
+    .chain(src.iter())
+    .chain(postfix_vec.iter())
+    .cloned().collect()
+  );
+  *tgt = Rc::new(
+    prefix_vec.iter()
+    .chain(tgt.iter())
+    .chain(postfix_vec.iter())
+    .cloned().collect()
+  );
 }
 
 /// keep re-probing the input with pred until it stops matching
-fn update_all_seqs<F>(input: Mrc<[Expr]>, pred: &mut F) -> Option<Mrc<[Expr]>>
-where F: FnMut(Mrc<[Expr]>) -> Option<Mrc<[Expr]>> {
+fn update_all_seqs<F>(input: Rc<Vec<Expr>>, pred: &mut F)
+-> Option<Rc<Vec<Expr>>>
+where F: FnMut(Rc<Vec<Expr>>) -> Option<Rc<Vec<Expr>>> {
   let mut tmp = update_first_seq_rec::exprv(input, pred);
   while let Some(xv) = tmp {
-    tmp = update_first_seq_rec::exprv(Mrc::clone(&xv), pred);
+    tmp = update_first_seq_rec::exprv(xv.clone(), pred);
     if tmp.is_none() {return Some(xv)}
   }
   None
 }
 
-// fn write_clause_rec(state: &State, clause: &Clause) -> 
-
-fn write_expr_rec(state: &State, Expr(tpl_clause, tpl_typ): &Expr) -> Box<dyn Iterator<Item = Expr>> {
+fn write_expr_rec(state: &State, Expr(tpl_clause, tpl_typ): &Expr)
+-> Box<dyn Iterator<Item = Expr>> {
   let out_typ = tpl_typ.iter()
     .flat_map(|c| write_expr_rec(state, &c.clone().into_expr()))
     .map(Expr::into_clause)
@@ -86,6 +118,11 @@ fn write_expr_rec(state: &State, Expr(tpl_clause, tpl_typ): &Expr) -> Box<dyn It
   match tpl_clause {
     Clause::Auto(name_opt, typ, body) => box_once(Expr(Clause::Auto(
       name_opt.as_ref().and_then(|name| {
+        if let Clause::Placeh { key, .. } = name {
+          match &state[key] {
+            Entry::NameOpt(name) => name.as_ref().map(|s| s.as_ref().to_owned())
+          }
+        }
         if let Some(state_key) = name.strip_prefix('$') {
           match &state[state_key] {
             Entry::NameOpt(name) => name.as_ref().map(|s| s.as_ref().to_owned()),

@@ -11,14 +11,17 @@ use super::State;
 use super::split_at_max_vec::split_at_max_vec;
 
 /// Tuple with custom cloning logic
-#[derive(Debug, Eq, PartialEq, Hash)]
-pub struct CacheEntry<'a>(Mrc<[Expr]>, &'a SliceMatcherDnC);
-impl<'a> Clone for CacheEntry<'a> {
-  fn clone(&self) -> Self {
-    let CacheEntry(mrc, matcher) = self;
-    CacheEntry(Mrc::clone(mrc), matcher)
-  }
-}
+// #[derive(Debug, Eq, PartialEq, Hash)]
+// pub struct CacheEntry<'a>(Mrc<[Expr]>, &'a SliceMatcherDnC);
+// impl<'a> Clone for CacheEntry<'a> {
+//   fn clone(&self) -> Self {
+//     let CacheEntry(mrc, matcher) = self;
+//     CacheEntry(Mrc::clone(mrc), matcher)
+//   }
+// }
+// ^^^^
+// This has been removed because the slice-based version needs no custom
+// cloning logic. In the next iteration, remove the this altogether.
 
 
 /// Matcher that applies a pattern to a slice via divide-and-conquer
@@ -66,8 +69,8 @@ impl SliceMatcherDnC {
     matches!(self.clause.as_ref(), Clause::Placeh{vec: Some(..), ..})
   }
   /// If clause is a name, the qualified name this can match
-  pub fn clause_qual_name(&self) -> Option<Mrc<[String]>> {
-    if let Clause::Name { qualified, .. } = self.clause.as_ref() {Some(Mrc::clone(qualified))} else {None}
+  pub fn clause_qual_name(&self) -> Option<Rc<Vec<Spur>>> {
+    if let Clause::Name(name) = self.clause.as_ref() {Some(name.clone())} else {None}
   }
   /// If clause is a Placeh, the key in the state the match will be stored at
   pub fn state_key(&self) -> Option<&String> {
@@ -89,8 +92,8 @@ impl SliceMatcherDnC {
   
   /// Enumerate all valid subdivisions based on the reported size constraints of self and
   /// the two subranges
-  pub fn valid_subdivisions(&self,
-    range: Mrc<[Expr]>
+  pub fn valid_subdivisions<'a>(&'a self,
+    range: &'a [Expr]
   ) -> impl Iterator<Item = (Mrc<[Expr]>, Mrc<[Expr]>, Mrc<[Expr]>)> {
     let own_max = unwrap_or!(self.own_max_size(range.len()); return box_empty());
     let own_min = self.own_min_size();
@@ -196,7 +199,7 @@ impl SliceMatcherDnC {
         if !range.is_empty() {None}
         else {Some(State::new())}
       },
-      Some(m) => cache.try_find(&CacheEntry(range, m)).map(|s| s.as_ref().to_owned())
+      Some(m) => cache.find(&CacheEntry(range, m))
     }
   }
 

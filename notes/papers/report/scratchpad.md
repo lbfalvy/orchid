@@ -45,10 +45,10 @@ $1 [ 0 ] a equals a < $1 ] b 0
 Some global rules are also needed, also instantiated for all possible characters in the templated positions
 
 ```
-$1 $2 < equals $2 < $1 unless $1 is |
-| $1 < equals $1 | >
-> $1 $2 equals $1 > $2 unless $2 is ]
-> $1 ] equals [ $1 ]
+$1 $2 <  equals  $2 < $1  unless $1 is |
+| $1 <   equals  $1 | >
+> $1 $2  equals  $1 > $2  unless $2 is ]
+> $1 ]   equals  [ $1 ]
 ```
 
 What I really appreciate in this proof is how visual it is; based on this, it's easy to imagine how one would go about encoding a pushdown automaton, lambda calculus or other interesting tree-walking procedures. This is exactly why I based my preprocessor on this system.
@@ -57,10 +57,41 @@ What I really appreciate in this proof is how visual it is; based on this, it's 
 
 I found two major problems with C and Rust macros which vastly limit their potential. They're relatively closed systems, and prone to aliasing. Every other item in Rust follows a rigorous namespacing scheme, but the macros break this seal, I presume the reason is that macro execution happens before namespace resolution.
 
-Orchid's macros - substitution rules - operate on namespaced tokens. This means that users can safely give their macros short and intuitive names, but it also means that the macros can hook into each other. Consider for example the following hypothetical example.
+Orchid's macros - substitution rules - operate on namespaced tokens. This means that users can safely give their macros short and intuitive names, but it also means that the macros can hook into each other. Consider for example the following example, which is a slightly modified version of a
+real rule included in the prelude:
 
-a widely known module implements a unique way of transforming iterators using an SQL-like syntax.
-
+in _procedural.or_
 ```orchid
-select ...$collist from ...$
+export do { ...$statement ; ...$rest:1 } =10_001=> (
+  statement (...$statement) do { ...$rest } 
+)
+export do { ...$return } =10_000=> (...$return)
+export statement (let $_name = ...$value) ...$next =10_000=> (
+  (\$_name. ...$next) (...$value)
+)
 ```
+
+in _cpsio.or_
+```orchid
+import procedural::statement
+
+export statement (cps $_name = ...$operation) ...$next =10_001=> (
+  (...$operation) \$_name. ...$next
+)
+export statement (cps ...$operation) ...$next =10_000=> (
+  (...$operation) (...$next)
+)
+```
+
+in _main.or_
+```orchid
+import procedural::(do, let, ;)
+import cpsio::cps
+
+export main := do{
+  cps data = readline;
+  let a = parse_float data * 2;
+  cps print (data ++ " doubled is " ++ stringify a)
+}
+```
+

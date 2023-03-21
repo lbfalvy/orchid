@@ -1,5 +1,4 @@
 #![feature(specialization)]
-#![feature(core_intrinsics)]
 #![feature(adt_const_params)]
 #![feature(generic_const_exprs)] 
 #![feature(generators, generator_trait)]
@@ -9,7 +8,6 @@
 #![feature(hasher_prefixfree_extras)]
 #![feature(closure_lifetime_binder)]
 #![feature(generic_arg_infer)]
-
 use std::{env::current_dir, collections::HashMap};
 
 // mod executor;
@@ -22,6 +20,7 @@ mod scheduler;
 pub(crate) mod foreign;
 mod external;
 mod foreign_macros;
+use lasso::Rodeo;
 pub use representations::ast;
 use ast::{Expr, Clause};
 // use representations::typed as t;
@@ -54,13 +53,13 @@ export (...$a - ...$b:1) =1001=> (subtract (...$a) (...$b))
 export (...$a * ...$b) =1000=> (multiply (...$a) (...$b))
 export (...$a % ...$b:1) =1000=> (remainder (...$a) (...$b))
 export (...$a / ...$b:1) =1000=> (divide (...$a) (...$b))
-export (...$a = ...$b) =1002=> (equals (...$a) (...$b))
+export (...$a == ...$b) =1002=> (equals (...$a) (...$b))
 export (...$a ++ ...$b) =1003=> (concatenate (...$a) (...$b))
 
 export do { ...$statement ; ...$rest:1 } =10_001=> (
   statement (...$statement) do { ...$rest } 
 )
-export do { ...$statement } =10_000=> (...$statement)
+export do { ...$return } =10_000=> (...$return)
 
 export statement (let $_name = ...$value) ...$next =10_000=> (
   (\$_name. ...$next) (...$value)
@@ -86,11 +85,15 @@ fn initial_tree() -> Mrc<[Expr]> {
 
 #[allow(unused)]
 fn load_project() {
-  let collect_rules = rule_collector(map_loader(HashMap::from([
-    ("std", std().boxed()),
-    ("prelude", string_loader(PRELUDE).boxed()),
-    ("mod", file_loader(current_dir().expect("Missing CWD!")).boxed())
-  ])));
+  let mut rodeo = Rodeo::default();
+  let collect_rules = rule_collector(
+    rodeo,
+    map_loader(HashMap::from([
+      ("std", std().boxed()),
+      ("prelude", string_loader(PRELUDE).boxed()),
+      ("mod", file_loader(current_dir().expect("Missing CWD!")).boxed())
+    ]))
+  );
   let rules = match collect_rules.try_find(&literal(&["mod", "main"])) {
     Ok(rules) => rules,
     Err(err) => if let ModuleError::Syntax(pe) = err {
@@ -124,11 +127,5 @@ fn load_project() {
 }
 
 fn main() {
-  // lambda_notation_debug();
   load_project();
-  // let mut std = std();
-  // match std.load(&["parse_float"]) {
-  //   Ok(_) => println!("wtf"),
-  //   Err(e) => panic!("{:?}", e)
-  // }
 }

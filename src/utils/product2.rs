@@ -8,7 +8,9 @@ use super::Side;
 pub enum Product2<T> {
   Left,
   Right,
+  #[allow(unused)]
   Either,
+  #[allow(unused)]
   New(T)
 }
 impl<T> Product2<T> {

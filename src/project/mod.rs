@@ -8,7 +8,7 @@ pub use module_error::ModuleError;
 pub use rule_collector::rule_collector;
 pub use loading::{
   Loader, Loaded, LoadingError,
-  ext_loader, file_loader, string_loader, map_loader, fnlib_loader,
-  overlay_loader, prefix_loader
+  ext_loader, file_loader, string_loader, map_loader, extlib_loader,
+  prefix_loader
 };
 use crate::ast::Rule;

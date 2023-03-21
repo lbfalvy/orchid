@@ -9,6 +9,8 @@ fn string_from_charset_rec(val: u64, digits: &str) -> String {
   prefix
 }
 
+/// Generate alphabetized names from numbers using a set of permitted
+/// characters
 pub fn string_from_charset(val: u64, digits: &str) -> String {
   string_from_charset_rec(val + 1, digits)
 }

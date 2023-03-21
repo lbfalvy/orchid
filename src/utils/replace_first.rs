@@ -1,6 +1,9 @@
 use std::iter;
 
-pub fn replace_first<'a, T, F>(slice: &'a [T], mut f: F) -> Option<impl Iterator<Item = T> + 'a>
+/// Iterate over a sequence with the first element the function returns
+/// Some() for updated, but only if there is such an element.
+pub fn replace_first<'a, T, F>(slice: &'a [T], mut f: F)
+-> Option<impl Iterator<Item = T> + 'a>
 where T: Clone, F: FnMut(&T) -> Option<T> {
   for i in 0..slice.len() {
     if let Some(new) = f(&slice[i]) {

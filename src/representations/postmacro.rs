@@ -1,8 +1,6 @@
 use crate::utils::string_from_charset;
 
 use super::primitive::Primitive;
-use super::ast_to_postmacro;
-use super::ast;
 
 use std::fmt::{Debug, Write};
 use std::rc::Rc;
@@ -102,19 +100,5 @@ impl Clause {
 impl Debug for Clause {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     self.deep_fmt(f, 0, Wrap(false, false))
-  }
-}
-
-impl TryFrom<&ast::Expr> for Expr {
-  type Error = ast_to_postmacro::Error;
-  fn try_from(value: &ast::Expr) -> Result<Self, Self::Error> {
-    ast_to_postmacro::expr(value)
-  }
-}
-
-impl TryFrom<&ast::Clause> for Clause {
-  type Error = ast_to_postmacro::Error;
-  fn try_from(value: &ast::Clause) -> Result<Self, Self::Error> {
-    ast_to_postmacro::clause(value)
   }
 }

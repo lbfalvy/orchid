@@ -5,6 +5,8 @@ use std::hash::Hash;
 use crate::unwrap_or;
 use crate::utils::BoxedIter;
 
+// TODO: move to own crate
+
 /// Two-stage breadth-first search;
 /// Instead of enumerating neighbors before returning a node, it puts visited but not yet
 /// enumerated nodes in a separate queue and only enumerates them to refill the queue of children
