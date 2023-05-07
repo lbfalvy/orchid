@@ -78,8 +78,8 @@ macro_rules! xloop {
   (while $cond:expr; $body:stmt; $exit:stmt) => {
     {
       loop {
-        if $cond { break { $exit } }
-        else { $body }
+        if $cond { $body }
+        else { break { $exit } }
       }
     }
   };
@@ -87,6 +87,6 @@ macro_rules! xloop {
     xloop!(for ( $init; $cond; $step ) $body; ())
   };
   ($init:stmt; $cond:expr; $step:stmt; $body:stmt; $exit:stmt) => {
-    { $init; xloop!(while !($cond); { $body; $step }; $exit) }
+    { $init; xloop!(while $cond; { $body; $step }; $exit) }
   };
 }

@@ -1,7 +1,7 @@
 import prelude::*
-import std::conv::(parse_float, to_string)
-import std::cpsio::(readline, print)
-import std::str::(concatenate)
+import std::(parse_float, to_string)
+import std::(readline, print)
+import std::(concatenate)
 
 export main := do{
   cps data = readline;
@@ -20,3 +20,5 @@ export main := do{
   cps print (to_string result ++ "\n");
   0
 }
+
+-- export main := 1 do { 1 ; 2 } 3

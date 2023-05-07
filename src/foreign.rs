@@ -5,9 +5,17 @@ use std::rc::Rc;
 
 use dyn_clone::DynClone;
 
-use crate::representations::interpreted::{
-  Clause, RuntimeError, InternalError
-};
+use crate::interpreter::{RuntimeError, Context};
+
+use crate::representations::Primitive;
+pub use crate::representations::interpreted::Clause;
+use crate::representations::interpreted::ExprInst;
+
+// Aliases for concise macros
+pub type RcError = Rc<dyn ExternError>;
+pub type AtomicResult = Result<(Clause, Option<usize>), RuntimeError>;
+pub type XfnResult = Result<(Clause, Option<usize>), RcError>;
+pub type RcExpr = ExprInst;
 
 pub trait ExternError: Display {
   fn into_extern(self) -> Rc<dyn ExternError>
@@ -21,9 +29,12 @@ pub trait ExternError: Display {
 /// these are also external functions.
 pub trait ExternFn: DynClone {
   fn name(&self) -> &str;
-  fn apply(&self, arg: Clause) -> Result<Clause, Rc<dyn ExternError>>;
+  fn apply(&self, arg: ExprInst, ctx: Context) -> XfnResult;
   fn hash(&self, state: &mut dyn std::hash::Hasher) {
     state.write_str(self.name())
+  }
+  fn to_xfn_cls(self) -> Clause where Self: Sized + 'static {
+    Clause::P(Primitive::ExternFn(Box::new(self)))
   }
 }
 
@@ -44,11 +55,10 @@ impl Debug for dyn ExternFn {
 
 pub trait Atomic: Any + Debug + DynClone where Self: 'static {
   fn as_any(&self) -> &dyn Any;
-  fn definitely_eq(&self, _other: &dyn Any) -> bool;
-  fn hash(&self, hasher: &mut dyn std::hash::Hasher);
-  fn run_once(&self) -> Result<Clause, InternalError>;
-  fn run_n_times(&self, n: usize) -> Result<(Clause, usize), RuntimeError>;
-  fn run_to_completion(&self) -> Result<Clause, RuntimeError>;
+  fn run(&self, ctx: Context) -> AtomicResult;
+  fn to_atom_cls(self) -> Clause where Self: Sized {
+    Clause::P(Primitive::Atom(Atom(Box::new(self))))
+  }
 }
 
 /// Represents a black box unit of code with its own normalization steps.
@@ -83,19 +93,8 @@ impl Clone for Atom {
   }
 }
 
-impl Hash for Atom {
-  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-    self.0.hash(state)
-  }
-}
 impl Debug for Atom {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "##ATOM[{:?}]##", self.data())
-  }
-}
-impl Eq for Atom {}
-impl PartialEq for Atom {
-  fn eq(&self, other: &Self) -> bool {
-    self.data().definitely_eq(other.data().as_any())
   }
 }

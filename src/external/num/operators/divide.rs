@@ -2,10 +2,9 @@
 use super::super::Numeric;
 
 use std::fmt::Debug;
-use std::hash::Hash;
 
 use crate::{atomic_impl, atomic_redirect, externfn_impl};
-use crate::representations::interpreted::Clause;
+use crate::representations::interpreted::ExprInst;
 
 /// Divide function
 /// 
@@ -13,29 +12,29 @@ use crate::representations::interpreted::Clause;
 
 #[derive(Clone)]
 pub struct Divide2;
-externfn_impl!(Divide2, |_: &Self, c: Clause| {Ok(Divide1{c})});
+externfn_impl!(Divide2, |_: &Self, x: ExprInst| {Ok(Divide1{x})});
 
 /// Partially applied Divide function
 /// 
 /// Prev state: [Divide2]; Next state: [Divide0]
 
-#[derive(Debug, Clone, PartialEq, Hash)]
-pub struct Divide1{ c: Clause }
-atomic_redirect!(Divide1, c);
+#[derive(Debug, Clone)]
+pub struct Divide1{ x: ExprInst }
+atomic_redirect!(Divide1, x);
 atomic_impl!(Divide1);
-externfn_impl!(Divide1, |this: &Self, c: Clause| {
-  let a: Numeric = this.c.clone().try_into()?;
-  Ok(Divide0{ a, c })
+externfn_impl!(Divide1, |this: &Self, x: ExprInst| {
+  let a: Numeric = this.x.clone().try_into()?;
+  Ok(Divide0{ a, x })
 });
 
 /// Fully applied Divide function.
 /// 
 /// Prev state: [Divide1]
 
-#[derive(Debug, Clone, PartialEq, Hash)]
-pub struct Divide0 { a: Numeric, c: Clause }
-atomic_redirect!(Divide0, c);
-atomic_impl!(Divide0, |Self{ a, c }: &Self| {
-  let b: Numeric = c.clone().try_into()?;
+#[derive(Debug, Clone)]
+pub struct Divide0 { a: Numeric, x: ExprInst }
+atomic_redirect!(Divide0, x);
+atomic_impl!(Divide0, |Self{ a, x }: &Self| {
+  let b: Numeric = x.clone().try_into()?;
   Ok((*a / b).into())
 });

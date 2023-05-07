@@ -6,21 +6,23 @@ use super::atomic_impl;
 #[macro_export]
 macro_rules! atomic_redirect {
   ($typ:ident) => {
-    impl AsRef<Clause> for $typ {
+    impl AsRef<$crate::foreign::RcExpr> for $typ {
       fn as_ref(&self) -> &Clause { &self.0 }
     }
-    impl From<(&Self, Clause)> for $typ {
+    impl From<(&Self, $crate::foreign::RcExpr)> for $typ {
       fn from((old, clause): (&Self, Clause)) -> Self {
         Self{ 0: clause, ..old.clone() }
       }
     }
   };
   ($typ:ident, $field:ident) => {
-    impl AsRef<Clause> for $typ {
-      fn as_ref(&self) -> &Clause { &self.$field }
+    impl AsRef<$crate::foreign::RcExpr>
+    for $typ {
+      fn as_ref(&self) -> &$crate::foreign::RcExpr { &self.$field }
     }
-    impl From<(&Self, Clause)> for $typ {
-      fn from((old, $field): (&Self, Clause)) -> Self {
+    impl From<(&Self, $crate::foreign::RcExpr)>
+    for $typ {
+      fn from((old, $field): (&Self, $crate::foreign::RcExpr)) -> Self {
         Self{ $field, ..old.clone() }
       }
     }

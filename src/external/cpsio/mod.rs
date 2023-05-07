@@ -1,11 +1,11 @@
-use crate::project::{Loader, extlib_loader};
+use crate::{interner::Interner, pipeline::ConstTree};
 
 mod print;
 mod readline;
 
-pub fn cpsio() -> impl Loader {
-  extlib_loader(vec![
-    ("print", Box::new(print::Print2)),
-    ("readline", Box::new(readline::Readln2))
+pub fn cpsio(i: &Interner) -> ConstTree {
+  ConstTree::tree([
+    (i.i("print"), ConstTree::xfn(print::Print2)),
+    (i.i("readline"), ConstTree::xfn(readline::Readln2))
   ])
 }

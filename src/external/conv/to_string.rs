@@ -1,11 +1,9 @@
 
 use std::fmt::Debug;
-use std::hash::Hash;
 
-use crate::external::assertion_error::AssertionError;
+use crate::external::litconv::with_lit;
+use crate::representations::{interpreted::ExprInst, Literal};
 use crate::{atomic_impl, atomic_redirect, externfn_impl};
-use crate::representations::{Primitive, Literal};
-use crate::representations::interpreted::Clause;
 
 /// ToString a clause
 /// 
@@ -13,23 +11,21 @@ use crate::representations::interpreted::Clause;
 
 #[derive(Clone)]
 pub struct ToString1;
-externfn_impl!(ToString1, |_: &Self, c: Clause| {Ok(ToString0{c})});
+externfn_impl!(ToString1, |_: &Self, x: ExprInst| {Ok(ToString0{x})});
 
 /// Applied ToString function
 /// 
 /// Prev state: [ToString1]
 
-#[derive(Debug, Clone, PartialEq, Hash)]
-pub struct ToString0{ c: Clause }
-atomic_redirect!(ToString0, c);
-atomic_impl!(ToString0, |Self{ c }: &Self| {
-  let literal: &Literal = c.try_into()
-    .map_err(|_| AssertionError::ext(c.clone(), "a literal value"))?;
-  let string = match literal {
+#[derive(Debug, Clone)]
+pub struct ToString0{ x: ExprInst }
+atomic_redirect!(ToString0, x);
+atomic_impl!(ToString0, |Self{ x }: &Self| {
+  let string = with_lit(x, |l| Ok(match l {
     Literal::Char(c) => c.to_string(),
     Literal::Uint(i) => i.to_string(),
     Literal::Num(n) => n.to_string(),
     Literal::Str(s) => s.clone()
-  };
-  Ok(Clause::P(Primitive::Literal(Literal::Str(string))))
+  }))?;
+  Ok(string.into())
 });

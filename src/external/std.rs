@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-
-use crate::project::{map_loader, Loader};
+use crate::pipeline::ConstTree;
+use crate::interner::Interner;
 
 use super::bool::bool;
 use super::cpsio::cpsio;
@@ -8,12 +7,10 @@ use super::conv::conv;
 use super::str::str;
 use super::num::num;
 
-pub fn std() -> impl Loader {
-  map_loader(HashMap::from([
-    ("cpsio", cpsio().boxed()),
-    ("conv", conv().boxed()),
-    ("bool", bool().boxed()),
-    ("str", str().boxed()),
-    ("num", num().boxed()),
-  ]))
+pub fn std(i: &Interner) -> ConstTree {
+    cpsio(i)
+    + conv(i)
+    + bool(i)
+    + str(i)
+    + num(i)
 }

@@ -1,1 +1,0 @@
-Optimizations mostly left for later, len() was critical, should make most things O(N) instead of O(N!). A trivial keyword cache in the executor should prevent trying variable length patterns onto windows of unrelated sequences. Investigate different strategies as issue likely to re-emerge with marginal added pattern complexity

@@ -4,7 +4,6 @@ use crate::foreign::{ExternFn, Atom};
 
 use super::Literal;
 
-#[derive(Eq, Hash)]
 pub enum Primitive {
   /// A literal value, eg. `1`, `"hello"`
   Literal(Literal),
@@ -16,12 +15,9 @@ pub enum Primitive {
 
 impl PartialEq for Primitive {
   fn eq(&self, other: &Self) -> bool {
-    match (self, other) {
-      (Self::Literal(l1), Self::Literal(l2)) => l1 == l2,
-      (Self::Atom(a1), Self::Atom(a2)) => a1 == a2,
-      (Self::ExternFn(efb1), Self::ExternFn(efb2)) => efb1 == efb2,
-      _ => false
-    }
+    if let (Self::Literal(l1), Self::Literal(l2)) = (self, other) {
+      l1 == l2
+    } else {false}
   }
 }
 

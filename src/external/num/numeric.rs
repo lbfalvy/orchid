@@ -4,9 +4,11 @@ use std::rc::Rc;
 use ordered_float::NotNan;
 
 use crate::external::assertion_error::AssertionError;
+use crate::external::litconv::with_lit;
 use crate::foreign::ExternError;
-use crate::representations::{Primitive, Literal};
-use crate::representations::interpreted::Clause;
+use crate::representations::Literal;
+use crate::representations::Primitive;
+use crate::representations::interpreted::{Clause, ExprInst};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Numeric {
@@ -93,17 +95,14 @@ impl Rem for Numeric {
   }
 }
 
-impl TryFrom<Clause> for Numeric {
+impl TryFrom<ExprInst> for Numeric {
   type Error = Rc<dyn ExternError>;
-  fn try_from(value: Clause) -> Result<Self, Self::Error> {
-    let l = if let Clause::P(Primitive::Literal(l)) = value.clone() {l} else {
-      AssertionError::fail(value, "a literal value")?
-    };
-    match l {
-      Literal::Uint(i) => Ok(Numeric::Uint(i)),
-      Literal::Num(n) => Ok(Numeric::Num(n)),
+  fn try_from(value: ExprInst) -> Result<Self, Self::Error> {
+    with_lit(&value.clone(), |l| match l {
+      Literal::Uint(i) => Ok(Numeric::Uint(*i)),
+      Literal::Num(n) => Ok(Numeric::Num(*n)),
       _ => AssertionError::fail(value, "an integer or number")?
-    }
+    })
   }
 }
 

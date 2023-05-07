@@ -14,34 +14,11 @@ macro_rules! atomic_inert {
   ($typ:ident) => {
     impl $crate::foreign::Atomic for $typ {
       $crate::atomic_defaults!{}
-      fn run_once(&self) -> Result<
-        $crate::representations::interpreted::Clause,
-        $crate::representations::interpreted::InternalError
-      > {
-        Err($crate::representations::interpreted::InternalError::NonReducible)
-      }
-      fn run_n_times(&self, _: usize) -> Result<
-        (
-          $crate::representations::interpreted::Clause,
-          usize
-        ),
-        $crate::representations::interpreted::RuntimeError
-      > {
-        Ok(($crate::representations::interpreted::Clause::P(
-          $crate::representations::Primitive::Atom(
-            $crate::foreign::Atom::new(self.clone())
-          )
-        ), 0))
-      }
-      fn run_to_completion(&self) -> Result<
-        $crate::representations::interpreted::Clause,
-        $crate::representations::interpreted::RuntimeError
-      > {
-        Ok($crate::representations::interpreted::Clause::P(
-          $crate::representations::Primitive::Atom(
-            $crate::foreign::Atom::new(self.clone())
-          )
-        ))
+
+      fn run(&self, ctx: $crate::interpreter::Context)
+      -> $crate::foreign::AtomicResult
+      {
+        Ok((self.clone().to_atom_cls(), ctx.gas))
       }
     }
   };

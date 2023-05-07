@@ -6,3 +6,4 @@ mod str;
 mod cpsio;
 mod runtime_error;
 mod bool;
+mod litconv;

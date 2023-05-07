@@ -3,11 +3,12 @@ mod boolean;
 mod ifthenelse;
 pub use boolean::Boolean;
 
-use crate::project::{Loader, extlib_loader};
+use crate::{pipeline::ConstTree, interner::Interner};
 
-pub fn bool() -> impl Loader {
-  extlib_loader(vec![
-    ("ifthenelse", Box::new(ifthenelse::IfThenElse1)),
-    ("equals", Box::new(equals::Equals2))
+
+pub fn bool(i: &Interner) -> ConstTree {
+  ConstTree::tree([
+    (i.i("ifthenelse"), ConstTree::xfn(ifthenelse::IfThenElse1)),
+    (i.i("equals"), ConstTree::xfn(equals::Equals2))
   ])
 }

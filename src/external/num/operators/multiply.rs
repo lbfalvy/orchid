@@ -2,10 +2,9 @@
 use super::super::Numeric;
 
 use std::fmt::Debug;
-use std::hash::Hash;
 
 use crate::{atomic_impl, atomic_redirect, externfn_impl};
-use crate::representations::interpreted::Clause;
+use crate::representations::interpreted::ExprInst;
 
 /// Multiply function
 /// 
@@ -13,29 +12,29 @@ use crate::representations::interpreted::Clause;
 
 #[derive(Clone)]
 pub struct Multiply2;
-externfn_impl!(Multiply2, |_: &Self, c: Clause| {Ok(Multiply1{c})});
+externfn_impl!(Multiply2, |_: &Self, x: ExprInst| {Ok(Multiply1{x})});
 
 /// Partially applied Multiply function
 /// 
 /// Prev state: [Multiply2]; Next state: [Multiply0]
 
-#[derive(Debug, Clone, PartialEq, Hash)]
-pub struct Multiply1{ c: Clause }
-atomic_redirect!(Multiply1, c);
+#[derive(Debug, Clone)]
+pub struct Multiply1{ x: ExprInst }
+atomic_redirect!(Multiply1, x);
 atomic_impl!(Multiply1);
-externfn_impl!(Multiply1, |this: &Self, c: Clause| {
-  let a: Numeric = this.c.clone().try_into()?;
-  Ok(Multiply0{ a, c })
+externfn_impl!(Multiply1, |this: &Self, x: ExprInst| {
+  let a: Numeric = this.x.clone().try_into()?;
+  Ok(Multiply0{ a, x })
 });
 
 /// Fully applied Multiply function.
 /// 
 /// Prev state: [Multiply1]
 
-#[derive(Debug, Clone, PartialEq, Hash)]
-pub struct Multiply0 { a: Numeric, c: Clause }
-atomic_redirect!(Multiply0, c);
-atomic_impl!(Multiply0, |Self{ a, c }: &Self| {
-  let b: Numeric = c.clone().try_into()?;
+#[derive(Debug, Clone)]
+pub struct Multiply0 { a: Numeric, x: ExprInst }
+atomic_redirect!(Multiply0, x);
+atomic_impl!(Multiply0, |Self{ a, x }: &Self| {
+  let b: Numeric = x.clone().try_into()?;
   Ok((*a * b).into())
 });

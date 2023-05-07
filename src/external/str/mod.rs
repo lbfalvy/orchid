@@ -1,11 +1,10 @@
 mod concatenate;
-mod cls2str;
 mod char_at;
-pub use cls2str::cls2str;
-use crate::project::{Loader, extlib_loader};
 
-pub fn str() -> impl Loader {
-  extlib_loader(vec![
-    ("concatenate", Box::new(concatenate::Concatenate2))
+use crate::{pipeline::ConstTree, interner::Interner};
+
+pub fn str(i: &Interner) -> ConstTree {
+  ConstTree::tree([
+    (i.i("concatenate"), ConstTree::xfn(concatenate::Concatenate2))
   ])
 }

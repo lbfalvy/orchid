@@ -1,11 +1,10 @@
 use std::fmt::Debug;
-use std::hash::Hash;
 use std::rc::Rc;
 
-use crate::external::str::cls2str;
+use crate::external::litconv::with_str;
 use crate::representations::PathSet;
 use crate::{atomic_impl, atomic_redirect, externfn_impl};
-use crate::representations::interpreted::Clause;
+use crate::representations::interpreted::{Clause, ExprInst};
 
 /// Print function
 /// 
@@ -13,20 +12,21 @@ use crate::representations::interpreted::Clause;
 
 #[derive(Clone)]
 pub struct Print2;
-externfn_impl!(Print2, |_: &Self, c: Clause| {Ok(Print1{c})});
+externfn_impl!(Print2, |_: &Self, x: ExprInst| {Ok(Print1{x})});
 
 /// Partially applied Print function
 /// 
 /// Prev state: [Print2]; Next state: [Print0]
 
-#[derive(Debug, Clone, PartialEq, Hash)]
-pub struct Print1{ c: Clause }
-atomic_redirect!(Print1, c);
-atomic_impl!(Print1, |Self{ c }: &Self| {
-  let message = cls2str(&c)?;
-  print!("{}", message);
-  Ok(Clause::Lambda {
-    args: Some(PathSet{ steps: Rc::new(vec![]), next: None }),
-    body: Rc::new(Clause::LambdaArg)
+#[derive(Debug, Clone)]
+pub struct Print1{ x: ExprInst }
+atomic_redirect!(Print1, x);
+atomic_impl!(Print1, |Self{ x }: &Self| {
+  with_str(x, |s| {
+    print!("{}", s);
+    Ok(Clause::Lambda {
+      args: Some(PathSet{ steps: Rc::new(vec![]), next: None }),
+      body: Clause::LambdaArg.wrap()
+    })
   })
 });

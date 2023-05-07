@@ -1,6 +1,6 @@
 /// Utility functions to get rid of explicit casts to BoxedIter which are tedious
 
-use std::{iter, mem};
+use std::iter;
 
 pub type BoxedIter<'a, T> = Box<dyn Iterator<Item = T> + 'a>;
 pub type BoxedIterIter<'a, T> = BoxedIter<'a, BoxedIter<'a, T>>;

@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use super::BoxedIter;
+
 /// A primitive for encoding the two sides Left and Right. While booleans
 /// are technically usable for this purpose, they're less descriptive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -54,5 +56,37 @@ impl Side {
       Side::Left => (this, opposite),
       Side::Right => (opposite, this)
     }
+  }
+  /// Produces an increasing sequence on Right, and a decreasing sequence
+  /// on Left
+  pub fn walk<'a, I: DoubleEndedIterator + 'a>(&self, iter: I)
+  -> BoxedIter<'a, I::Item>
+  {
+    match self {
+      Side::Right => Box::new(iter) as BoxedIter<I::Item>,
+      Side::Left => Box::new(iter.rev()),
+    }
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use itertools::Itertools;
+  use super::*;
+
+  /// I apparently have a tendency to mix these up so it's best if
+  /// the sides are explicitly stated
+  #[test]
+  fn test_walk() {
+    assert_eq!(
+      Side::Right.walk(0..4).collect_vec(),
+      vec![0, 1, 2, 3],
+      "can walk a range"
+    );
+    assert_eq!(
+      Side::Left.walk(0..4).collect_vec(),
+      vec![3, 2, 1, 0],
+      "can walk a range backwards"
+    )
   }
 }

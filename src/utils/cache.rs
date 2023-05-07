@@ -1,4 +1,6 @@
-use std::{hash::Hash, cell::RefCell, rc::Rc};
+use std::cell::RefCell;
+use std::hash::Hash;
+use std::rc::Rc;
 use hashbrown::HashMap;
 
 // TODO: make this a crate
@@ -20,6 +22,7 @@ impl<'a, I, O> Cache<'a, I, O> where
     }
   }
 
+  #[allow(unused)]
   pub fn rc<F: 'a>(closure: F) -> Rc<Self> where F: Fn(I, &Self) -> O {
     Rc::new(Self::new(closure))
   }
@@ -43,5 +46,28 @@ impl<'a, I, O> Cache<'a, I, O> where
   pub fn known(&self, i: &I) -> Option<O> {
     let store = self.store.borrow();
     store.get(i).cloned()
+  }
+
+  
+  /// Convert this cache into a cached [Fn(&I) -> O]
+  #[allow(unused)]
+  pub fn into_fn(self) -> impl Fn(&I) -> O + 'a where I: 'a {
+    move |i| self.find(i)
+  }
+
+  /// Borrow this cache with a cached [Fn(&I) -> O]
+  #[allow(unused)]
+  pub fn as_fn<'b: 'a>(&'b self) -> impl Fn(&I) -> O + 'b where I: 'b {
+    move |i| self.find(i)
+  }
+}
+
+impl<'a, I, O> IntoIterator for Cache<'a, I, O> {
+  type IntoIter = hashbrown::hash_map::IntoIter<I, O>;
+  type Item = (I, O);
+  fn into_iter(self) -> Self::IntoIter {
+    let Cache{ store, .. } = self;
+    let map = store.into_inner();
+    map.into_iter()
   }
 }

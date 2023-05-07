@@ -1,155 +1,107 @@
+use std::ops::Range;
 use std::rc::Rc;
 
 use chumsky::{self, prelude::*, Parser};
-use lasso::Spur;
-use crate::enum_parser;
-use crate::representations::Primitive;
-use crate::representations::{Literal, ast::{Clause, Expr}};
 
-use super::lexer::Lexeme;
+use crate::enum_filter;
+use crate::representations::Primitive;
+use crate::representations::ast::{Clause, Expr};
+use crate::representations::location::Location;
+use crate::interner::Token;
+
+use super::context::Context;
+use super::lexer::{Lexeme, Entry, filter_map_lex};
 
 /// Parses any number of expr wrapped in (), [] or {}
-fn sexpr_parser<P>(
-  expr: P
-) -> impl Parser<Lexeme, Clause, Error = Simple<Lexeme>> + Clone
-where P: Parser<Lexeme, Expr, Error = Simple<Lexeme>> + Clone {
-  Lexeme::paren_parser(expr.repeated())
-    .map(|(del, b)| Clause::S(del, Rc::new(b)))
+fn sexpr_parser(
+  expr: impl Parser<Entry, Expr, Error = Simple<Entry>> + Clone
+) -> impl Parser<Entry, (Clause, Range<usize>), Error = Simple<Entry>> + Clone {
+  let body = expr.repeated();
+  choice((
+    Lexeme::LP('(').parser().then(body.clone())
+      .then(Lexeme::RP('(').parser()),
+    Lexeme::LP('[').parser().then(body.clone())
+      .then(Lexeme::RP('[').parser()),
+    Lexeme::LP('{').parser().then(body.clone())
+      .then(Lexeme::RP('{').parser()),
+  )).map(|((lp, body), rp)| {
+    let Entry{lexeme, range: Range{start, ..}} = lp;
+    let end = rp.range.end;
+    let char = if let Lexeme::LP(c) = lexeme {c}
+    else {unreachable!("The parser only matches Lexeme::LP")};
+    (Clause::S(char, Rc::new(body)), start..end)
+  }).labelled("S-expression")
 }
 
 /// Parses `\name.body` or `\name:type.body` where name is any valid name
 /// and type and body are both expressions. Comments are allowed
 /// and ignored everywhere in between the tokens
-fn lambda_parser<'a, P, F>(
-  expr: P, intern: &'a F
-) -> impl Parser<Lexeme, Clause, Error = Simple<Lexeme>> + Clone + 'a
-where
-  P: Parser<Lexeme, Expr, Error = Simple<Lexeme>> + Clone + 'a,
-  F: Fn(&str) -> Spur + 'a {
-  just(Lexeme::BS)
-  .then_ignore(enum_parser!(Lexeme::Comment).repeated())
-  .ignore_then(namelike_parser(intern))
-  .then_ignore(enum_parser!(Lexeme::Comment).repeated())
-  .then(
-    just(Lexeme::Type)
-    .then_ignore(enum_parser!(Lexeme::Comment).repeated())
-    .ignore_then(expr.clone().repeated())
-    .then_ignore(enum_parser!(Lexeme::Comment).repeated())
-    .or_not().map(Option::unwrap_or_default)
-  )
-  .then_ignore(just(Lexeme::name(".")))
-  .then_ignore(enum_parser!(Lexeme::Comment).repeated())
+fn lambda_parser<'a>(
+  expr: impl Parser<Entry, Expr, Error = Simple<Entry>> + Clone + 'a,
+  ctx: impl Context + 'a
+) -> impl Parser<Entry, (Clause, Range<usize>), Error = Simple<Entry>> + Clone + 'a {
+  Lexeme::BS.parser()
+  .ignore_then(expr.clone())
+  .then_ignore(Lexeme::Name(ctx.interner().i(".")).parser())
   .then(expr.repeated().at_least(1))
-  .map(|((name, typ), body): ((Clause, Vec<Expr>), Vec<Expr>)| {
-    Clause::Lambda(Rc::new(name), Rc::new(typ), Rc::new(body))
-  })
-}
-
-/// see [lambda_parser] but `@` instead of `\` and the name is optional
-fn auto_parser<'a, P, F>(
-  expr: P, intern: &'a F
-) -> impl Parser<Lexeme, Clause, Error = Simple<Lexeme>> + Clone + 'a
-where
-  P: Parser<Lexeme, Expr, Error = Simple<Lexeme>> + Clone + 'a,
-  F: Fn(&str) -> Spur + 'a {
-  just(Lexeme::At)
-  .then_ignore(enum_parser!(Lexeme::Comment).repeated())
-  .ignore_then(namelike_parser(intern).or_not())
-  .then_ignore(enum_parser!(Lexeme::Comment).repeated())
-  .then(
-    just(Lexeme::Type)
-    .then_ignore(enum_parser!(Lexeme::Comment).repeated())
-    .ignore_then(expr.clone().repeated())
-    .then_ignore(enum_parser!(Lexeme::Comment).repeated())
-    .or_not().map(Option::unwrap_or_default)
-  )
-  .then_ignore(just(Lexeme::name(".")))
-  .then_ignore(enum_parser!(Lexeme::Comment).repeated())
-  .then(expr.repeated().at_least(1))
-  .try_map(|((name, typ), body): ((Option<Clause>, Vec<Expr>), Vec<Expr>), s| {
-    if name.is_none() && typ.is_empty() {
-      Err(Simple::custom(s, "Auto without name or type has no effect"))
-    } else {
-      Ok(Clause::Auto(name.map(Rc::new), Rc::new(typ), Rc::new(body)))
-    }
-  })
+  .map_with_span(move |(arg, body), span| {
+    (Clause::Lambda(Rc::new(arg), Rc::new(body)), span)
+  }).labelled("Lambda")
 }
 
 /// Parses a sequence of names separated by :: <br/>
-/// Comments are allowed and ignored in between
-pub fn ns_name_parser<'a, F>(intern: &'a F)
--> impl Parser<Lexeme, Vec<Spur>, Error = Simple<Lexeme>> + Clone + 'a
-where F: Fn(&str) -> Spur + 'a {
-  enum_parser!(Lexeme::Name)
-    .map(|s| intern(&s))
-    .separated_by(
-      enum_parser!(Lexeme::Comment).repeated()
-      .then(just(Lexeme::NS))
-      .then(enum_parser!(Lexeme::Comment).repeated())
-    ).at_least(1)
+/// Comments and line breaks are allowed and ignored in between
+pub fn ns_name_parser<'a>(ctx: impl Context + 'a)
+-> impl Parser<Entry, (Token<Vec<Token<String>>>, Range<usize>), Error = Simple<Entry>> + Clone + 'a
+{
+  filter_map_lex(enum_filter!(Lexeme::Name))
+    .separated_by(Lexeme::NS.parser()).at_least(1)
+    .map(move |elements| {
+      let start = elements.first().expect("can never be empty").1.start;
+      let end = elements.last().expect("can never be empty").1.end;
+      let tokens = 
+        /*ctx.prefix().iter().copied().chain*/(
+          elements.iter().map(|(t, _)| *t)
+        ).collect::<Vec<_>>();
+      (ctx.interner().i(&tokens), start..end)
+    }).labelled("Namespaced name")
 }
 
-/// Parse any legal argument name starting with a `$`
-fn placeholder_parser() -> impl Parser<Lexeme, String, Error = Simple<Lexeme>> + Clone {
-  enum_parser!(Lexeme::Name).try_map(|name, span| {
-    name.strip_prefix('$').map(&str::to_string)
-      .ok_or_else(|| Simple::custom(span, "Not a placeholder"))
-  })
-}
-
-pub fn namelike_parser<'a, F>(intern: &'a F)
--> impl Parser<Lexeme, Clause, Error = Simple<Lexeme>> + Clone + 'a
-where F: Fn(&str) -> Spur + 'a {
+pub fn namelike_parser<'a>(ctx: impl Context + 'a)
+-> impl Parser<Entry, (Clause, Range<usize>), Error = Simple<Entry>> + Clone + 'a
+{
   choice((
-    just(Lexeme::name("...")).to(true)
-      .or(just(Lexeme::name("..")).to(false))
-      .then(placeholder_parser())
-      .then(
-        just(Lexeme::Type)
-        .ignore_then(enum_parser!(Lexeme::Uint))
-        .or_not().map(Option::unwrap_or_default)
-      )
-      .map(|((nonzero, key), prio)| Clause::Placeh{key, vec: Some((
-        prio.try_into().unwrap(),
-        nonzero
-      ))}),
-    ns_name_parser(intern)
-      .map(|qualified| Clause::Name(Rc::new(qualified))),
+    filter_map_lex(enum_filter!(Lexeme::PH))
+      .map(|(ph, range)| (Clause::Placeh(ph), range)),
+    ns_name_parser(ctx)
+      .map(|(token, range)| (Clause::Name(token), range)),
   ))
 }
 
-pub fn clause_parser<'a, P, F>(
-  expr: P, intern: &'a F
-) -> impl Parser<Lexeme, Clause, Error = Simple<Lexeme>> + Clone + 'a
-where
-  P: Parser<Lexeme, Expr, Error = Simple<Lexeme>> + Clone + 'a,
-  F: Fn(&str) -> Spur + 'a {
-  enum_parser!(Lexeme::Comment).repeated()
-  .ignore_then(choice((
-    enum_parser!(Lexeme >> Literal; Uint, Num, Char, Str)
-      .map(Primitive::Literal).map(Clause::P),
-    placeholder_parser().map(|key| Clause::Placeh{key, vec: None}),
-    namelike_parser(intern),
+pub fn clause_parser<'a>(
+  expr: impl Parser<Entry, Expr, Error = Simple<Entry>> + Clone + 'a,
+  ctx: impl Context + 'a
+) -> impl Parser<Entry, (Clause, Range<usize>), Error = Simple<Entry>> + Clone + 'a {
+  choice((
+    filter_map_lex(enum_filter!(Lexeme >> Primitive; Literal))
+      .map(|(p, s)| (Clause::P(p), s)).labelled("Literal"),
     sexpr_parser(expr.clone()),
-    lambda_parser(expr.clone(), intern),
-    auto_parser(expr.clone(), intern),
-    just(Lexeme::At).ignore_then(expr.clone()).map(|arg| {
-      Clause::Explicit(Rc::new(arg))
-    })
-  ))).then_ignore(enum_parser!(Lexeme::Comment).repeated())
+    lambda_parser(expr.clone(), ctx.clone()),
+    namelike_parser(ctx),
+  )).labelled("Clause")
 }
 
 /// Parse an expression
-pub fn xpr_parser<'a, F>(intern: &'a F)
--> impl Parser<Lexeme, Expr, Error = Simple<Lexeme>> + 'a
-where F: Fn(&str) -> Spur + 'a {
-  recursive(|expr| {
-    let clause = clause_parser(expr, intern);
-    clause.clone().then(
-      just(Lexeme::Type)
-      .ignore_then(clause.clone())
-      .repeated()
-    )
-    .map(|(val, typ)| Expr(val, Rc::new(typ)))
+pub fn xpr_parser<'a>(ctx: impl Context + 'a)
+-> impl Parser<Entry, Expr, Error = Simple<Entry>> + 'a
+{
+  recursive(move |expr| {
+    clause_parser(expr, ctx.clone())
+    .map(move |(value, range)| {
+      Expr{
+        value: value.clone(),
+        location: Location::Range { file: ctx.file(), range }
+      }
+    })
   }).labelled("Expression")
 }

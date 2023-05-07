@@ -1,11 +1,9 @@
 use std::fmt::Debug;
-use std::hash::Hash;
 use std::rc::Rc;
 
 use crate::external::assertion_error::AssertionError;
-use crate::representations::PathSet;
+use crate::representations::{PathSet, interpreted::{Clause, ExprInst}};
 use crate::{atomic_impl, atomic_redirect, externfn_impl};
-use crate::representations::interpreted::Clause;
 
 use super::Boolean;
 
@@ -15,29 +13,29 @@ use super::Boolean;
 
 #[derive(Clone)]
 pub struct IfThenElse1;
-externfn_impl!(IfThenElse1, |_: &Self, c: Clause| {Ok(IfThenElse0{c})});
+externfn_impl!(IfThenElse1, |_: &Self, x: ExprInst| {Ok(IfThenElse0{x})});
 
 /// Partially applied IfThenElse function
 /// 
 /// Prev state: [IfThenElse1]; Next state: [IfThenElse0]
 
-#[derive(Debug, Clone, PartialEq, Hash)]
-pub struct IfThenElse0{ c: Clause }
-atomic_redirect!(IfThenElse0, c);
+#[derive(Debug, Clone)]
+pub struct IfThenElse0{ x: ExprInst }
+atomic_redirect!(IfThenElse0, x);
 atomic_impl!(IfThenElse0, |this: &Self| {
-  let Boolean(b) = (&this.c).try_into()
-    .map_err(|_| AssertionError::ext(this.c.clone(), "a boolean"))?;
+  let Boolean(b) = this.x.clone().try_into()
+    .map_err(|_| AssertionError::ext(this.x.clone(), "a boolean"))?;
   Ok(if b { Clause::Lambda {
     args: Some(PathSet { steps: Rc::new(vec![]), next: None }),
-    body: Rc::new(Clause::Lambda {
+    body: Clause::Lambda {
       args: None,
-      body: Rc::new(Clause::LambdaArg)
-    })
+      body: Clause::LambdaArg.wrap()
+    }.wrap()
   }} else { Clause::Lambda {
     args: None,
-    body: Rc::new(Clause::Lambda {
+    body: Clause::Lambda {
       args: Some(PathSet { steps: Rc::new(vec![]), next: None }),
-      body: Rc::new(Clause::LambdaArg)
-    })
+      body: Clause::LambdaArg.wrap()
+    }.wrap()
   }})
 });

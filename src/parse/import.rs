@@ -1,16 +1,16 @@
-use std::rc::Rc;
-
 use chumsky::{Parser, prelude::*};
 use itertools::Itertools;
-use lasso::Spur;
 use crate::representations::sourcefile::Import;
 use crate::utils::iter::{box_once, box_flatten, into_boxed_iter, BoxedIterIter};
-use crate::{enum_parser, box_chain};
+use crate::interner::Token;
+use crate::{box_chain, enum_filter};
 
-use super::lexer::Lexeme;
+use super::Entry;
+use super::context::Context;
+use super::lexer::{Lexeme, filter_map_lex};
 
 /// initialize a BoxedIter<BoxedIter<String>> with a single element.
-fn init_table(name: Spur) -> BoxedIterIter<'static, Spur> {
+fn init_table(name: Token<String>) -> BoxedIterIter<'static, Token<String>> {
   // I'm not at all confident that this is a good approach.
   box_once(box_once(name))
 }
@@ -21,51 +21,54 @@ fn init_table(name: Spur) -> BoxedIterIter<'static, Spur> {
 /// preferably contain crossplatform filename-legal characters but the
 /// symbols are explicitly allowed to go wild.
 /// There's a blacklist in [name]
-pub fn import_parser<'a, F>(intern: &'a F)
--> impl Parser<Lexeme, Vec<Import>, Error = Simple<Lexeme>> + 'a
-where F: Fn(&str) -> Spur + 'a {
-  let globstar = intern("*");
+pub fn import_parser<'a>(ctx: impl Context + 'a)
+-> impl Parser<Entry, Vec<Import>, Error = Simple<Entry>> + 'a
+{
   // TODO: this algorithm isn't cache friendly and copies a lot
-  recursive(move |expr:Recursive<Lexeme, BoxedIterIter<Spur>, Simple<Lexeme>>| {
-    enum_parser!(Lexeme::Name).map(|s| intern(s.as_str()))
-    .separated_by(just(Lexeme::NS))
-    .then(
-      just(Lexeme::NS)
-      .ignore_then(
-        choice((
-          expr.clone()
-            .separated_by(just(Lexeme::name(",")))
-            .delimited_by(just(Lexeme::LP('(')), just(Lexeme::RP('(')))
-            .map(|v| box_flatten(v.into_iter()))
-            .labelled("import group"),
-          // Each expr returns a list of imports, flatten into common list
-          just(Lexeme::name("*")).map(move |_| init_table(globstar))
-            .labelled("wildcard import"), // Just a *, wrapped
-          enum_parser!(Lexeme::Name)
-            .map(|s| init_table(intern(s.as_str())))
-            .labelled("import terminal") // Just a name, wrapped
-        ))
-      ).or_not()
-    )
-    .map(|(name, opt_post): (Vec<Spur>, Option<BoxedIterIter<Spur>>)|
-    -> BoxedIterIter<Spur> {
-      if let Some(post) = opt_post {
-        Box::new(post.map(move |el| {
-          box_chain!(name.clone().into_iter(), el)
-        }))
-      } else {
-        box_once(into_boxed_iter(name))
-      }
-    })
+  recursive({
+    let ctx = ctx.clone();
+    move |expr:Recursive<Entry, BoxedIterIter<Token<String>>, Simple<Entry>>| {
+      filter_map_lex(enum_filter!(Lexeme::Name)).map(|(t, _)| t)
+      .separated_by(Lexeme::NS.parser())
+      .then(
+        Lexeme::NS.parser()
+        .ignore_then(
+          choice((
+            expr.clone()
+              .separated_by(Lexeme::Name(ctx.interner().i(",")).parser())
+              .delimited_by(Lexeme::LP('(').parser(), Lexeme::RP('(').parser())
+              .map(|v| box_flatten(v.into_iter()))
+              .labelled("import group"),
+            // Each expr returns a list of imports, flatten into common list
+            Lexeme::Name(ctx.interner().i("*")).parser()
+              .map(move |_| init_table(ctx.interner().i("*")))
+              .labelled("wildcard import"), // Just a *, wrapped
+            filter_map_lex(enum_filter!(Lexeme::Name))
+              .map(|(t, _)| init_table(t))
+              .labelled("import terminal") // Just a name, wrapped
+          ))
+        ).or_not()
+      )
+      .map(|(name, opt_post): (Vec<Token<String>>, Option<BoxedIterIter<Token<String>>>)|
+      -> BoxedIterIter<Token<String>> {
+        if let Some(post) = opt_post {
+          Box::new(post.map(move |el| {
+            box_chain!(name.clone().into_iter(), el)
+          }))
+        } else {
+          box_once(into_boxed_iter(name))
+        }
+      })
+    }
   }).map(move |paths| {
     paths.filter_map(|namespaces| {
       let mut path = namespaces.collect_vec();
       let name = path.pop()?;
       Some(Import {
-        path: Rc::new(path),
+        path: ctx.interner().i(&path),
         name: {
-          if name == globstar { None }
-          else { Some(name.to_owned()) }
+          if name == ctx.interner().i("*") { None }
+          else { Some(name) }
         }
       })
     }).collect()

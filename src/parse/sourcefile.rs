@@ -1,81 +1,139 @@
 use std::iter;
 use std::rc::Rc;
 
-use crate::representations::sourcefile::FileEntry;
-use crate::enum_parser;
-use crate::ast::{Expr, Rule};
+use crate::representations::location::Location;
+use crate::representations::sourcefile::{FileEntry, Member};
+use crate::enum_filter;
+use crate::ast::{Rule, Constant, Expr, Clause};
+use crate::interner::Token;
 
-use super::expression::{xpr_parser, ns_name_parser};
+use super::Entry;
+use super::context::Context;
+use super::expression::xpr_parser;
 use super::import::import_parser;
-use super::lexer::Lexeme;
-use chumsky::{Parser, prelude::*};
-use lasso::Spur;
-use ordered_float::NotNan;
+use super::lexer::{Lexeme, filter_map_lex};
 
-fn rule_parser<'a, F>(intern: &'a F) -> impl Parser<Lexeme, (
-  Vec<Expr>, NotNan<f64>, Vec<Expr>
-), Error = Simple<Lexeme>> + 'a
-where F: Fn(&str) -> Spur + 'a {
-  xpr_parser(intern).repeated()
-    .then(enum_parser!(Lexeme::Rule))
-    .then(xpr_parser(intern).repeated())
-    .map(|((a, b), c)| (a, b, c))
-    .labelled("Rule")
+use chumsky::{Parser, prelude::*};
+use itertools::Itertools;
+
+fn rule_parser<'a>(ctx: impl Context + 'a)
+-> impl Parser<Entry, Rule, Error = Simple<Entry>> + 'a
+{
+  xpr_parser(ctx.clone()).repeated().at_least(1)
+    .then(filter_map_lex(enum_filter!(Lexeme::Rule)))
+    .then(xpr_parser(ctx).repeated().at_least(1))
+    .map(|((s, (prio, _)), t)| Rule{
+      source: Rc::new(s),
+      prio,
+      target: Rc::new(t)
+    }).labelled("Rule")
 }
 
-pub fn line_parser<'a, F>(intern: &'a F)
--> impl Parser<Lexeme, FileEntry, Error = Simple<Lexeme>> + 'a
-where F: Fn(&str) -> Spur + 'a {
+fn const_parser<'a>(ctx: impl Context + 'a)
+-> impl Parser<Entry, Constant, Error = Simple<Entry>> + 'a
+{
+  filter_map_lex(enum_filter!(Lexeme::Name))
+    .then_ignore(Lexeme::Const.parser())
+    .then(xpr_parser(ctx.clone()).repeated().at_least(1))
+    .map(move |((name, _), value)| Constant{
+      name,
+      value: if let Ok(ex) = value.iter().exactly_one() { ex.clone() }
+      else {
+        let start = value.first().expect("value cannot be empty")
+          .location.range().expect("all locations in parsed source are known")
+          .start;
+        let end = value.last().expect("asserted right above")
+          .location.range().expect("all locations in parsed source are known")
+          .end;
+        Expr{
+          location: Location::Range { file: ctx.file(), range: start..end },
+          value: Clause::S('(', Rc::new(value))
+        }
+      }
+    })
+}
+
+pub fn collect_errors<T, E: chumsky::Error<T>>(e: Vec<E>) -> E {
+  e.into_iter()
+    .reduce(chumsky::Error::merge)
+    .expect("Error list must be non_enmpty")
+}
+
+fn namespace_parser<'a>(
+  line: impl Parser<Entry, FileEntry, Error = Simple<Entry>> + 'a,
+) -> impl Parser<Entry, (Token<String>, Vec<FileEntry>), Error = Simple<Entry>> + 'a {
+  Lexeme::Namespace.parser()
+  .ignore_then(filter_map_lex(enum_filter!(Lexeme::Name)))
+  .then(
+    any().repeated().delimited_by(
+      Lexeme::LP('{').parser(),
+      Lexeme::RP('{').parser()
+    ).try_map(move |body, _| {
+      split_lines(&body)
+        .map(|l| line.parse(l))
+        .collect::<Result<Vec<_>,_>>()
+        .map_err(collect_errors)
+    })
+  ).map(move |((name, _), body)| {
+    (name, body)
+  })
+}
+
+fn member_parser<'a>(
+  line: impl Parser<Entry, FileEntry, Error = Simple<Entry>> + 'a,
+  ctx: impl Context + 'a
+) -> impl Parser<Entry, Member, Error = Simple<Entry>> + 'a {
   choice((
-    // In case the usercode wants to parse doc
-    enum_parser!(Lexeme >> FileEntry; Comment),
-    just(Lexeme::Import)
-      .ignore_then(import_parser(intern).map(FileEntry::Import))
-      .then_ignore(enum_parser!(Lexeme::Comment).or_not()),
-    just(Lexeme::Export).map_err_with_span(|e, s| {
-      println!("{:?} could not yield an export", s); e
-    }).ignore_then(
-      just(Lexeme::NS).ignore_then(
-        ns_name_parser(intern).map(Rc::new)
-        .separated_by(just(Lexeme::name(",")))
-        .delimited_by(just(Lexeme::LP('(')), just(Lexeme::RP('(')))
-      ).map(FileEntry::Export)
-      .or(rule_parser(intern).map(|(source, prio, target)| {
-        FileEntry::Rule(Rule {
-          source: Rc::new(source),
-          prio,
-          target: Rc::new(target)
-        }, true)
-      }))
-    ),
-    // This could match almost anything so it has to go last
-    rule_parser(intern).map(|(source, prio, target)| {
-      FileEntry::Rule(Rule{
-        source: Rc::new(source),
-        prio,
-        target: Rc::new(target)
-      }, false)
-    }),
+    namespace_parser(line)
+      .map(|(name, body)| Member::Namespace(name, body)),
+    rule_parser(ctx.clone()).map(Member::Rule),
+    const_parser(ctx).map(Member::Constant),
   ))
 }
 
-pub fn split_lines(data: &str) -> impl Iterator<Item = &str> {
-  let mut source = data.char_indices();
+pub fn line_parser<'a>(ctx: impl Context + 'a)
+-> impl Parser<Entry, FileEntry, Error = Simple<Entry>> + 'a
+{
+  recursive(|line: Recursive<Entry, FileEntry, Simple<Entry>>| {
+    choice((
+      // In case the usercode wants to parse doc
+      filter_map_lex(enum_filter!(Lexeme >> FileEntry; Comment)).map(|(ent, _)| ent),
+      // plain old imports
+      Lexeme::Import.parser()
+        .ignore_then(import_parser(ctx.clone()).map(FileEntry::Import)),
+      Lexeme::Export.parser().ignore_then(choice((
+        // token collection
+        Lexeme::NS.parser().ignore_then(
+          filter_map_lex(enum_filter!(Lexeme::Name)).map(|(e, _)| e)
+            .separated_by(Lexeme::Name(ctx.interner().i(",")).parser())
+            .delimited_by(Lexeme::LP('(').parser(), Lexeme::RP('(').parser())
+        ).map(FileEntry::Export),
+        // public declaration
+        member_parser(line.clone(), ctx.clone()).map(FileEntry::Exported)
+      ))),
+      // This could match almost anything so it has to go last
+      member_parser(line, ctx).map(FileEntry::Internal),
+    ))
+  })
+}
+
+pub fn split_lines(data: &[Entry]) -> impl Iterator<Item = &[Entry]> {
+  let mut source = data.iter().enumerate();
   let mut last_slice = 0;
   iter::from_fn(move || {
     let mut paren_count = 0;
-    while let Some((i, c)) = source.next() {
-      match c {
-        '(' | '{' | '[' => paren_count += 1,
-        ')' | '}' | ']'  => paren_count -= 1,
-        '\n' if paren_count == 0 => {
+    while let Some((i, Entry{ lexeme, .. })) = source.next() {
+      match lexeme {
+        Lexeme::LP(_) => paren_count += 1,
+        Lexeme::RP(_) => paren_count -= 1,
+        Lexeme::BR if paren_count == 0 => {
           let begin = last_slice;
-          last_slice = i;
+          last_slice = i+1;
           return Some(&data[begin..i]);
         },
         _ => (),
       }
     }
     None
-  })
+  }).filter(|s| s.len() > 0)
 }

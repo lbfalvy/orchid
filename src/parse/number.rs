@@ -67,7 +67,7 @@ fn pow_uint_parser(base: u32) -> impl Parser<char, u64, Error = Simple<char>> {
 
 /// parse an uint from a base determined by its prefix or lack thereof
 /// 
-/// Not to be convused with [uint_parser] which is a component of it.
+/// Not to be confused with [uint_parser] which is a component of it.
 pub fn int_parser() -> impl Parser<char, u64, Error = Simple<char>> {
   choice((
     just("0b").ignore_then(pow_uint_parser(2)),

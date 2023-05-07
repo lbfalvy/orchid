@@ -20,3 +20,16 @@ impl Debug for Literal {
     }
   }
 }
+
+impl From<NotNan<f64>> for Literal {
+  fn from(value: NotNan<f64>) -> Self { Self::Num(value) }
+}
+impl From<u64> for Literal {
+  fn from(value: u64) -> Self { Self::Uint(value) }
+}
+impl From<char> for Literal {
+  fn from(value: char) -> Self { Self::Char(value) }
+}
+impl From<String> for Literal {
+  fn from(value: String) -> Self { Self::Str(value) }
+}

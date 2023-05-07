@@ -22,19 +22,18 @@ macro_rules! externfn_impl {
     impl $crate::foreign::ExternFn for $typ {
       fn name(&self) -> &str {stringify!($typ)}
       fn apply(&self,
-        c: $crate::representations::interpreted::Clause
-      ) -> Result<
-        $crate::representations::interpreted::Clause,
-        std::rc::Rc<dyn $crate::foreign::ExternError>
-      > {
-        match ($next_atomic)(self, c) { // ? casts the result but we want to strictly forward it
-          Ok(r) => Ok(
+        arg: $crate::foreign::RcExpr,
+        ctx: $crate::interpreter::Context
+      ) -> $crate::foreign::XfnResult {
+        match ($next_atomic)(self, arg) { // ? casts the result but we want to strictly forward it
+          Ok(r) => Ok((
             $crate::representations::interpreted::Clause::P(
               $crate::representations::Primitive::Atom(
                 $crate::foreign::Atom::new(r)
               )
-            )
-          ),
+            ),
+            ctx.gas.map(|g| g - 1)
+          )),
           Err(e) => Err(e)
         }
       }

@@ -2,10 +2,9 @@
 use super::super::Numeric;
 
 use std::fmt::Debug;
-use std::hash::Hash;
 
 use crate::{atomic_impl, atomic_redirect, externfn_impl};
-use crate::representations::interpreted::Clause;
+use crate::representations::interpreted::ExprInst;
 
 /// Remainder function
 /// 
@@ -13,29 +12,29 @@ use crate::representations::interpreted::Clause;
 
 #[derive(Clone)]
 pub struct Remainder2;
-externfn_impl!(Remainder2, |_: &Self, c: Clause| {Ok(Remainder1{c})});
+externfn_impl!(Remainder2, |_: &Self, x: ExprInst| {Ok(Remainder1{x})});
 
 /// Partially applied Remainder function
 /// 
 /// Prev state: [Remainder2]; Next state: [Remainder0]
 
-#[derive(Debug, Clone, PartialEq, Hash)]
-pub struct Remainder1{ c: Clause }
-atomic_redirect!(Remainder1, c);
+#[derive(Debug, Clone)]
+pub struct Remainder1{ x: ExprInst }
+atomic_redirect!(Remainder1, x);
 atomic_impl!(Remainder1);
-externfn_impl!(Remainder1, |this: &Self, c: Clause| {
-  let a: Numeric = this.c.clone().try_into()?;
-  Ok(Remainder0{ a, c })
+externfn_impl!(Remainder1, |this: &Self, x: ExprInst| {
+  let a: Numeric = this.x.clone().try_into()?;
+  Ok(Remainder0{ a, x })
 });
 
 /// Fully applied Remainder function.
 /// 
 /// Prev state: [Remainder1]
 
-#[derive(Debug, Clone, PartialEq, Hash)]
-pub struct Remainder0 { a: Numeric, c: Clause }
-atomic_redirect!(Remainder0, c);
-atomic_impl!(Remainder0, |Self{ a, c }: &Self| {
-  let b: Numeric = c.clone().try_into()?;
+#[derive(Debug, Clone)]
+pub struct Remainder0 { a: Numeric, x: ExprInst }
+atomic_redirect!(Remainder0, x);
+atomic_impl!(Remainder0, |Self{ a, x }: &Self| {
+  let b: Numeric = x.clone().try_into()?;
   Ok((*a % b).into())
 });

@@ -9,11 +9,5 @@ use crate::foreign::Atomic;
 macro_rules! atomic_defaults {
   () => {
     fn as_any(&self) -> &dyn std::any::Any { self }
-    fn definitely_eq(&self, _other: &dyn std::any::Any) -> bool {
-      _other.downcast_ref().map(|o| self == o).unwrap_or(false)
-    }
-    fn hash(&self, mut hasher: &mut dyn std::hash::Hasher) {
-      <Self as std::hash::Hash>::hash(self, &mut hasher)
-    }
   };
 }

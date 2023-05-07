@@ -1,34 +1,156 @@
-use std::fmt::{Display, Debug};
+use std::cell::RefCell;
+use std::fmt::Debug;
+use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
-use crate::utils::Side;
-use crate::foreign::{ExternError, Atom};
+use crate::interner::{Token, InternedDisplay};
+use crate::utils::print_nname;
 
 use super::Literal;
+use super::location::Location;
 use super::path_set::PathSet;
 use super::primitive::Primitive;
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+// TODO: implement Debug, Eq and Hash with cycle detection
+
+pub struct Expr {
+  pub clause: Clause,
+  pub location: Location,
+}
+
+impl Debug for Expr {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match &self.location {
+      Location::Unknown => write!(f, "{:?}", self.clause),
+      loc => write!(f, "{:?}@{}", self.clause, loc)
+    }
+  }
+}
+
+impl InternedDisplay for Expr {
+  fn fmt_i(&self, f: &mut std::fmt::Formatter<'_>, i: &crate::interner::Interner) -> std::fmt::Result {
+    match &self.location {
+      Location::Unknown => self.clause.fmt_i(f, i),
+      loc => {
+        write!(f, "{}:(", loc)?;
+        self.clause.fmt_i(f, i)?;
+        write!(f, ")")
+      }
+    }
+  }
+}
+
+/// A wrapper around expressions to handle their multiple occurences in
+/// the tree
+#[derive(Clone)]
+pub struct ExprInst(pub Rc<RefCell<Expr>>);
+impl ExprInst {
+  pub fn expr<'a>(&'a self) -> impl Deref<Target = Expr> + 'a {
+    self.0.as_ref().borrow()
+  }
+
+  pub fn expr_mut<'a>(&'a self) -> impl DerefMut<Target = Expr> + 'a {
+    self.0.as_ref().borrow_mut()
+  }
+
+  /// Call a normalization function on the expression. The expr is
+  /// updated with the new clause which affects all copies of it
+  /// across the tree.
+  pub fn try_normalize<E>(&self,
+    mapper: impl FnOnce(&Clause) -> Result<Clause, E>
+  ) -> Result<Self, E> {
+    let new_clause = mapper(&self.expr().clause)?;
+    self.expr_mut().clause = new_clause;
+    Ok(self.clone())
+  }
+
+  /// Run a mutation function on the expression, producing a new,
+  /// distinct expression. The new expression shares location info with
+  /// the original but is normalized independently.
+  pub fn try_update<E>(&self,
+    mapper: impl FnOnce(&Clause) -> Result<Clause, E>
+  ) -> Result<Self, E> {
+    let expr = self.expr();
+    let new_expr = Expr{
+      clause: mapper(&expr.clause)?,
+      location: expr.location.clone(),
+    };
+    Ok(Self(Rc::new(RefCell::new(new_expr))))
+  }
+
+  /// Call a predicate on the expression, returning whatever the
+  /// predicate returns. This is a convenience function for reaching
+  /// through the RefCell.
+  pub fn inspect<T>(&self, predicate: impl FnOnce(&Clause) -> T) -> T {
+    predicate(&self.expr().clause)
+  }
+
+  pub fn with_literal<T>(&self,
+    predicate: impl FnOnce(&Literal) -> T
+  ) -> Result<T, ()> {
+    let expr = self.expr();
+    if let Clause::P(Primitive::Literal(l)) = &expr.clause {
+      Ok(predicate(l))
+    } else {Err(())}
+  }
+}
+
+impl Debug for ExprInst {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self.0.try_borrow() {
+      Ok(expr) => write!(f, "{:?}", expr),
+      Err(_) => write!(f, "<borrowed>"),
+    }
+  }
+}
+
+impl InternedDisplay for ExprInst {
+  fn fmt_i(&self, f: &mut std::fmt::Formatter<'_>, i: &crate::interner::Interner) -> std::fmt::Result {
+    match self.0.try_borrow() {
+      Ok(expr) => expr.fmt_i(f, i),
+      Err(_) => write!(f, "<borrowed>")
+    }
+  }
+}
+
+#[derive(Debug, Clone)]
 pub enum Clause {
   P(Primitive),
   Apply{
-    f: Rc<Self>,
-    x: Rc<Self>,
-    id: usize
+    f: ExprInst,
+    x: ExprInst
   },
+  Constant(Token<Vec<Token<String>>>),
   Lambda{
     args: Option<PathSet>,
-    body: Rc<Self>
+    body: ExprInst
   },
   LambdaArg,
 }
+impl Clause {
+  /// Wrap a constructed clause in an expression. Avoid using this to wrap
+  /// copied or moved clauses as it does not have debug information and
+  /// does not share a normalization cache list with them.
+  pub fn wrap(self) -> ExprInst {
+    ExprInst(Rc::new(RefCell::new(Expr{
+      location: Location::Unknown,
+      clause: self
+    })))
+  }
+}
 
-impl Debug for Clause {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl InternedDisplay for Clause {
+  fn fmt_i(&self, f: &mut std::fmt::Formatter<'_>, i: &crate::interner::Interner) -> std::fmt::Result {
     match self {
       Clause::P(p) => write!(f, "{p:?}"),
       Clause::LambdaArg => write!(f, "arg"),
-      Clause::Apply { f: fun, x, id } => write!(f, "({:?} {:?})@{}", fun.as_ref(), x.as_ref(), id),
+      Clause::Apply { f: fun, x } => {
+        write!(f, "(")?;
+        fun.fmt_i(f, i)?;
+        write!(f, " ")?;
+        x.fmt_i(f, i)?;
+        write!(f, ")")
+      }
       Clause::Lambda { args, body } => {
         write!(f, "\\")?;
         match args {
@@ -36,177 +158,15 @@ impl Debug for Clause {
           None => write!(f, "_")?,
         }
         write!(f, ".")?;
-        write!(f, "{:?}", body.as_ref())
-      }
-    }
-  }
-}
-
-impl TryFrom<Clause> for Literal {
-  type Error = Clause;
-  fn try_from(value: Clause) -> Result<Self, Self::Error> {
-    if let Clause::P(Primitive::Literal(l)) = value {Ok(l)}
-    else {Err(value)}
-  }
-}
-
-impl<'a> TryFrom<&'a Clause> for &'a Literal {
-  type Error = ();
-  fn try_from(value: &'a Clause) -> Result<Self, Self::Error> {
-    if let Clause::P(Primitive::Literal(l)) = value {Ok(l)}
-    else {Err(())}
-  }
-}
-
-/// Problems in the process of execution
-#[derive(Clone)]
-pub enum RuntimeError {
-  Extern(Rc<dyn ExternError>),
-  NonFunctionApplication(usize),
-}
-
-impl Display for RuntimeError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    match self {
-      Self::Extern(e) => write!(f, "Error in external function: {e}"),
-      Self::NonFunctionApplication(loc) => write!(f, "Primitive applied as function at {loc}")
-    }
-  }
-}
-
-/// Various reasons why a new clause might not have been produced
-#[derive(Clone)]
-pub enum InternalError {
-  Runtime(RuntimeError),
-  NonReducible
-}
-
-fn map_at<E, F: FnOnce(&Clause) -> Result<Clause, E>>(
-  path: &[Side], source: &Clause, mapper: F
-) -> Result<Clause, E> {
-  // Pass right through lambdas
-  if let Clause::Lambda { args, body } = source {
-    return Ok(Clause::Lambda {
-      args: args.clone(),
-      body: Rc::new(map_at(path, body, mapper)?)
-    })
-  }
-  // If the path ends here, process the next (non-lambda) node
-  let (head, tail) = if let Some(sf) = path.split_first() {sf} else {
-    return mapper(source)
-  };
-  // If it's an Apply, execute the next step in the path
-  if let Clause::Apply { f, x, id } = source {
-    return Ok(match head {
-      Side::Left => Clause::Apply {
-        f: Rc::new(map_at(tail, f, mapper)?),
-        x: x.clone(),
-        id: *id
+        body.fmt_i(f, i)
       },
-      Side::Right => Clause::Apply {
-        f: f.clone(),
-        x: Rc::new(map_at(tail, x, mapper)?),
-        id: *id
-      }
-    })
-  }
-  panic!("Invalid path")
-}
-
-fn substitute(PathSet { steps, next }: &PathSet, value: &Clause, body: &Clause) -> Clause {
-  map_at(&steps, body, |checkpoint| -> Result<Clause, !> {
-    match (checkpoint, next) {
-      (Clause::Lambda{..}, _) =>  unreachable!("Handled by map_at"),
-      (Clause::Apply { f, x, id }, Some((left, right))) => Ok(Clause::Apply {
-        f: Rc::new(substitute(left, value, f)),
-        x: Rc::new(substitute(right, value, x)),
-        id: *id
-      }),
-      (Clause::LambdaArg, None) => Ok(value.clone()),
-      (_, None) => panic!("Substitution path ends in something other than LambdaArg"),
-      (_, Some(_)) => panic!("Substitution path leads into something other than Apply"),
+      Clause::Constant(t) => write!(f, "{}", print_nname(*t, i))
     }
-  }).into_ok()
-}
-
-fn apply(f: &Clause, x: Rc<Clause>, id: usize) -> Result<Clause, InternalError> {
-  match f {
-    Clause::P(Primitive::Atom(Atom(a))) => Ok(Clause::Apply { // Don't execute a pre-application
-      f: Rc::new(a.run_once()?), // take a step in expanding the atom instead
-      x, id
-    }),
-    Clause::P(Primitive::ExternFn(f)) => f.apply(x.as_ref().clone())
-      .map_err(|e| InternalError::Runtime(RuntimeError::Extern(e))),
-    fex@Clause::Apply{..} => Ok(Clause::Apply{ // Don't execute the pre-function expression
-      f: Rc::new(fex.run_once()?), // take a step in resolving it instead
-      x, id
-    }),
-    Clause::Lambda{args, body} => Ok(if let Some(args) = args {
-      substitute(args, x.as_ref(), body)
-    } else {body.as_ref().clone()}),
-    _ => Err(InternalError::Runtime(RuntimeError::NonFunctionApplication(id)))
   }
 }
 
-impl Clause {
-  pub fn run_once(&self) -> Result<Self, InternalError> {
-    match self {
-      Clause::Apply{f, x, id} => apply(f.as_ref(), x.clone(), *id),
-      Clause::P(Primitive::Atom(Atom(data))) => data.run_once(),
-      _ => Err(InternalError::NonReducible)
-    }
-  }
-
-  pub fn run_n_times(&self, n: usize) -> Result<(Self, usize), RuntimeError> {
-    let mut i = self.clone();
-    let mut done = 0;
-    while done < n {
-      match match &i {
-        Clause::Apply{f, x, id} => match apply(f.as_ref(), x.clone(), *id) {
-          Err(e) => Err(e),
-          Ok(c) => {
-            i = c;
-            done += 1;
-            Ok(())
-          }
-        },
-        Clause::P(Primitive::Atom(Atom(data))) => match data.run_n_times(n - done) {
-          Err(e) => Err(InternalError::Runtime(e)),
-          Ok((c, n)) => {
-            i = c;
-            done += n;
-            Ok(())
-          }
-        },
-        _ => Err(InternalError::NonReducible)
-      } {
-        Err(InternalError::NonReducible) => return Ok((i, done)),
-        Err(InternalError::Runtime(e)) => return Err(e),
-        Ok(()) => ()
-      }
-    }
-    return Ok((i, done));
-  }
-
-  pub fn run_to_completion(&self) -> Result<Self, RuntimeError> {
-    let mut i = self.clone();
-    loop {
-      match match &i {
-        Clause::Apply { f, x, id } => match apply(f.as_ref(), x.clone(), *id) {
-          Err(e) => Err(e),
-          Ok(c) => Ok(i = c)
-        },
-        Clause::P(Primitive::Atom(Atom(data))) => match data.run_to_completion() {
-          Err(e) => Err(InternalError::Runtime(e)),
-          Ok(c) => Ok(i = c)
-        },
-        _ => Err(InternalError::NonReducible)
-      } {
-        Err(InternalError::NonReducible) => break,
-        Err(InternalError::Runtime(e)) => return Err(e),
-        Ok(()) => ()
-      }
-    };
-    Ok(i)
+impl<T: Into<Literal>> From<T> for Clause {
+  fn from(value: T) -> Self {
+    Self::P(Primitive::Literal(value.into()))
   }
 }
