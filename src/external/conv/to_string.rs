@@ -11,7 +11,7 @@ use crate::{atomic_impl, atomic_redirect, externfn_impl};
 
 #[derive(Clone)]
 pub struct ToString1;
-externfn_impl!(ToString1, |_: &Self, x: ExprInst| {Ok(ToString0{x})});
+externfn_impl!(ToString1, |_: &Self, x: ExprInst| Ok(ToString0{x}));
 
 /// Applied ToString function
 /// 

@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::error::Error;
 use std::fmt::{Display, Debug};
 use std::hash::Hash;
 use std::rc::Rc;
@@ -11,10 +12,16 @@ use crate::representations::Primitive;
 pub use crate::representations::interpreted::Clause;
 use crate::representations::interpreted::ExprInst;
 
+pub struct AtomicReturn {
+  pub clause: Clause,
+  pub gas: Option<usize>,
+  pub inert: bool
+}
+
 // Aliases for concise macros
 pub type RcError = Rc<dyn ExternError>;
-pub type AtomicResult = Result<(Clause, Option<usize>), RuntimeError>;
-pub type XfnResult = Result<(Clause, Option<usize>), RcError>;
+pub type AtomicResult = Result<AtomicReturn, RuntimeError>;
+pub type XfnResult = Result<Clause, RcError>;
 pub type RcExpr = ExprInst;
 
 pub trait ExternError: Display {
@@ -23,6 +30,14 @@ pub trait ExternError: Display {
     Rc::new(self)
   }
 }
+
+impl Debug for dyn ExternError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{self}")
+  }
+}
+
+impl Error for dyn ExternError {}
 
 /// Represents an externally defined function from the perspective of
 /// the executor. Since Orchid lacks basic numerical operations,
@@ -84,6 +99,9 @@ impl Atom {
   pub fn cast<T: 'static>(&self) -> &T {
     self.data().as_any().downcast_ref()
       .expect("Type mismatch on Atom::cast")
+  }
+  pub fn run(&self, ctx: Context) -> AtomicResult {
+    self.0.run(ctx)
   }
 }
 

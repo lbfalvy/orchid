@@ -12,7 +12,7 @@ use crate::representations::interpreted::{Clause, ExprInst};
 
 #[derive(Clone)]
 pub struct CharAt2;
-externfn_impl!(CharAt2, |_: &Self, x: ExprInst| {Ok(CharAt1{x})});
+externfn_impl!(CharAt2, |_: &Self, x: ExprInst| Ok(CharAt1{x}));
 
 /// Partially applied CharAt function
 /// 

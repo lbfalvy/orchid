@@ -56,14 +56,14 @@ macro_rules! atomic_impl {
           AsRef<$crate::foreign::RcExpr>
         >::as_ref(self).clone();
         // run the expression
-        let ret = $crate::interpreter::run(expr, ctx)?;
-        let $crate::interpreter::Return{ gas, state } = ret;
+        let ret = $crate::interpreter::run(expr, ctx.clone())?;
+        let $crate::interpreter::Return{ gas, state, inert } = ret;
         // rebuild the atomic
         let next_self = <Self as
           From<(&Self, $crate::foreign::RcExpr)>
         >::from((self, state));
         // branch off or wrap up
-        let next_clause = if gas.map(|g| g > 0).unwrap_or(true) {
+        let clause = if inert {
           match ($next_phase)(&next_self) {
             Ok(r) => r,
             Err(e) => return Err(
@@ -72,7 +72,7 @@ macro_rules! atomic_impl {
           }
         } else { next_self.to_atom_cls() };
         // package and return
-        Ok((next_clause, gas))
+        Ok($crate::foreign::AtomicReturn{ clause, gas, inert: false })
       }
     }
   };

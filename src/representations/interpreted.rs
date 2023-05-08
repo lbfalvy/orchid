@@ -56,26 +56,27 @@ impl ExprInst {
   /// Call a normalization function on the expression. The expr is
   /// updated with the new clause which affects all copies of it
   /// across the tree.
-  pub fn try_normalize<E>(&self,
-    mapper: impl FnOnce(&Clause) -> Result<Clause, E>
-  ) -> Result<Self, E> {
-    let new_clause = mapper(&self.expr().clause)?;
+  pub fn try_normalize<T, E>(&self,
+    mapper: impl FnOnce(&Clause) -> Result<(Clause, T), E>
+  ) -> Result<(Self, T), E> {
+    let (new_clause, extra) = mapper(&self.expr().clause)?;
     self.expr_mut().clause = new_clause;
-    Ok(self.clone())
+    Ok((self.clone(), extra))
   }
 
   /// Run a mutation function on the expression, producing a new,
   /// distinct expression. The new expression shares location info with
   /// the original but is normalized independently.
-  pub fn try_update<E>(&self,
-    mapper: impl FnOnce(&Clause) -> Result<Clause, E>
-  ) -> Result<Self, E> {
+  pub fn try_update<T, E>(&self,
+    mapper: impl FnOnce(&Clause) -> Result<(Clause, T), E>
+  ) -> Result<(Self, T), E> {
     let expr = self.expr();
+    let (clause, extra) = mapper(&expr.clause)?;
     let new_expr = Expr{
-      clause: mapper(&expr.clause)?,
+      clause,
       location: expr.location.clone(),
     };
-    Ok(Self(Rc::new(RefCell::new(new_expr))))
+    Ok((Self(Rc::new(RefCell::new(new_expr))), extra))
   }
 
   /// Call a predicate on the expression, returning whatever the

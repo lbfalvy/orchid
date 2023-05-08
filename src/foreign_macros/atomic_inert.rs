@@ -18,7 +18,11 @@ macro_rules! atomic_inert {
       fn run(&self, ctx: $crate::interpreter::Context)
       -> $crate::foreign::AtomicResult
       {
-        Ok((self.clone().to_atom_cls(), ctx.gas))
+        Ok($crate::foreign::AtomicReturn{
+          clause: self.clone().to_atom_cls(),
+          gas: ctx.gas,
+          inert: true
+        })
       }
     }
   };

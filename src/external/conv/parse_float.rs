@@ -15,7 +15,7 @@ use crate::{atomic_impl, atomic_redirect, externfn_impl};
 
 #[derive(Clone)]
 pub struct ParseFloat1;
-externfn_impl!(ParseFloat1, |_: &Self, x: ExprInst| {Ok(ParseFloat0{x})});
+externfn_impl!(ParseFloat1, |_: &Self, x: ExprInst| Ok(ParseFloat0{x}));
 
 /// Applied to_string function
 /// 

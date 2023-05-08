@@ -34,7 +34,6 @@ fn scal_cnt<'a>(iter: impl Iterator<Item = &'a Expr>) -> usize {
 /// Recursively convert this pattern into a matcher that can be
 /// efficiently applied to slices.
 pub fn mk_matcher(pattern: &[Expr]) -> AnyMatcher {
-  println!("matcher from {:?}", pattern);
   let left_split = scal_cnt(pattern.iter());
   if pattern.len() <= left_split {
     return AnyMatcher::Scalar(mk_scalv(pattern))
@@ -51,13 +50,11 @@ pub fn mk_matcher(pattern: &[Expr]) -> AnyMatcher {
 
 /// Pattern MUST NOT contain vectorial placeholders
 fn mk_scalv(pattern: &[Expr]) -> Vec<ScalMatcher> {
-  println!("Scalv from {:?}", pattern);
   pattern.iter().map(mk_scalar).collect()
 }
 
 /// Pattern MUST start and end with a vectorial placeholder
 fn mk_vec(pattern: &[Expr]) -> VecMatcher {
-  println!("Vec from {:?}", pattern);
   debug_assert!(!pattern.is_empty(), "pattern cannot be empty");
   debug_assert!(pattern.first().map(vec_attrs).is_some(), "pattern must start with a vectorial");
   debug_assert!(pattern.last().map(vec_attrs).is_some(), "pattern must end with a vectorial");
@@ -103,7 +100,6 @@ fn mk_vec(pattern: &[Expr]) -> VecMatcher {
 
 /// Pattern MUST NOT be a vectorial placeholder
 fn mk_scalar(pattern: &Expr) -> ScalMatcher {
-  println!("Scalar from {:?}", pattern);
   match &pattern.value {
     Clause::P(p) => ScalMatcher::P(p.clone()),
     Clause::Name(n) => ScalMatcher::Name(*n),

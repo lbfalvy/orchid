@@ -12,7 +12,7 @@ use crate::representations::interpreted::ExprInst;
 
 #[derive(Clone)]
 pub struct Add2;
-externfn_impl!(Add2, |_: &Self, x: ExprInst| {Ok(Add1{x})});
+externfn_impl!(Add2, |_: &Self, x: ExprInst| Ok(Add1{x}));
 
 /// Partially applied Add function
 /// 

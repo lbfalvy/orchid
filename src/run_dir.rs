@@ -112,7 +112,7 @@ pub fn run_dir(dir: &Path) {
       match repo.step(&tree) {
         None => break tree,
         Some(phase) => {
-          // println!("Step {idx}/{macro_timeout}: {}", phase.bundle(&i));
+          println!("Step {idx}/{macro_timeout}: {}", phase.bundle(&i));
           tree = phase;
         },
       }
@@ -135,9 +135,16 @@ pub fn run_dir(dir: &Path) {
           .join(", ")
       )
     });
-  let Return{ gas, state } = interpreter::run(entrypoint.clone(), ctx)
+  let Return{ gas, state, inert } = interpreter::run(entrypoint.clone(), ctx)
     .unwrap_or_else(|e| panic!("Runtime error: {}", e));
-  println!("Settled at {}", state.bundle(&i));
+  if inert {
+    println!("Expression not reducible");
+    println!("Settled at {}", state.expr().clause.bundle(&i));
+    println!("Remaining gas: {}",
+      gas.map(|g| g.to_string())
+        .unwrap_or(String::from("∞"))
+    );
+  }
   if gas == Some(0) {println!("Ran out of gas!")}
   else {println!("Expression not reducible.")}
 }

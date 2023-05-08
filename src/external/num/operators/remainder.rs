@@ -12,7 +12,7 @@ use crate::representations::interpreted::ExprInst;
 
 #[derive(Clone)]
 pub struct Remainder2;
-externfn_impl!(Remainder2, |_: &Self, x: ExprInst| {Ok(Remainder1{x})});
+externfn_impl!(Remainder2, |_: &Self, x: ExprInst| Ok(Remainder1{x}));
 
 /// Partially applied Remainder function
 /// 

@@ -23,17 +23,16 @@ macro_rules! externfn_impl {
       fn name(&self) -> &str {stringify!($typ)}
       fn apply(&self,
         arg: $crate::foreign::RcExpr,
-        ctx: $crate::interpreter::Context
+        _ctx: $crate::interpreter::Context
       ) -> $crate::foreign::XfnResult {
         match ($next_atomic)(self, arg) { // ? casts the result but we want to strictly forward it
-          Ok(r) => Ok((
+          Ok(r) => Ok(
             $crate::representations::interpreted::Clause::P(
               $crate::representations::Primitive::Atom(
                 $crate::foreign::Atom::new(r)
               )
-            ),
-            ctx.gas.map(|g| g - 1)
-          )),
+            )
+          ),
           Err(e) => Err(e)
         }
       }

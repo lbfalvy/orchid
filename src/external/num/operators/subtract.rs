@@ -12,7 +12,7 @@ use crate::representations::interpreted::ExprInst;
 
 #[derive(Clone)]
 pub struct Subtract2;
-externfn_impl!(Subtract2, |_: &Self, x: ExprInst| {Ok(Subtract1{x})});
+externfn_impl!(Subtract2, |_: &Self, x: ExprInst| Ok(Subtract1{x}));
 
 /// Partially applied Subtract function
 /// 

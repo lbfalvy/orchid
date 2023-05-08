@@ -11,7 +11,7 @@ use crate::representations::interpreted::{Clause, ExprInst};
 
 #[derive(Clone)]
 pub struct Concatenate2;
-externfn_impl!(Concatenate2, |_: &Self, c: ExprInst| {Ok(Concatenate1{c})});
+externfn_impl!(Concatenate2, |_: &Self, c: ExprInst| Ok(Concatenate1{c}));
 
 /// Partially applied Concatenate function
 /// 

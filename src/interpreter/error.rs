@@ -5,7 +5,7 @@ use crate::representations::interpreted::ExprInst;
 use crate::foreign::ExternError;
 
 /// Problems in the process of execution
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum RuntimeError {
   Extern(Rc<dyn ExternError>),
   NonFunctionApplication(ExprInst),

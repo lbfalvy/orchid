@@ -13,7 +13,7 @@ use super::boolean::Boolean;
 
 #[derive(Clone)]
 pub struct Equals2;
-externfn_impl!(Equals2, |_: &Self, x: ExprInst| {Ok(Equals1{x})});
+externfn_impl!(Equals2, |_: &Self, x: ExprInst| Ok(Equals1{x}));
 
 /// Partially applied Equals function
 /// 

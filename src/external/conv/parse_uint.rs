@@ -14,7 +14,7 @@ use crate::parse::int_parser;
 
 #[derive(Clone)]
 pub struct ParseUint1;
-externfn_impl!(ParseUint1, |_: &Self, x: ExprInst| {Ok(ParseUint0{x})});
+externfn_impl!(ParseUint1, |_: &Self, x: ExprInst| Ok(ParseUint0{x}));
 
 /// Applied ParseUint function
 /// 

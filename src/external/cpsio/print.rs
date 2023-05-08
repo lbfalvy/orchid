@@ -12,7 +12,7 @@ use crate::representations::interpreted::{Clause, ExprInst};
 
 #[derive(Clone)]
 pub struct Print2;
-externfn_impl!(Print2, |_: &Self, x: ExprInst| {Ok(Print1{x})});
+externfn_impl!(Print2, |_: &Self, x: ExprInst| Ok(Print1{x}));
 
 /// Partially applied Print function
 /// 

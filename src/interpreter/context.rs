@@ -24,4 +24,5 @@ impl Context<'_> {
 pub struct Return {
   pub state: ExprInst,
   pub gas: Option<usize>,
+  pub inert: bool,
 }

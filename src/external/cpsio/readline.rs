@@ -12,7 +12,7 @@ use crate::representations::interpreted::{Clause, ExprInst};
 
 #[derive(Clone)]
 pub struct Readln2;
-externfn_impl!(Readln2, |_: &Self, x: ExprInst| {Ok(Readln1{x})});
+externfn_impl!(Readln2, |_: &Self, x: ExprInst| Ok(Readln1{x}));
 
 /// Partially applied Readln function
 /// 
@@ -23,7 +23,8 @@ pub struct Readln1{ x: ExprInst }
 atomic_redirect!(Readln1, x);
 atomic_impl!(Readln1, |Self{ x }: &Self| {
   let mut buf = String::new();
-  stdin().read_line(&mut buf).map_err(|e| RuntimeError::ext(e.to_string(), "reading from stdin"))?;
+  stdin().read_line(&mut buf)
+    .map_err(|e| RuntimeError::ext(e.to_string(), "reading from stdin"))?;
   buf.pop();
   Ok(Clause::Apply {
     f: x.clone(),

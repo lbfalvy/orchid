@@ -12,7 +12,7 @@ use crate::representations::interpreted::ExprInst;
 
 #[derive(Clone)]
 pub struct Divide2;
-externfn_impl!(Divide2, |_: &Self, x: ExprInst| {Ok(Divide1{x})});
+externfn_impl!(Divide2, |_: &Self, x: ExprInst| Ok(Divide1{x}));
 
 /// Partially applied Divide function
 /// 

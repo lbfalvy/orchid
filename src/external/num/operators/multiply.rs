@@ -12,7 +12,7 @@ use crate::representations::interpreted::ExprInst;
 
 #[derive(Clone)]
 pub struct Multiply2;
-externfn_impl!(Multiply2, |_: &Self, x: ExprInst| {Ok(Multiply1{x})});
+externfn_impl!(Multiply2, |_: &Self, x: ExprInst| Ok(Multiply1{x}));
 
 /// Partially applied Multiply function
 /// 

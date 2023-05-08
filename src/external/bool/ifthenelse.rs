@@ -13,7 +13,7 @@ use super::Boolean;
 
 #[derive(Clone)]
 pub struct IfThenElse1;
-externfn_impl!(IfThenElse1, |_: &Self, x: ExprInst| {Ok(IfThenElse0{x})});
+externfn_impl!(IfThenElse1, |_: &Self, x: ExprInst| Ok(IfThenElse0{x}));
 
 /// Partially applied IfThenElse function
 /// 
