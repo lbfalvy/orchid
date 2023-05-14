@@ -22,7 +22,7 @@ In addition, lazy, pure code lends itself to optimization. Deforestation and TCO
 
 # Macros
 
-One major grievance of mine with Haskell is that its syntax isn't accessible. Even after understanding the rules, getting used to reading it takes considerable time. On the other hand, I really like the way Rust enables library developers to invent their own syntax that intuitively describes the concepts the library at hand encodes. In Orchid's codebase, I defined several macros to streamline tasks like defining functions in Rust that are visible to Orchid.
+Left-associative unparenthesized function calls are intuitive in the typical case of just applying functions to a limited number of arguments, but they're not very flexible. Haskell solves this problem by defining a diverse array of syntax primitives for individual use cases such as `do` blocks for monadic operations. This system is fairly rigid. In contrast, Rust enables library developers to invent their own syntax that intuitively describes the concepts the library at hand encodes. In Orchid's codebase, I defined several macros to streamline tasks like defining functions in Rust that are visible to Orchid, or translating between various intermediate representations.
 
 ## Generalized kerning
 
@@ -55,12 +55,12 @@ What I really appreciate in this proof is how visual it is; based on this, it's 
 
 ## Namespaced tokens
 
-I found two major problems with C and Rust macros which vastly limit their potential. They're relatively closed systems, and prone to aliasing. Every other item in Rust follows a rigorous namespacing scheme, but the macros break this seal, I presume the reason is that macro execution happens before namespace resolution.
+Rust macros operate on the bare tokens and therefore are prone to accidental aliasing. Every other item in Rust follows a rigorous namespacing scheme, but macros break this structure, probably because macro execution happens before namespace resolution. The language doesn't suffer too much from this problem, but the relativity of namespacing
+limits their potential.
 
-Orchid's macros - substitution rules - operate on namespaced tokens. This means that users can safely give their macros short and intuitive names, but it also means that the macros can hook into each other. Consider for example the following example, which is a slightly modified version of a
-real rule included in the prelude:
+Orchid's substitution rules operate on namespaced tokens. This means that the macros can hook into each other. Consider the following example, which is a modified version of a real rule included in the prelude:
 
-in _procedural.or_
+in _procedural.orc_
 ```orchid
 export do { ...$statement ; ...$rest:1 } =10_001=> (
   statement (...$statement) do { ...$rest } 
@@ -71,7 +71,7 @@ export statement (let $_name = ...$value) ...$next =10_000=> (
 )
 ```
 
-in _cpsio.or_
+in _cpsio.orc_
 ```orchid
 import procedural::statement
 
@@ -83,7 +83,7 @@ export statement (cps ...$operation) ...$next =10_000=> (
 )
 ```
 
-in _main.or_
+in _main.orc_
 ```orchid
 import procedural::(do, let, ;)
 import cpsio::cps
@@ -95,3 +95,4 @@ export main := do{
 }
 ```
 
+Notice how, despite heavy use of macros, it's never ambiguous where a particular name is coming from. Namespacing, including import statements, is entirely unaffected by the macro system. The source of names is completely invariant.

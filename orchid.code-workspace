@@ -5,7 +5,7 @@
 		}
 	],
 	"settings": {
-		"[markdown][latex]": {
+		"[markdown]": {
 			"editor.unicodeHighlight.ambiguousCharacters": false,
 			"editor.unicodeHighlight.invisibleCharacters": false,
 			"diffEditor.ignoreTrimWhitespace": false,
@@ -20,6 +20,8 @@
 			"editor.glyphMargin": false,
 			"editor.rulers": [],
 			"editor.guides.indentation": false, 
+			"editor.formatOnSave": true,
+			"editor.formatOnType": true,
 		},
 		"[rust]": {
 			"editor.rulers": [74]
@@ -28,6 +30,7 @@
 		"files.associations": {
 			"*.mjsd": "markdown"
 		},
+		"swissknife.notesEnabled": false,
 	},
 	"extensions": {
 		"recommendations": [
