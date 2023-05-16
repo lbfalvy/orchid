@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use hashbrown::HashMap;
+use itertools::Itertools;
 
 use crate::pipeline::error::ProjectError;
 use crate::interner::{Token, Interner};
@@ -138,6 +139,11 @@ fn source_to_module(
       _ => None,
     })
     .collect::<HashMap<_, _>>();
+  // println!(
+  //   "Constructing file-module {} with members ({})",
+  //   i.extern_all(&path_v[..]).join("::"),
+  //   exports.keys().map(|t| i.r(*t)).join(", ")
+  // );
   Rc::new(Module {
     imports,
     items,
@@ -174,10 +180,15 @@ fn files_to_module(
       (namespace, ModEntry{ exported: true, member })
     })
     .collect::<HashMap<_, _>>();
-  let exports = items.keys()
+  let exports: HashMap<_, _> = items.keys()
     .copied()
     .map(|name| (name, i.i(&pushed(&path_v, name))))
     .collect();
+  // println!(
+  //   "Constructing module {} with items ({})",
+  //   i.extern_all(&path_v[..]).join("::"),
+  //   exports.keys().map(|t| i.r(*t)).join(", ")
+  // );
   Rc::new(Module{
     items,
     imports: vec![],

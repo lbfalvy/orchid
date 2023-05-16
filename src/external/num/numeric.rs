@@ -48,7 +48,7 @@ impl Sub for Numeric {
 
   fn sub(self, rhs: Self) -> Self::Output {
     match (self, rhs) {
-      (Numeric::Uint(a), Numeric::Uint(b)) if b < a => Numeric::Uint(a - b),
+      (Numeric::Uint(a), Numeric::Uint(b)) if b <= a => Numeric::Uint(a - b),
       (Numeric::Uint(a), Numeric::Uint(b))
         => Numeric::num(a as f64 - b as f64),
       (Numeric::Num(a), Numeric::Num(b)) => Numeric::num(a - b),

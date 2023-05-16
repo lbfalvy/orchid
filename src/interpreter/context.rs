@@ -1,11 +1,12 @@
 use hashbrown::HashMap;
 
 use crate::representations::interpreted::ExprInst;
-use crate::interner::Token;
+use crate::interner::{Token, Interner};
 
 #[derive(Clone)]
 pub struct Context<'a> {
   pub symbols: &'a HashMap<Token<Vec<Token<String>>>, ExprInst>,
+  pub interner: &'a Interner,
   pub gas: Option<usize>,
 }
 

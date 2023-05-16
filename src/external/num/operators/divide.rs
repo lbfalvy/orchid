@@ -34,7 +34,7 @@ externfn_impl!(Divide1, |this: &Self, x: ExprInst| {
 #[derive(Debug, Clone)]
 pub struct Divide0 { a: Numeric, x: ExprInst }
 atomic_redirect!(Divide0, x);
-atomic_impl!(Divide0, |Self{ a, x }: &Self| {
+atomic_impl!(Divide0, |Self{ a, x }: &Self, _| {
   let b: Numeric = x.clone().try_into()?;
   Ok((*a / b).into())
 });

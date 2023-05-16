@@ -28,24 +28,26 @@ export ...$a / ...$b:1 =1000=> (divide (...$a) (...$b))
 export ...$a == ...$b =1002=> (equals (...$a) (...$b))
 export ...$a ++ ...$b =1003=> (concatenate (...$a) (...$b))
 
-export do { ...$statement ; ...$rest:1 } =10_001=> (
+export do { ...$statement ; ...$rest:1 } =0x2p543=> (
   statement (...$statement) do { ...$rest } 
 )
-export do { ...$return } =10_000=> (...$return)
+export do { ...$return } =0x1p543=> (...$return)
 
-export statement (let $name = ...$value) ...$next =10_000=> (
+export statement (let $name = ...$value) ...$next =0x1p1000=> (
   (\$name. ...$next) (...$value)
 )
-export statement (cps $name = ...$operation) ...$next =10_001=> (
+export statement (cps $name = ...$operation) ...$next =0x2p1000=> (
   (...$operation) \$name. ...$next
 )
-export statement (cps ...$operation) ...$next =10_000=> (
+export statement (cps ...$operation) ...$next =0x1p1000=> (
   (...$operation) (...$next)
 )
 
-export if ...$cond then ...$true else ...$false:1 =5_000=> (
+export if ...$cond then ...$true else ...$false:1 =0x1p320=> (
   ifthenelse (...$cond) (...$true) (...$false)
 )
+
+export ::(,)
 "#;
 
 fn prelude_path(i: &Interner) -> Token<Vec<Token<String>>>
@@ -100,7 +102,7 @@ pub fn run_dir(dir: &Path) {
         rule.bundle(&i)
       )
     });
-  println!("Repo dump: {}", repo.bundle(&i));
+  // println!("Repo dump: {}", repo.bundle(&i));
   let mut exec_table = HashMap::new();
   for (name, source) in consts.iter() {
     // let nval = entrypoint(&i); let name = &nval; let source = &consts[name];
@@ -125,6 +127,7 @@ pub fn run_dir(dir: &Path) {
   println!("macro execution complete");
   let ctx = interpreter::Context {
     symbols: &exec_table,
+    interner: &i,
     gas: None
   };
   let entrypoint = exec_table.get(&entrypoint(&i))

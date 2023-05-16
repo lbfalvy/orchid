@@ -8,6 +8,7 @@ pub fn any_match<'a>(matcher: &AnyMatcher, seq: &'a [Expr])
   match matcher {
     AnyMatcher::Scalar(scalv) => scalv_match(scalv, seq),
     AnyMatcher::Vec{ left, mid, right } => {
+      if seq.len() < left.len() + right.len() {return None};
       let left_split = left.len();
       let right_split = seq.len() - right.len();
       let mut state = scalv_match(left, &seq[..left_split])?;

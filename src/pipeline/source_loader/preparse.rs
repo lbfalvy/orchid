@@ -38,23 +38,27 @@ fn add_export<K: Eq + Hash>(
 }
 
 /// Convert source lines into a module
-fn to_module(src: &[FileEntry], i: &Interner) -> Rc<Module<(), ()>>
-{
-  let imports = imports(src.iter()).cloned().collect::<Vec<_>>();
-  let mut items = src.iter().filter_map(|ent| match ent {
+fn to_module(
+  src: &[FileEntry],
+  prelude: &[FileEntry],
+  i: &Interner
+) -> Rc<Module<(), ()>> {
+  let all_src = || src.iter().chain(prelude.iter());
+  let imports = imports(all_src()).cloned().collect::<Vec<_>>();
+  let mut items = all_src().filter_map(|ent| match ent {
     FileEntry::Internal(Member::Namespace(name, data)) => {
-      let member = ModMember::Sub(to_module(data, i));
+      let member = ModMember::Sub(to_module(data, prelude, i));
       let entry = ModEntry{ exported: false, member };
       Some((*name, entry))
     }
     FileEntry::Exported(Member::Namespace(name, data)) => {
-      let member = ModMember::Sub(to_module(data, i));
+      let member = ModMember::Sub(to_module(data, prelude, i));
       let entry = ModEntry{ exported: true, member };
       Some((*name, entry))
     }
     _ => None
   }).collect::<HashMap<_, _>>();
-  for file_entry in src { match file_entry {
+  for file_entry in all_src() { match file_entry {
     FileEntry::Comment(_) | FileEntry::Import(_)
     | FileEntry::Internal(Member::Namespace(..))
     | FileEntry::Exported(Member::Namespace(..)) => (),
@@ -83,8 +87,12 @@ fn to_module(src: &[FileEntry], i: &Interner) -> Rc<Module<(), ()>>
 
 /// Preparse the module. At this stage, only the imports and
 /// names defined by the module can be parsed
-pub fn preparse(file: Vec<String>, source: &str, i: &Interner)
--> Result<Preparsed, Rc<dyn ProjectError>> {
+pub fn preparse(
+  file: Vec<String>,
+  source: &str,
+  prelude: &[FileEntry],
+  i: &Interner,
+) -> Result<Preparsed, Rc<dyn ProjectError>> {
   // Parse with no operators
   let ctx = ParsingContext::<&str>::new(&[], i, Rc::new(file.clone()));
   let entries = parse::parse(source, ctx)
@@ -98,5 +106,5 @@ pub fn preparse(file: Vec<String>, source: &str, i: &Interner)
       namespace: ns.into_iter().map(|t| i.r(t)).cloned().collect(),
       file: Rc::new(file.clone())
     }.rc())?;
-  Ok(Preparsed(to_module(&normalized, i)))
+  Ok(Preparsed(to_module(&normalized, prelude, i)))
 }

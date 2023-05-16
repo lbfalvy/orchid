@@ -82,7 +82,10 @@ pub fn apply(
       (new_xpr.clause.clone(), (ctx.gas.map(|x| x - 1), false))
     } else {(body.expr().clause.clone(), (ctx.gas, false))}),
     Clause::Constant(name) => {
-      let symval = ctx.symbols.get(name).expect("missing symbol for function").clone();
+      let symval = if let Some(sym) = ctx.symbols.get(name) {sym.clone()}
+      else { panic!("missing symbol for function {}",
+        ctx.interner.extern_vec(*name).join("::")
+      )};
       Ok((Clause::Apply { f: symval, x, }, (ctx.gas, false)))
     }
     Clause::P(Primitive::Atom(atom)) => { // take a step in expanding atom

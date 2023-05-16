@@ -20,7 +20,7 @@ externfn_impl!(ToString1, |_: &Self, x: ExprInst| Ok(ToString0{x}));
 #[derive(Debug, Clone)]
 pub struct ToString0{ x: ExprInst }
 atomic_redirect!(ToString0, x);
-atomic_impl!(ToString0, |Self{ x }: &Self| {
+atomic_impl!(ToString0, |Self{ x }: &Self, _| {
   let string = with_lit(x, |l| Ok(match l {
     Literal::Char(c) => c.to_string(),
     Literal::Uint(i) => i.to_string(),

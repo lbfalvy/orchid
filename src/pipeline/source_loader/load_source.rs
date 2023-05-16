@@ -7,6 +7,7 @@ use crate::pipeline::split_name::split_name;
 use crate::interner::{Token, Interner};
 
 use crate::pipeline::file_loader::{Loaded, load_text, IOResult};
+use crate::representations::sourcefile::FileEntry;
 use super::loaded_source::{LoadedSourceTable, LoadedSource};
 use super::preparse::preparse;
 
@@ -15,6 +16,7 @@ use super::preparse::preparse;
 fn load_abs_path_rec(
   abs_path: Token<Vec<Token<String>>>,
   table: &mut LoadedSourceTable,
+  prelude: &[FileEntry],
   i: &Interner,
   get_source: &impl Fn(Token<Vec<Token<String>>>) -> IOResult,
   is_injected: &impl Fn(&[Token<String>]) -> bool
@@ -39,7 +41,7 @@ fn load_abs_path_rec(
         .chain(iter::once(i.i(item)))
         .collect::<Vec<_>>();
       load_abs_path_rec(
-        i.i(&abs_subpath), table, i, get_source, is_injected
+        i.i(&abs_subpath), table, prelude, i, get_source, is_injected
       )?
     }
     return Ok(());
@@ -48,7 +50,7 @@ fn load_abs_path_rec(
   let text = load_text(i.i(filename), &get_source, i)?;
   let preparsed = preparse(
     filename.iter().map(|t| i.r(*t)).cloned().collect(),
-    text.as_str(), i
+    text.as_str(), prelude, i
   )?;
   table.insert(abs_path, LoadedSource{ text, preparsed: preparsed.clone() });
   // recurse on all imported modules
@@ -58,7 +60,9 @@ fn load_abs_path_rec(
       module, &import.nonglob_path(i), i
     )?;
     // recurse on imported module
-    load_abs_path_rec(i.i(&abs_pathv), table, i, get_source, is_injected)
+    load_abs_path_rec(
+      i.i(&abs_pathv), table, prelude, i, get_source, is_injected
+    )
   })
 }
 
@@ -66,6 +70,7 @@ fn load_abs_path_rec(
 /// imports that aren't injected.
 pub fn load_source(
   targets: &[Token<Vec<Token<String>>>],
+  prelude: &[FileEntry],
   i: &Interner,
   get_source: &impl Fn(Token<Vec<Token<String>>>) -> IOResult,
   is_injected: &impl Fn(&[Token<String>]) -> bool,
@@ -75,6 +80,7 @@ pub fn load_source(
     load_abs_path_rec(
       *target,
       &mut table,
+      prelude,
       i, get_source, is_injected
     )?
   }

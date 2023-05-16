@@ -16,4 +16,4 @@ My plan for Orchid was to use Orchid itself as a type system as well; rather tha
 [tc2]: https://blog.rust-lang.org/2022/10/28/gats-stabilization.html
 [tc3]: https://wiki.haskell.org/Type_SK
 
-A description of the planned type system is available in [[type_system/01-main.md|Appendix T]]
+A description of the planned type system is available in [[type_system/+index|Appendix T]]

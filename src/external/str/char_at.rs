@@ -33,7 +33,7 @@ externfn_impl!(CharAt1, |this: &Self, x: ExprInst| {
 #[derive(Debug, Clone)]
 pub struct CharAt0 { s: String, x: ExprInst }
 atomic_redirect!(CharAt0, x);
-atomic_impl!(CharAt0, |Self{ s, x }: &Self| {
+atomic_impl!(CharAt0, |Self{ s, x }: &Self, _| {
   with_uint(x, |i| if let Some(c) = s.chars().nth(i as usize) {
     Ok(Clause::P(Primitive::Literal(Literal::Char(c))))
   } else {

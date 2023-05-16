@@ -1,5 +1,7 @@
 use std::rc::Rc;
 
+use itertools::Itertools;
+
 use crate::interner::Interner;
 use crate::pipeline::error::ProjectError;
 use crate::pipeline::project_tree::ProjectTree;
@@ -23,6 +25,14 @@ pub fn resolve_imports(
     &project, &mut map,
     i, injected_as
   )?;
+  println!("Aliases: {{{:?}}}",
+    map.targets.iter()
+      .map(|(kt, vt)| format!("{} => {}",
+        i.extern_vec(*kt).join("::"),
+        i.extern_vec(*vt).join("::")
+      ))
+      .join(", ")
+  );
   let new_mod = apply_aliases(project.0.as_ref(), &map, i, injected_as);
   Ok(ProjectTree(Rc::new(new_mod)))
 }

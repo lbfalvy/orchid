@@ -34,7 +34,7 @@ externfn_impl!(Multiply1, |this: &Self, x: ExprInst| {
 #[derive(Debug, Clone)]
 pub struct Multiply0 { a: Numeric, x: ExprInst }
 atomic_redirect!(Multiply0, x);
-atomic_impl!(Multiply0, |Self{ a, x }: &Self| {
+atomic_impl!(Multiply0, |Self{ a, x }: &Self, _| {
   let b: Numeric = x.clone().try_into()?;
   Ok((*a * b).into())
 });

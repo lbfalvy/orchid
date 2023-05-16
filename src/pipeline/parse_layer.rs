@@ -39,7 +39,7 @@ pub fn parse_layer<'a>(
     ))
   };
   let source = source_loader::load_source(
-    targets, i, loader, &|path| injected_as(path).is_some()
+    targets, prelude, i, loader, &|path| injected_as(path).is_some()
   )?;
   let tree = project_tree::build_tree(source, i, prelude, &injected_names)?;
   let sum = ProjectTree(Rc::new(

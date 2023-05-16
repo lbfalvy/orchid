@@ -2,6 +2,10 @@
 
 Orchid expressions are similar in nature to lambda calculus or haskell, except whitespace is mostly irrelevant.  
 
+## Comments
+
+Orchid borrows Lua's comment syntax. Line comments start with `--` and end at a line break. Block comments start with `--[` and end with `]--`.
+
 ## Names
 
 `name` and `ns_name` tokens appear all over the place in this spec. They represent operators, function names, arguments, modules. A `name` is

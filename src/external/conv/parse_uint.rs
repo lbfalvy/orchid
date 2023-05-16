@@ -23,7 +23,7 @@ externfn_impl!(ParseUint1, |_: &Self, x: ExprInst| Ok(ParseUint0{x}));
 #[derive(Debug, Clone)]
 pub struct ParseUint0{ x: ExprInst }
 atomic_redirect!(ParseUint0, x);
-atomic_impl!(ParseUint0, |Self{ x }: &Self| {
+atomic_impl!(ParseUint0, |Self{ x }: &Self, _| {
   let uint = with_lit(x, |l| Ok(match l {
     Literal::Str(s) => {
       let parser = int_parser();

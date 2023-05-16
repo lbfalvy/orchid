@@ -39,7 +39,7 @@ use std::fmt::Debug;
 #[macro_export]
 macro_rules! atomic_impl {
   ($typ:ident) => {
-    atomic_impl!{$typ, |this: &Self| {
+    atomic_impl!{$typ, |this: &Self, _: $crate::interpreter::Context| {
       use $crate::foreign::ExternFn;
       Ok(this.clone().to_xfn_cls())
     }}
@@ -64,7 +64,7 @@ macro_rules! atomic_impl {
         >::from((self, state));
         // branch off or wrap up
         let clause = if inert {
-          match ($next_phase)(&next_self) {
+          match ($next_phase)(&next_self, ctx) {
             Ok(r) => r,
             Err(e) => return Err(
               $crate::interpreter::RuntimeError::Extern(e)

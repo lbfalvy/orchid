@@ -24,7 +24,7 @@ externfn_impl!(ParseFloat1, |_: &Self, x: ExprInst| Ok(ParseFloat0{x}));
 #[derive(Debug, Clone)]
 pub struct ParseFloat0{ x: ExprInst }
 atomic_redirect!(ParseFloat0, x);
-atomic_impl!(ParseFloat0, |Self{ x }: &Self| {
+atomic_impl!(ParseFloat0, |Self{ x }: &Self, _| {
   let number = with_lit(x, |l| Ok(match l {
     Literal::Str(s) => {
       let parser = float_parser();

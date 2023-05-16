@@ -32,7 +32,7 @@ externfn_impl!(Concatenate1, |this: &Self, c: ExprInst| {
 #[derive(Debug, Clone)]
 pub struct Concatenate0 { a: String, c: ExprInst }
 atomic_redirect!(Concatenate0, c);
-atomic_impl!(Concatenate0, |Self{ a, c }: &Self| {
+atomic_impl!(Concatenate0, |Self{ a, c }: &Self, _| {
   with_str(c, |b| Ok(Clause::P(Primitive::Literal(
     Literal::Str(a.to_owned() + b)
   ))))

@@ -34,7 +34,7 @@ externfn_impl!(Subtract1, |this: &Self, x: ExprInst| {
 #[derive(Debug, Clone)]
 pub struct Subtract0 { a: Numeric, x: ExprInst }
 atomic_redirect!(Subtract0, x);
-atomic_impl!(Subtract0, |Self{ a, x }: &Self| {
+atomic_impl!(Subtract0, |Self{ a, x }: &Self, _| {
   let b: Numeric = x.clone().try_into()?;
   Ok((*a - b).into())
 });

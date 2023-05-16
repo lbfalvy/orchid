@@ -1,6 +1,8 @@
+use std::println;
 use std::rc::Rc;
 
 use hashbrown::HashSet;
+use itertools::Itertools;
 
 use crate::representations::tree::WalkErrorKind;
 use crate::pipeline::source_loader::LoadedSourceTable;
@@ -30,7 +32,13 @@ pub fn collect_exported_ops(
   i: &Interner,
   injected: &impl InjectedOperatorsFn
 ) -> OpsResult {
-  if let Some(i) = injected(path) {return Ok(i)}
+  if let Some(ops) = injected(path) {
+    if path == i.i(&[i.i("prelude")][..]) {
+      println!("%%% Prelude exported ops %%%");
+      println!("{}", ops.iter().map(|t| i.r(*t)).join(", "));
+    }
+    return Ok(ops)
+  }
   let is_file = |n: &[Token<String>]| loaded.contains_key(&i.i(n));
   let path_s = &i.r(path)[..];
   let name_split = split_name(path_s, &is_file);
@@ -59,11 +67,15 @@ pub fn collect_exported_ops(
           .collect()
       }.rc(),
     })?;
-  Ok(Rc::new(module.items.iter()
+  let out: HashSet<_> = module.items.iter()
     .filter(|(_, v)| v.exported)
     .map(|(k, _)| *k)
-    .collect()
-  ))
+    .collect();
+  if path == i.i(&[i.i("prelude")][..]) {
+    println!("%%% Prelude exported ops %%%");
+    println!("{}", out.iter().map(|t| i.r(*t)).join(", "));
+  }
+  Ok(Rc::new(out))
 }
 
 pub fn mk_cache<'a>(
@@ -71,5 +83,7 @@ pub fn mk_cache<'a>(
   i: &'a Interner,
   injected: &'a impl InjectedOperatorsFn,
 ) -> ExportedOpsCache<'a> {
-  Cache::new(|path, _this| collect_exported_ops(path, loaded, i, injected))
+  Cache::new(|path, _this| {
+    collect_exported_ops(path, loaded, i, injected)
+  })
 }

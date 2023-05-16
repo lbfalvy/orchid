@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::io::{self, Write};
 use std::rc::Rc;
 
 use crate::external::litconv::with_str;
@@ -21,9 +22,10 @@ externfn_impl!(Print2, |_: &Self, x: ExprInst| Ok(Print1{x}));
 #[derive(Debug, Clone)]
 pub struct Print1{ x: ExprInst }
 atomic_redirect!(Print1, x);
-atomic_impl!(Print1, |Self{ x }: &Self| {
+atomic_impl!(Print1, |Self{ x }: &Self, _| {
   with_str(x, |s| {
     print!("{}", s);
+    io::stdout().flush().unwrap();
     Ok(Clause::Lambda {
       args: Some(PathSet{ steps: Rc::new(vec![]), next: None }),
       body: Clause::LambdaArg.wrap()

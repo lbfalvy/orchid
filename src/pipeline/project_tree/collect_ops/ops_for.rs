@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use hashbrown::HashSet;
+use itertools::Itertools;
 
 use crate::parse::is_op;
 use crate::pipeline::error::ProjectError;
@@ -34,9 +35,11 @@ pub fn collect_ops_for(
 ) -> OpsResult {
   let tree = &loaded[&i.i(file)].preparsed.0;
   let mut ret = HashSet::new();
+  println!("collecting ops for {}", i.extern_all(file).join("::"));
   tree_all_ops(tree.as_ref(), &mut ret);
   tree.visit_all_imports(&mut |modpath, module, import| {
     if let Some(n) = import.name { ret.insert(n); } else {
+      println!("\tglob import from {}", i.extern_vec(import.path).join("::"));
       let path = import_abs_path(
         &file, modpath, module, &i.r(import.path)[..], i
       ).expect("This error should have been caught during loading");
@@ -45,5 +48,9 @@ pub fn collect_ops_for(
     Ok::<_, Rc<dyn ProjectError>>(())
   })?;
   ret.drain_filter(|t| !is_op(i.r(*t)));
+  if file == &[i.i("map")][..] {
+    println!(" %%% ops in map %%% ");
+    println!("{}", ret.iter().map(|t| i.r(*t)).join(", "))
+  }
   Ok(Rc::new(ret))
 }

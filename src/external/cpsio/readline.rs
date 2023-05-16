@@ -21,7 +21,7 @@ externfn_impl!(Readln2, |_: &Self, x: ExprInst| Ok(Readln1{x}));
 #[derive(Debug, Clone)]
 pub struct Readln1{ x: ExprInst }
 atomic_redirect!(Readln1, x);
-atomic_impl!(Readln1, |Self{ x }: &Self| {
+atomic_impl!(Readln1, |Self{ x }: &Self, _| {
   let mut buf = String::new();
   stdin().read_line(&mut buf)
     .map_err(|e| RuntimeError::ext(e.to_string(), "reading from stdin"))?;

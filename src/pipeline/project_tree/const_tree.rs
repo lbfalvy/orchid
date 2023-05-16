@@ -5,7 +5,7 @@ use hashbrown::HashMap;
 use crate::representations::tree::{ModEntry, ModMember, Module};
 use crate::representations::Primitive;
 use crate::representations::location::Location;
-use crate::foreign::ExternFn;
+use crate::foreign::{ExternFn, Atomic, Atom};
 use crate::interner::{Token, Interner};
 use crate::ast::{Expr, Clause};
 use crate::utils::{Substack, pushed};
@@ -17,11 +17,17 @@ pub enum ConstTree {
   Tree(HashMap<Token<String>, ConstTree>)
 }
 impl ConstTree {
-  pub fn xfn(xfn: impl ExternFn + 'static) -> Self {
+  pub fn primitive(primitive: Primitive) -> Self {
     Self::Const(Expr{
       location: Location::Unknown,
-      value: Clause::P(Primitive::ExternFn(Box::new(xfn)))
+      value: Clause::P(primitive)
     })
+  }
+  pub fn xfn(xfn: impl ExternFn + 'static) -> Self {
+    Self::primitive(Primitive::ExternFn(Box::new(xfn)))
+  }
+  pub fn atom(atom: impl Atomic + 'static) -> Self {
+    Self::primitive(Primitive::Atom(Atom(Box::new(atom))))
   }
   pub fn tree(
     arr: impl IntoIterator<Item = (Token<String>, Self)>

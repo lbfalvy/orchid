@@ -6,6 +6,20 @@ use crate::{utils::Substack, interner::{Token, Interner}, pipeline::{ProjectModu
 
 use super::{alias_map::AliasMap, decls::InjectedAsFn};
 
+fn resolve(
+  token: Token<Vec<Token<String>>>,
+  alias_map: &AliasMap,
+  i: &Interner,
+) -> Option<Vec<Token<String>>> {
+  if let Some(alias) = alias_map.resolve(token) {
+    Some(i.r(alias).clone())
+  } else if let Some((foot, body)) = i.r(token).split_last() {
+    let mut new_beginning = resolve(i.i(body), alias_map, i)?;
+    new_beginning.push(*foot);
+    Some(new_beginning)
+  } else {None}
+}
+
 fn process_expr(
   expr: &Expr,
   alias_map: &AliasMap,
@@ -14,9 +28,15 @@ fn process_expr(
 ) -> Expr {
   expr.map_names(&|n| {
     injected_as(&i.r(n)[..]).or_else(|| {
-      alias_map.resolve(n).map(|n| {
-        injected_as(&i.r(n)[..]).unwrap_or(n)
-      })
+      let next_v = resolve(n, alias_map, i)?;
+      // println!("Resolved alias {} to {}",
+      //   i.extern_vec(n).join("::"),
+      //   i.extern_all(&next_v).join("::")
+      // );
+      Some(
+        injected_as(&next_v)
+          .unwrap_or_else(|| i.i(&next_v))
+      )
     })
   }).unwrap_or_else(|| expr.clone())
 }

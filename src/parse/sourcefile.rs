@@ -66,8 +66,8 @@ fn namespace_parser<'a>(
   .ignore_then(filter_map_lex(enum_filter!(Lexeme::Name)))
   .then(
     any().repeated().delimited_by(
-      Lexeme::LP('{').parser(),
-      Lexeme::RP('{').parser()
+      Lexeme::LP('(').parser(),
+      Lexeme::RP('(').parser()
     ).try_map(move |body, _| {
       split_lines(&body)
         .map(|l| line.parse(l))
@@ -120,6 +120,7 @@ pub fn line_parser<'a>(ctx: impl Context + 'a)
 pub fn split_lines(data: &[Entry]) -> impl Iterator<Item = &[Entry]> {
   let mut source = data.iter().enumerate();
   let mut last_slice = 0;
+  let mut finished = false;
   iter::from_fn(move || {
     let mut paren_count = 0;
     while let Some((i, Entry{ lexeme, .. })) = source.next() {
@@ -133,6 +134,11 @@ pub fn split_lines(data: &[Entry]) -> impl Iterator<Item = &[Entry]> {
         },
         _ => (),
       }
+    }
+    // Include last line even without trailing newline
+    if !finished {
+      finished = true;
+      return Some(&data[last_slice..])
     }
     None
   }).filter(|s| s.len() > 0)
