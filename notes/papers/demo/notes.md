@@ -16,4 +16,4 @@ Orchid is designed to be embedded in a Rust application. The entire program life
 
 3. The interpreter is a single function operating on an expression with a symbol table for resolving named constants. It also allows setting a limit to the number of normalization steps - this is commonly known as gas.
 
-Interfacing between eager procedural and lazy functional code can be challenging, especially with the vastly different suites of optimizations. To make this a little easier, we provides an array of Rust macros that streamline the process of exposing Rust functions to Orchid code. The usage of these is demonstrated in the standard library.
+Interfacing between eager procedural and lazy functional code can be challenging, especially with the vastly different suites of optimizations. To make this a little easier, we provide an array of Rust macros that streamline the process of exposing Rust functions to Orchid code. The usage of these is demonstrated in the standard library.

@@ -12,15 +12,3 @@ export main := do{
   cps print $ to_string sum ++ "\n";
   0
 }
-
---[
-export main := do{
-  let n = 1;
-  let acc = 1;
-  loop r on (n acc) with (
-    if n == 5
-    then print acc
-    else r (n + 1) (acc * 2)
-  )
-}
-]--

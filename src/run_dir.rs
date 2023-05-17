@@ -113,7 +113,7 @@ pub fn run_dir(dir: &Path) {
       match repo.step(&tree) {
         None => break tree,
         Some(phase) => {
-          // println!("Step {idx}/{macro_timeout}: {}", phase.bundle(&i));
+          println!("Step {idx}/{macro_timeout}: {}", phase.bundle(&i));
           tree = phase;
         },
       }

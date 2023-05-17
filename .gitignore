@@ -8,4 +8,6 @@
 *.out
 *.pdf
 *.gz
+*.html
+*.png
 !notes/papers/report/template/Figures/**
