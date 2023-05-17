@@ -1,10 +1,8 @@
-# Macros
-
-The macros describe several independent sequential programs that are expected to be able to interact with each other. To make debugging easier, the order of execution of independent macros should also be relatively static.
-
 ## Execution order
 
-The macro executor follows a manually specified priority cascade, with priorities ranging from 0 to f64 max (0x2p1023, exclusive). Priorities are accepted in any valid floating point format, but usually written in binary or hexadecimal natural form, as this format represents floating point precision on the syntax level, thus making precision errors extremely unlikely.
+The macros describe several independent sequential programs that are expected to be able to interact with each other. To make debugging easier, the order of execution of internal steps within independent macros has to be relatively static.
+
+The macro executor follows a manually specified priority cascade, with priorities ranging from 0 to 0xep255, exclusive. Priorities are accepted in any valid floating point format, but usually written in binary or hexadecimal natural form, as this format represents floating point precision on the syntax level, thus making precision errors extremely unlikely.
 
 The range of valid priorities is divided up into bands, much like radio bands. In this case, the bands serve to establish a high level ordering between instructions.
 
@@ -12,26 +10,26 @@ The bands are each an even 32 orders of magnitude, with space in between for fut
 
 |               |          |             |              |
 | :-----------: | :------: | :---------: | :----------: |
-|     0-31      |  32-63   |    64-95    |    96-127    |
+|      0-7      |   8-15   |    16-23    |    24-31     |
 | optimizations |    x     |             |              |
-|    128-159    | 160-191  |   192-223   |   224-255    |
+|     32-39     |  40-47   |    48-55    |    56-63     |
 |   operators   |          |             |      x       |
-|    256-287    | 288-319  |   320-351   |   352-383    |
+|     64-71     |  72-79   |    80-87    |    88-95     |
 |               |          | expressions |              |
-|    384-415    | 416-447  |   448-479   |   480-511    |
+|    96-103     | 104-111  |   112-119   |   120-127    |
 |               |    x     |             |              |
-|    512-543    | 544-575  |   576-607   |   608-639    |
+|    128-135    | 136-143  |   144-151   |   152-159    |
 |   bindings    |          |             |      x       |
-|    640-671    | 672-703  |   704-735   |   736-767    |
+|    160-167    | 168-175  |   176-183   |   184-191    |
 |               |          |      x      |              |
-|    768-799    | 800-831  |   832-863   |   864-895    |
+|    192-199    | 200-207  |   208-215   |   216-223    |
 |               | aliases* |             |              |
-|    896-927    | 928-959  |   960-991   |     992-     |
+|    224-231    | 232-239  |   240-247   |     248-     |
 | integrations  |          |             | transitional |
 
 ### Transitional states
 
-Transitional states produced and consumed by the same macro program occupy the range above 0x1p991. Nothing in this range should be written by the user or triggered by an interaction of distinct macro programs, the purpose of this high range is to prevent devices such as carriages from interacting. Any transformation sequence in this range can assume that the tree is inert other than its own operation.
+Transitional states produced and consumed by the same macro program occupy the unbounded top region of the f64 field. Nothing in this range should be written by the user or triggered by an interaction of distinct macro programs, the purpose of this high range is to prevent devices such as carriages from interacting. Any transformation sequence in this range can assume that the tree is inert other than its own operation.
 
 ### Integrations
 

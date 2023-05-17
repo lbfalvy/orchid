@@ -10,6 +10,7 @@
 #![feature(map_try_insert)]
 #![feature(slice_group_by)]
 #![feature(trait_alias)]
+#![feature(return_position_impl_trait_in_trait)]
 
 mod parse;
 mod interner;

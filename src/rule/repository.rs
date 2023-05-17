@@ -1,7 +1,9 @@
+use std::format;
 use std::rc::Rc;
 use std::fmt::{Debug, Write};
 
 use hashbrown::HashSet;
+use ordered_float::NotNan;
 
 use crate::interner::{Token, Interner, InternedDisplay};
 use crate::utils::Substack;
@@ -33,7 +35,7 @@ impl<M: InternedDisplay + Matcher> InternedDisplay for CachedRule<M> {
 
 /// Manages a priority queue of substitution rules and allows to apply them 
 pub struct Repository<M: Matcher> {
-  cache: Vec<(CachedRule<M>, HashSet<Token<Vec<Token<String>>>>)>
+  cache: Vec<(CachedRule<M>, HashSet<Token<Vec<Token<String>>>>, NotNan<f64>)>
 }
 impl<M: Matcher> Repository<M> { 
   pub fn new(mut rules: Vec<Rule>, i: &Interner)
@@ -42,6 +44,7 @@ impl<M: Matcher> Repository<M> {
     rules.sort_by_key(|r| -r.prio);
     let cache = rules.into_iter()
       .map(|r| {
+        let prio = r.prio;
         let rule = prepare_rule(r.clone(), i)
           .map_err(|e| (r, e))?;
         let mut glossary = HashSet::new();
@@ -56,7 +59,7 @@ impl<M: Matcher> Repository<M> {
           source: rule.source,
           template: rule.target
         };
-        Ok((prep, glossary))
+        Ok((prep, glossary, prio))
       })
       .collect::<Result<Vec<_>, _>>()?;
     Ok(Self{cache})
@@ -67,7 +70,7 @@ impl<M: Matcher> Repository<M> {
     let mut glossary = HashSet::new();
     code.visit_names(Substack::Bottom, &mut |op| { glossary.insert(op); });
     // println!("Glossary for code: {:?}", print_nname_seq(glossary.iter(), i));
-    for (rule, deps) in self.cache.iter() {
+    for (rule, deps, _) in self.cache.iter() {
       if !deps.is_subset(&glossary) { continue; }
       let product = update_first_seq::expr(code, &mut |exprv| {
         let state = rule.matcher.apply(exprv.as_slice())?;
@@ -122,11 +125,17 @@ impl<M: Debug + Matcher> Debug for Repository<M> {
   } 
 }
 
+fn fmt_hex(num: f64) -> String {
+  let exponent = (num.log2() / 4_f64).floor();
+  let mantissa = num / 16_f64.powf(exponent);
+  format!("0x{:x}p{}", mantissa as i64, exponent as i64)
+}
+
 impl<M: InternedDisplay + Matcher> InternedDisplay for Repository<M> {
   fn fmt_i(&self, f: &mut std::fmt::Formatter<'_>, i: &Interner) -> std::fmt::Result {
     writeln!(f, "Repository[")?;
-    for (item, _) in self.cache.iter() {
-      write!(f, "\t")?;
+    for (item, _, p) in self.cache.iter() {
+      write!(f, "\t{}", fmt_hex(f64::from(*p)))?;
       item.fmt_i(f, i)?;
       writeln!(f)?;
     }

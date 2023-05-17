@@ -4,6 +4,9 @@ mod print;
 mod readline;
 mod debug;
 mod panic;
+mod io;
+
+pub use io::{IO, handle};
 
 pub fn cpsio(i: &Interner) -> ConstTree {
   ConstTree::tree([

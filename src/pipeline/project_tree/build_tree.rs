@@ -1,7 +1,6 @@
 use std::rc::Rc;
 
 use hashbrown::HashMap;
-use itertools::Itertools;
 
 use crate::pipeline::error::ProjectError;
 use crate::interner::{Token, Interner};

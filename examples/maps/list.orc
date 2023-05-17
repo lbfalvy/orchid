@@ -41,8 +41,8 @@ export get := \list.\n. (
       else r tail (n - 1)
 )
 
-new[...$item, ...$rest:1] =0x2p333=> (cons (...$item) new[...$rest])
-new[...$end] =0x1p333=> (cons (...$end) end)
-new[] =0x1p333=> end
+new[...$item, ...$rest:1] =0x2p84=> (cons (...$item) new[...$rest])
+new[...$end] =0x1p84=> (cons (...$end) end)
+new[] =0x1p84=> end
 
 export ::(new)

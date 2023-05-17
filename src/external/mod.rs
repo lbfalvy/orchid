@@ -7,3 +7,5 @@ mod cpsio;
 mod runtime_error;
 mod bool;
 mod litconv;
+
+pub use cpsio::{IO, handle};

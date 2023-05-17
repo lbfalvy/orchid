@@ -4,6 +4,7 @@ use std::rc::Rc;
 use hashbrown::HashMap;
 use itertools::Itertools;
 
+use crate::external::handle;
 use crate::interpreter::Return;
 use crate::representations::{ast_to_postmacro, postmacro_to_interpreted};
 use crate::{external, xloop, interpreter};
@@ -20,30 +21,28 @@ import std::(
   concatenate
 )
 
-export ...$a + ...$b =1001=> (add (...$a) (...$b))
-export ...$a - ...$b:1 =1001=> (subtract (...$a) (...$b))
-export ...$a * ...$b =1000=> (multiply (...$a) (...$b))
-export ...$a % ...$b:1 =1000=> (remainder (...$a) (...$b))
-export ...$a / ...$b:1 =1000=> (divide (...$a) (...$b))
-export ...$a == ...$b =1002=> (equals (...$a) (...$b))
-export ...$a ++ ...$b =1003=> (concatenate (...$a) (...$b))
+export ...$a + ...$b =0x2p36=> (add (...$a) (...$b))
+export ...$a - ...$b:1 =0x2p36=> (subtract (...$a) (...$b))
+export ...$a * ...$b =0x1p36=> (multiply (...$a) (...$b))
+export ...$a % ...$b:1 =0x1p36=> (remainder (...$a) (...$b))
+export ...$a / ...$b:1 =0x1p36=> (divide (...$a) (...$b))
+export ...$a == ...$b =0x3p36=> (equals (...$a) (...$b))
+export ...$a ++ ...$b =0x4p36=> (concatenate (...$a) (...$b))
 
-export do { ...$statement ; ...$rest:1 } =0x2p543=> (
-  statement (...$statement) do { ...$rest } 
-)
-export do { ...$return } =0x1p543=> (...$return)
+export do { ...$statement ; ...$rest:1 } =0x2p130=> statement (...$statement) do { ...$rest }
+export do { ...$return } =0x1p130=> ...$return
 
-export statement (let $name = ...$value) ...$next =0x1p1000=> (
+export statement (let $name = ...$value) ...$next =0x1p230=> (
   (\$name. ...$next) (...$value)
 )
-export statement (cps $name = ...$operation) ...$next =0x2p1000=> (
+export statement (cps $name = ...$operation) ...$next =0x2p230=> (
   (...$operation) \$name. ...$next
 )
-export statement (cps ...$operation) ...$next =0x1p1000=> (
+export statement (cps ...$operation) ...$next =0x1p230=> (
   (...$operation) (...$next)
 )
 
-export if ...$cond then ...$true else ...$false:1 =0x1p320=> (
+export if ...$cond then ...$true else ...$false:1 =0x1p84=> (
   ifthenelse (...$cond) (...$true) (...$false)
 )
 
@@ -102,7 +101,7 @@ pub fn run_dir(dir: &Path) {
         rule.bundle(&i)
       )
     });
-  // println!("Repo dump: {}", repo.bundle(&i));
+  println!("Repo dump: {}", repo.bundle(&i));
   let mut exec_table = HashMap::new();
   for (name, source) in consts.iter() {
     // let nval = entrypoint(&i); let name = &nval; let source = &consts[name];
@@ -114,7 +113,7 @@ pub fn run_dir(dir: &Path) {
       match repo.step(&tree) {
         None => break tree,
         Some(phase) => {
-          println!("Step {idx}/{macro_timeout}: {}", phase.bundle(&i));
+          // println!("Step {idx}/{macro_timeout}: {}", phase.bundle(&i));
           tree = phase;
         },
       }
@@ -138,10 +137,11 @@ pub fn run_dir(dir: &Path) {
           .join(", ")
       )
     });
-  let Return{ gas, state, inert } = interpreter::run(entrypoint.clone(), ctx)
+  let io_handler = handle;
+  let ret = interpreter::run_handler(entrypoint.clone(), io_handler, ctx);
+  let Return{ gas, state, inert } = ret
     .unwrap_or_else(|e| panic!("Runtime error: {}", e));
   if inert {
-    println!("Expression not reducible");
     println!("Settled at {}", state.expr().clause.bundle(&i));
     println!("Remaining gas: {}",
       gas.map(|g| g.to_string())
@@ -149,5 +149,4 @@ pub fn run_dir(dir: &Path) {
     );
   }
   if gas == Some(0) {println!("Ran out of gas!")}
-  else {println!("Expression not reducible.")}
 }

@@ -16,9 +16,6 @@ export snd := \l. (
     (panic "2 elements expected")
     \x.x
 )
-export print_pair := \l. (
-  to_string (fst l) ++ " = " ++ to_string (snd l)
-)
 
 -- constructors
 
@@ -51,7 +48,7 @@ export del := \m.\k. (
 )
 
 -- remove all occurrences of a key
-export clear := \m.\k. (
+export delall := \m.\k. (
   loop r on (m) with
     list::pop m list::end \head.\tail.
       if (fst head) == k then r tail
@@ -65,10 +62,18 @@ export set := \m.\k.\v. (
   |> add k v
 )
 
-new[...$tail:2, ...$key = ...$value:1] =0x2p333=> (
+-- ensure that there's only one instance of each key in the map
+export normalize := \m. do{
+  let normal = empty
+  loop r on (m normal) with
+    list::pop m normal \head.\tail.
+      r tail $ set normal (fst head) (snd head)
+}
+
+new[...$tail:2, ...$key = ...$value:1] =0x2p84=> (
   set new[...$tail] (...$key) (...$value)
 )
-new[...$key = ...$value:1] =0x1p333=> (add empty (...$key) (...$value))
-new[] =0x1p333=> empty
+new[...$key = ...$value:1] =0x1p84=> (add empty (...$key) (...$value))
+new[] =0x1p84=> empty
 
 export ::(new)

@@ -1,10 +1,11 @@
 use std::fmt::Debug;
-use std::io::stdin;
 
-use crate::external::runtime_error::RuntimeError;
-use crate::{atomic_impl, atomic_redirect, externfn_impl};
-use crate::representations::{Primitive, Literal};
-use crate::representations::interpreted::{Clause, ExprInst};
+use crate::foreign::{Atomic, AtomicResult, AtomicReturn};
+use crate::interpreter::Context;
+use crate::{externfn_impl, atomic_defaults};
+use crate::representations::interpreted::ExprInst;
+
+use super::io::IO;
 
 /// Readln function
 /// 
@@ -20,14 +21,12 @@ externfn_impl!(Readln2, |_: &Self, x: ExprInst| Ok(Readln1{x}));
 
 #[derive(Debug, Clone)]
 pub struct Readln1{ x: ExprInst }
-atomic_redirect!(Readln1, x);
-atomic_impl!(Readln1, |Self{ x }: &Self, _| {
-  let mut buf = String::new();
-  stdin().read_line(&mut buf)
-    .map_err(|e| RuntimeError::ext(e.to_string(), "reading from stdin"))?;
-  buf.pop();
-  Ok(Clause::Apply {
-    f: x.clone(),
-    x: Clause::P(Primitive::Literal(Literal::Str(buf))).wrap()
-  })
-});
+impl Atomic for Readln1 {
+  atomic_defaults!();
+  fn run(&self, ctx: Context) -> AtomicResult {
+    Ok(AtomicReturn::from_data(
+      IO::Readline(self.x.clone()), 
+      ctx
+    ))
+  }
+}

@@ -17,6 +17,16 @@ pub struct AtomicReturn {
   pub gas: Option<usize>,
   pub inert: bool
 }
+impl AtomicReturn {
+  /// Wrap an inert atomic for delivery to the supervisor
+  pub fn from_data<D: Atomic>(d: D, c: Context) -> Self {
+    AtomicReturn {
+      clause: d.to_atom_cls(),
+      gas: c.gas,
+      inert: false
+    }
+  }
+}
 
 // Aliases for concise macros
 pub type RcError = Rc<dyn ExternError>;

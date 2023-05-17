@@ -2,6 +2,7 @@ import list
 import map
 import option
 import fn::*
+import std::(print, to_string)
 
 export main := do{
   let foo = map::new[
@@ -10,13 +11,8 @@ export main := do{
     "baz" = 3,
     "bar" = 4
   ];
-  map::get foo "bar"
-    |> option::unwrap
+  let num = map::get foo "bar"
+    |> option::unwrap;
+  cps print (to_string num ++ "\n");
+  0
 }
-
---[
-export main := do{
-  let foo = list::new[1, 2, 3];
-  map::fst foo
-}
-]--
