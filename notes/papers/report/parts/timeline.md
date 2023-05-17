@@ -6,9 +6,7 @@ This is also when I came up with the name. I read an article about how orchids d
 
 Having tested that my idea could work, at the start of the academic year I switched to the type system. When the project synopsis was written, I imagined that the type system would be an appropriately sized chunk of the work for a final year project; its title was "Orchid's Type System".
 
-Around the end of November I had researched enough type theory to decide what kind of type system I would want. My choice was advised by a number of grievances I had with Typescript such as the lack of higher-kinded types which comes up [surprisingly often][1] in Javascript, lack of support for nominal types and the difficulty of using dependent types. I appreciated however the powerful type transformation techniques.
-
-[1]: https://github.com/microsoft/TypeScript/issues/1213
+Around the end of November I had researched enough type theory to decide what kind of type system I would want. My choice was advised by a number of grievances I had with Typescript such as the lack of higher-kinded types which comes up surprisingly often[4] in Javascript, lack of support for nominal types and the difficulty of using dependent types. I appreciated however the powerful type transformation techniques.
 
 However, building a type system proved too difficult; on February 23 I decided to cut my losses and focus on building an interpreter. The proof-of-concept interpreter was finished on March 10, but the macro executor was still using the naiive implementation completed over the summer so it would take around 15 seconds to load an example file of 20 lines, and a range of other issues cropped up as well cumulatively impacting every corner of the codebase. A full rewrite was necessary.
 

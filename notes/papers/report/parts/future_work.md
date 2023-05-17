@@ -78,4 +78,3 @@ Originally, Orchid was meant to have a type system that used Orchid itself to bu
 ### Alternatives
 
 During initial testing of the working version, I found that the most common kind of programming error in lambda calculus appears to be arity mismatch or syntax error that results in arity mismatch. Without any kind of type checking this is especially difficult to debug as every function looks the same. This can be addressed with a much simpler type system similar to System-F. Any such type checker would have to be constructed so as to only verify user-provided information regarding the arity of functions without attempting to find the arity of every expression, since System-F is strongly normalising and Orchid like any general purpose language supports potentially infinite loops.
-

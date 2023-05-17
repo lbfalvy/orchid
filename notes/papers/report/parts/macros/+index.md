@@ -1,8 +1,8 @@
-# Macros
+## Macros
 
-Left-associative unparenthesized function calls are intuitive in the typical case of just applying functions to a limited number of arguments, but they're not very flexible. Haskell solves this problem by defining a diverse array of syntax primitives for individual use cases such as `do` blocks for monadic operations. This system is fairly rigid. In contrast, Rust and Lisp enable library developers to invent their own syntax that intuitively describes the concepts the library at hand encodes. In Orchid's codebase, I defined several macros to streamline tasks like defining functions in Rust that are visible to Orchid, or translating between various intermediate representations.
+Left-associative unparenthesized function calls are intuitive in the typical case of just applying functions to a limited number of arguments, but they're not very flexible. Haskell solves this problem by defining a diverse array of syntax primitives for individual use cases such as `do` blocks for monadic operations. This system is fairly rigid. In contrast, Rust enables library developers to invent their own syntax that intuitively describes the concepts the library at hand encodes. In Orchid's codebase, I defined several macros to streamline tasks like defining functions in Rust that are visible to Orchid, or translating between various intermediate representations.
 
-## Generalized kerning
+### Generalized kerning
 
 In the referenced video essay, a proof of the Turing completeness of generalized kerning is presented. The proof involves encoding a Turing machine in a string and some kerning rules. The state of the machine is next to the read-write head and all previous states are enumerated next to the tape because kerning rules are reversible. The end result looks something like this:
 
@@ -31,7 +31,7 @@ $1 $2 <  equals  $2 < $1  unless $1 is |
 
 What I really appreciate in this proof is how visual it is; based on this, it's easy to imagine how one would go about encoding a pushdown automaton, lambda calculus or other interesting tree-walking procedures. This is exactly why I based my preprocessor on this system.
 
-## Namespaced tokens
+### Namespaced tokens
 
 Rust macros operate on the bare tokens and therefore are prone to accidental aliasing. Every other item in Rust follows a rigorous namespacing scheme, but macros break this structure, probably because macro execution happens before namespace resolution. The language doesn't suffer too much from this problem, but the relativity of namespacing
 limits their potential.

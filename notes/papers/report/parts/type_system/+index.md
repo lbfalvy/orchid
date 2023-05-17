@@ -1,4 +1,4 @@
-# Type system
+## Type system
 
 This is a description of the type system originally designed for Orchid which never reached the MVP stage.
 
@@ -8,7 +8,7 @@ At the core the type system consists of three concepts:
 - `impl` provides instances of typeclasses
 - a universal parametric construct that serves as both a `forall` (or generic) and a `where` (or constraint). This was temporarily named `auto` but is probably more aptly described by the word `given`.
 
-## Unification
+### Unification
 
 The backbone of any type system is unification. In this case, this is an especially interesting question because the type expressions are built with code and nontermination is outstandingly common.
 

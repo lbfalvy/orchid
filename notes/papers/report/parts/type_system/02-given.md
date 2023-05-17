@@ -1,4 +1,4 @@
-## Given (formerly Auto)
+### Given (formerly Auto)
 
 `given` bindings have the form `@Name:type. body`. Either the `Name` or the  `:type` part can be optional but at least one is required. The central idea is that wherever a binding is unwrapped by an operation the language attempts to find a value for the name. Bindings are unwrapped in the following situations:
 

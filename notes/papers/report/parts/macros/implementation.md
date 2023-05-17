@@ -1,14 +1,14 @@
-# Implementation
+## Implementation
 
 THe optimization of this macro execution algorithm is an interesting challenge with a diverse range of potential optimizations. The current solution is very far from ideal, but it scales to the small experimental workloads I've tried so far and it can accommodate future improvements without any major restructuring.
 
 The scheduling of macros is delegated to a unit called the rule repository, while the matching of rules to a given clause sequence is delegated to a unit called the matcher. Other tasks are split out into distinct self-contained functions, but these two have well-defined interfaces and encapsulate data. Constants are processed by the repository one at a time, which means that the data processed by this subsystem typically corresponds to a single struct, function or other top-level source item.
 
-## keyword dependencies
+### keyword dependencies
 
 The most straightforward optimization is to skip patterns that doesn contain tokens that don't appear in the code at all. This is done by the repository to skip entire rules, but not by the rules on the level of individual slices. This is a possible path of improvement for the future.
 
-## Matchers
+### Matchers
 
 There are various ways to implement matching. To keep the architecture flexible, the repository is generic over the matcher bounded with a very small trait.
 
