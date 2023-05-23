@@ -1,5 +1,4 @@
 mod cache;
-pub mod translate;
 mod replace_first;
 // mod interned_display;
 // mod interner;

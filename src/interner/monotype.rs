@@ -67,32 +67,6 @@ impl<T: Eq + Hash + Clone> TypedInterner<T> {
   }
 }
 
-// impl<T: Eq + Hash + Clone> TypedInterner<Vec<T>> {
-//   pub fn iv<Q>(&self, qs: &[Q]) -> Token<Vec<T>>
-//   where
-//     Q: Eq + Hash + ToOwned<Owned = T>,
-//     T: Borrow<Q>
-//   {
-//     let mut tokens = self.tokens.borrow_mut();
-//     let hash = compute_hash(tokens.hasher(), qs);
-//     let raw_entry = tokens.raw_entry_mut().from_hash(hash, |k| {
-//       k.iter().zip(qs.iter()).all(|(t, q)| t.borrow() == q)
-//     });
-//     let kv = raw_entry.or_insert_with(|| {
-//       let mut values = self.values.borrow_mut();
-//       let uniq_key: NonZeroU32 = (values.len() as u32 + 1u32)
-//         .try_into().expect("can never be zero");
-//       let tv = qs.iter().map(Q::to_owned).collect::<Vec<_>>();
-//       let keybox = Box::new(tv);
-//       let keyref = Box::leak(keybox);
-//       values.push((keyref, true));
-//       let token = Token::<Vec<T>>::from_id(uniq_key);
-//       (keyref, token)
-//     });
-//     *kv.1
-//   }
-// }
-
 impl<T: Eq + Hash + Clone> Drop for TypedInterner<T> {
   fn drop(&mut self) {
     // make sure all values leaked by us are dropped

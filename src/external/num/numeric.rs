@@ -22,7 +22,7 @@ impl Numeric {
   /// # Panics
   /// 
   /// if the value is NaN or Infinity.try_into()
-  fn num<T>(value: T) -> Self where T: Into<f64> {
+  fn num<T: Into<f64>>(value: T) -> Self {
     let f = value.into();
     assert!(f.is_finite(), "unrepresentable number");
     NotNan::try_from(f).map(Self::Num).expect("not a number")

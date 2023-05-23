@@ -4,18 +4,24 @@ use std::rc::Rc;
 use hashbrown::HashMap;
 
 // TODO: make this a crate
+pub trait Callback<'a, I, O: 'static> = 
+  Fn(I, &Cache<'a, I, O>) -> O;
+
+pub type CbBox<'a, I, O> =
+  Box<dyn Callback<'a, I, O> + 'a>;
 
 /// Cache the return values of an effectless closure in a hashmap
 /// Inspired by the closure_cacher crate.
 pub struct Cache<'a, I, O: 'static> {
   store: RefCell<HashMap<I, O>>,
-  closure: Box<dyn Fn (I, &Self) -> O + 'a>
+  closure: CbBox<'a, I, O>
 }
 
-impl<'a, I, O> Cache<'a, I, O> where 
-  I: Eq + Hash + Clone, O: Clone
-{
-  pub fn new<F: 'a>(closure: F) -> Self where F: Fn(I, &Self) -> O {
+impl<'a,
+  I: Eq + Hash + Clone,
+  O: Clone
+> Cache<'a, I, O> {
+  pub fn new<F: 'a + Callback<'a, I, O>>(closure: F) -> Self {
     Self {
       store: RefCell::new(HashMap::new()),
       closure: Box::new(closure)
@@ -23,7 +29,9 @@ impl<'a, I, O> Cache<'a, I, O> where
   }
 
   #[allow(unused)]
-  pub fn rc<F: 'a>(closure: F) -> Rc<Self> where F: Fn(I, &Self) -> O {
+  pub fn rc<
+    F: 'a + Callback<'a, I, O>
+  >(closure: F) -> Rc<Self> {
     Rc::new(Self::new(closure))
   }
 

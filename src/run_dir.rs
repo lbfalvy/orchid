@@ -71,7 +71,6 @@ fn load_environment(i: &Interner) -> ProjectTree {
     }
   };
   parse_layer(&[prelude_path(i)], &loader, &env, &[], i)
-    // .unwrap_or_else(|e| panic!("Prelude error: \n {}", e))
     .expect("prelude error")
 }
 

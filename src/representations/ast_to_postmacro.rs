@@ -54,7 +54,9 @@ pub fn _exprv(exprv: &[ast::Expr])
 struct Context<'a> { names: Substack<'a, Token<Vec<Token<String>>>> }
 
 impl<'a> Context<'a> {
-  fn w_name<'b>(&'b self, name: Token<Vec<Token<String>>>) -> Context<'b> where 'a: 'b {
+  fn w_name<'b>(&'b self,
+    name: Token<Vec<Token<String>>>
+  ) -> Context<'b> where 'a: 'b {
     Context { names: self.names.push(name) }
   }
 

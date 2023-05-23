@@ -54,15 +54,12 @@ pub type HandlerRes = Result<
 pub trait Handler {
   fn resolve(&mut self, data: HandlerParm) -> HandlerRes;
 
-  fn then<T: Handler>(self, t: T) -> impl Handler
-  where Self: Sized {
+  fn then<T: Handler>(self, t: T) -> impl Handler where Self: Sized {
     Pair(self, t)
   }
 }
 
-impl<F> Handler for F
-where F: FnMut(HandlerParm) -> HandlerRes
-{
+impl<F> Handler for F where F: FnMut(HandlerParm) -> HandlerRes {
   fn resolve(&mut self, data: HandlerParm) -> HandlerRes {
     self(data)
   }

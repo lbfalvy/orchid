@@ -6,22 +6,25 @@ use crate::ast::{Expr, Clause};
 /// Traverse the tree, calling pred on every sibling list until it returns
 /// some vec then replace the sibling list with that vec and return true
 /// return false if pred never returned some
-pub fn exprv<F>(input: Rc<Vec<Expr>>, pred: &mut F) -> Option<Rc<Vec<Expr>>>
-where F: FnMut(Rc<Vec<Expr>>) -> Option<Rc<Vec<Expr>>> {
+pub fn exprv<
+  F: FnMut(Rc<Vec<Expr>>) -> Option<Rc<Vec<Expr>>>
+>(input: Rc<Vec<Expr>>, pred: &mut F) -> Option<Rc<Vec<Expr>>> {
   if let o@Some(_) = pred(input.clone()) {return o} 
   replace_first(input.as_ref(), |ex| expr(ex, pred))
     .map(|i| Rc::new(i.collect()))
 }
 
-pub fn expr<F>(input: &Expr, pred: &mut F) -> Option<Expr>
-where F: FnMut(Rc<Vec<Expr>>) -> Option<Rc<Vec<Expr>>> {
+pub fn expr<
+  F: FnMut(Rc<Vec<Expr>>) -> Option<Rc<Vec<Expr>>>
+>(input: &Expr, pred: &mut F) -> Option<Expr> {
   if let Some(value) = clause(&input.value, pred) {
     Some(Expr{ value, location: input.location.clone() })
   } else {None}
 }
 
-pub fn clause<F>(c: &Clause, pred: &mut F) -> Option<Clause>
-where F: FnMut(Rc<Vec<Expr>>) -> Option<Rc<Vec<Expr>>> {
+pub fn clause<
+  F: FnMut(Rc<Vec<Expr>>) -> Option<Rc<Vec<Expr>>>
+>(c: &Clause, pred: &mut F) -> Option<Clause> {
   match c {
     Clause::P(_) | Clause::Placeh {..} | Clause::Name {..} => None,
     Clause::Lambda(arg, body) => {

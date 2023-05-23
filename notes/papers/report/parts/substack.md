@@ -1,5 +1,0 @@
-# Substack
-
-The vast majority of algorithms involved in this project are multiple recursive in nature. Very often information on higher levels would influence the entire subtree. A good example is the resolution of name bindings. The size of the call stack is associated with the growth of the set of names, only the top needs to be mutated, but all names seen in enclosing scopes need to be accessible. The datastructure we need is essentially a linked list on the stack.
-
-This is a very common and not particularly interesting datastructure; much like quicksort, every C project of considerable size that uses recursion includes some definition of it. However, I still think it deserves some attention, precisely because it's so common. For example, my implementation also defines an iterator, and a reasonably efficient, safe implementation of the outstandingly common operation of collecting the stack into a Vec that starts at the bottom.

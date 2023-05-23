@@ -17,10 +17,9 @@ impl Interner {
     Self { interners: RefCell::new(HashMap::new()) }
   }
 
-  pub fn i<Q: ?Sized>(&self, q: &Q) -> Token<Q::Owned>
-  where Q: Eq + Hash + ToOwned,
-    Q::Owned: 'static + Eq + Hash + Clone,
-    Q::Owned: Borrow<Q>
+  pub fn i<Q: ?Sized + Eq + Hash + ToOwned>(&self, q: &Q)
+  -> Token<Q::Owned>
+  where Q::Owned: 'static + Eq + Hash + Clone + Borrow<Q>
   {
     let mut interners = self.interners.borrow_mut();
     let interner = get_interner(&mut interners);

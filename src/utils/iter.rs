@@ -23,15 +23,16 @@ macro_rules! box_chain {
   };
 }
 
-pub fn box_flatten<'a, T: 'a, I: 'a, J: 'a>(i: I) -> BoxedIter<'a, T>
-where
-  J: Iterator<Item = T>,
-  I: Iterator<Item = J>,
-{
+pub fn box_flatten<'a,
+  T: 'a,
+  I: 'a + Iterator<Item = J>,
+  J: 'a + Iterator<Item = T>
+>(i: I) -> BoxedIter<'a, T> {
   Box::new(i.flatten())
 }
 
-pub fn into_boxed_iter<'a, T: 'a>(t: T) -> BoxedIter<'a, <T as IntoIterator>::Item>
-where T: IntoIterator {
+pub fn into_boxed_iter<'a,
+  T: 'a + IntoIterator
+>(t: T) -> BoxedIter<'a, <T as IntoIterator>::Item> {
   Box::new(t.into_iter())
 }

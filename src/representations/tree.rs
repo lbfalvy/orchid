@@ -101,8 +101,8 @@ impl<TItem: Clone, TExt: Clone> Module<TItem, TExt> {
   }
 }
 
-impl<TItem: Clone, TExt: Clone> Add for Module<TItem, TExt>
-where TExt: Add<Output = TExt>
+impl<TItem: Clone, TExt: Clone + Add<Output = TExt>> Add
+for Module<TItem, TExt>
 {
   type Output = Self;
 

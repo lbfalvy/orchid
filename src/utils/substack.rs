@@ -35,13 +35,13 @@ impl<'a, T> Substack<'a, T> {
   pub fn new_frame(&'a self, item: T) -> Stackframe<'a, T> {
     Stackframe {
       item,
-      prev: &self,
+      prev: self,
       len: self.opt().map_or(1, |s| s.len)
     }
   }
   pub fn pop(&'a self, count: usize) -> Option<&'a Stackframe<'a, T>> {
     if let Self::Frame(p) = self {
-      if count == 0 {Some(&p)}
+      if count == 0 {Some(p)}
       else {p.prev.pop(count - 1)}
     } else {None}
   }
@@ -51,7 +51,7 @@ impl<'a, T> Substack<'a, T> {
    } }
 }
 
-impl<'a, T> Debug for Substack<'a, T> where T: Debug {
+impl<'a, T: Debug> Debug for Substack<'a, T> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "Substack")?;
     f.debug_list().entries(self.iter()).finish()
@@ -64,9 +64,10 @@ pub struct SubstackIterator<'a, T> {
 
 impl<'a, T> SubstackIterator<'a, T> {
   #[allow(unused)]
-  pub fn first_some<U, F>(&mut self, f: F) -> Option<U>
-  where F: Fn(&T) -> Option<U> {
-    while let Some(x) = self.next() {
+  pub fn first_some<U,
+    F: Fn(&T) -> Option<U>
+  >(&mut self, f: F) -> Option<U> {
+    for x in self.by_ref() {
       if let Some(result) = f(x) {
         return Some(result)
       }

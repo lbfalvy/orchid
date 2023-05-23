@@ -28,9 +28,9 @@ impl<'a, K, V, const STACK_COUNT: usize> ProtoMap<'a, K, V, STACK_COUNT> {
   }
 
   /// Mutable reference to entry without checking proto in O(m)
-  fn local_entry_mut<'b, Q: ?Sized>(&'b mut self, query: &Q)
+  fn local_entry_mut<'b, Q: ?Sized + Eq>(&'b mut self, query: &Q)
   -> Option<(usize, &'b mut K, &'b mut Option<V>)>
-  where K: Borrow<Q>, Q: Eq
+  where K: Borrow<Q>
   {
     self.entries.iter_mut().enumerate().find_map(|(i, (k, v))| {
       if query.eq((*k).borrow()) { Some((i, k, v)) } else { None }
@@ -38,9 +38,9 @@ impl<'a, K, V, const STACK_COUNT: usize> ProtoMap<'a, K, V, STACK_COUNT> {
   }
 
   /// Entry without checking proto in O(m)
-  fn local_entry<'b, Q: ?Sized>(&'b self, query: &Q)
+  fn local_entry<'b, Q: ?Sized + Eq>(&'b self, query: &Q)
   -> Option<(usize, &'b K, &'b Option<V>)>
-  where K: Borrow<Q>, Q: Eq
+  where K: Borrow<Q>
   {
     self.entries.iter().enumerate().find_map(|(i, (k, v))| {
       if query.eq((*k).borrow()) { Some((i, k, v)) } else { None }
@@ -48,8 +48,8 @@ impl<'a, K, V, const STACK_COUNT: usize> ProtoMap<'a, K, V, STACK_COUNT> {
   }
 
   /// Find entry in prototype chain in O(n)
-  pub fn get<'b, Q: ?Sized>(&'b self, query: &Q) -> Option<&'b V>
-  where K: Borrow<Q>, Q: Eq
+  pub fn get<'b, Q: ?Sized + Eq>(&'b self, query: &Q) -> Option<&'b V>
+  where K: Borrow<Q>
   {
     if let Some((_, _, v)) = self.local_entry(query) {
       v.as_ref()
@@ -120,9 +120,12 @@ impl<'a, K, V, const STACK_COUNT: usize> ProtoMap<'a, K, V, STACK_COUNT> {
   }
 }
 
-impl<T, K, V, const STACK_COUNT: usize>
-From<T> for ProtoMap<'_, K, V, STACK_COUNT>
-where T: IntoIterator<Item = (K, V)> {
+impl<
+  K, V,
+  T: IntoIterator<Item = (K, V)>,
+  const STACK_COUNT: usize
+> From<T>
+for ProtoMap<'_, K, V, STACK_COUNT> {
   fn from(value: T) -> Self {
     Self {
       entries: value.into_iter().map(|(k, v)| (k, Some(v))).collect(),
@@ -131,9 +134,8 @@ where T: IntoIterator<Item = (K, V)> {
   }
 }
 
-impl<Q: ?Sized, K, V, const STACK_COUNT: usize>
-Index<&Q> for ProtoMap<'_, K, V, STACK_COUNT>
-where K: Borrow<Q>, Q: Eq {
+impl<Q: ?Sized + Eq, K: Borrow<Q>, V, const STACK_COUNT: usize> Index<&Q>
+for ProtoMap<'_, K, V, STACK_COUNT> {
   type Output = V;
   fn index(&self, index: &Q) -> &Self::Output {
     self.get(index).expect("Index not found in map")
@@ -156,6 +158,10 @@ Add<(K, V)> for &'a ProtoMap<'a, K, V, STACK_COUNT> {
   fn add(self, rhs: (K, V)) -> Self::Output {
     ProtoMap::from([rhs]).set_proto(self)
   }
+}
+
+impl<'a, K, V, const STACK_COUNT: usize> Default for ProtoMap<'a, K, V, STACK_COUNT> {
+  fn default() -> Self { Self::new() }
 }
 
 #[macro_export]
