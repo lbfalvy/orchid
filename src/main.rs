@@ -12,19 +12,20 @@
 #![feature(trait_alias)]
 #![feature(return_position_impl_trait_in_trait)]
 
-mod parse;
+mod cli;
+mod external;
+pub(crate) mod foreign;
+mod foreign_macros;
 mod interner;
 mod interpreter;
-mod utils;
+mod parse;
+mod pipeline;
 mod representations;
 mod rule;
-pub(crate) mod foreign;
-mod external;
-mod foreign_macros;
-mod pipeline;
 mod run_dir;
-mod cli;
-use std::{path::PathBuf, fs::File};
+mod utils;
+use std::fs::File;
+use std::path::PathBuf;
 
 use clap::Parser;
 use cli::prompt;
@@ -37,7 +38,7 @@ use run_dir::run_dir;
 struct Args {
   /// Folder containing main.orc
   #[arg(short, long)]
-  pub project: Option<String>
+  pub project: Option<String>,
 }
 
 fn main() {
@@ -48,7 +49,7 @@ fn main() {
       path.push("main.orc");
       match File::open(&path) {
         Ok(_) => Ok(p),
-        Err(e) => Err(format!("{}: {e}", path.display()))
+        Err(e) => Err(format!("{}: {e}", path.display())),
       }
     })
   });

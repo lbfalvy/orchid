@@ -1,18 +1,22 @@
-/// Utility functions to get rid of explicit casts to BoxedIter which are tedious
-
+/// Utility functions to get rid of tedious explicit casts to
+/// BoxedIter
 use std::iter;
 
+/// A trait object of [Iterator] to be assigned to variables that may be
+/// initialized form multiple iterators of incompatible types
 pub type BoxedIter<'a, T> = Box<dyn Iterator<Item = T> + 'a>;
+/// A [BoxedIter] of [BoxedIter].
 pub type BoxedIterIter<'a, T> = BoxedIter<'a, BoxedIter<'a, T>>;
-/// BoxedIter of a single element
+/// creates a [BoxedIter] of a single element
 pub fn box_once<'a, T: 'a>(t: T) -> BoxedIter<'a, T> {
   Box::new(iter::once(t))
 }
-/// BoxedIter of no elements
+/// creates an empty [BoxedIter]
 pub fn box_empty<'a, T: 'a>() -> BoxedIter<'a, T> {
   Box::new(iter::empty())
 }
 
+/// Chain various iterators into a [BoxedIter]
 #[macro_export]
 macro_rules! box_chain {
   ($curr:expr) => {
@@ -23,16 +27,22 @@ macro_rules! box_chain {
   };
 }
 
-pub fn box_flatten<'a,
+/// Flatten an iterator of iterators into a boxed iterator of the inner
+/// nested values
+pub fn box_flatten<
+  'a,
   T: 'a,
   I: 'a + Iterator<Item = J>,
-  J: 'a + Iterator<Item = T>
->(i: I) -> BoxedIter<'a, T> {
+  J: 'a + Iterator<Item = T>,
+>(
+  i: I,
+) -> BoxedIter<'a, T> {
   Box::new(i.flatten())
 }
 
-pub fn into_boxed_iter<'a,
-  T: 'a + IntoIterator
->(t: T) -> BoxedIter<'a, <T as IntoIterator>::Item> {
+/// Convert an iterator into a Box<dyn Iterator>
+pub fn into_boxed_iter<'a, T: 'a + IntoIterator>(
+  t: T,
+) -> BoxedIter<'a, <T as IntoIterator>::Item> {
   Box::new(t.into_iter())
 }

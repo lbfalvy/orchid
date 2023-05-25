@@ -1,10 +1,12 @@
-mod concatenate;
 mod char_at;
+mod concatenate;
 
-use crate::{pipeline::ConstTree, interner::Interner};
+use crate::interner::Interner;
+use crate::pipeline::ConstTree;
 
 pub fn str(i: &Interner) -> ConstTree {
-  ConstTree::tree([
-    (i.i("concatenate"), ConstTree::xfn(concatenate::Concatenate2))
-  ])
+  ConstTree::tree([(
+    i.i("concatenate"),
+    ConstTree::xfn(concatenate::Concatenate2),
+  )])
 }

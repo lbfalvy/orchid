@@ -1,14 +1,18 @@
-use std::{num::NonZeroU32, marker::PhantomData};
+use std::cmp::PartialEq;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::marker::PhantomData;
+use std::num::NonZeroU32;
 
-use std::cmp::PartialEq;
-
-pub struct Token<T>{
+/// A number representing an object of type `T` stored in some interner. It is a
+/// logic error to compare tokens obtained from different interners, or to use a
+/// token with an interner other than the one that created it, but this is
+/// currently not enforced.
+pub struct Tok<T> {
   id: NonZeroU32,
-  phantom_data: PhantomData<T>
+  phantom_data: PhantomData<T>,
 }
-impl<T> Token<T> {
+impl<T> Tok<T> {
   pub fn from_id(id: NonZeroU32) -> Self {
     Self { id, phantom_data: PhantomData }
   }
@@ -21,36 +25,38 @@ impl<T> Token<T> {
   }
 }
 
-impl<T> Debug for Token<T> {
+impl<T> Debug for Tok<T> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "Token({})", self.id)
   }
 }
 
-impl<T> Copy for Token<T> {}
-impl<T> Clone for Token<T> {
+impl<T> Copy for Tok<T> {}
+impl<T> Clone for Tok<T> {
   fn clone(&self) -> Self {
-    Self{ id: self.id, phantom_data: PhantomData }
+    Self { id: self.id, phantom_data: PhantomData }
   }
 }
 
-impl<T> Eq for Token<T> {}
-impl<T> PartialEq for Token<T> {
-  fn eq(&self, other: &Self) -> bool { self.id == other.id }
+impl<T> Eq for Tok<T> {}
+impl<T> PartialEq for Tok<T> {
+  fn eq(&self, other: &Self) -> bool {
+    self.id == other.id
+  }
 }
 
-impl<T> Ord for Token<T> {
+impl<T> Ord for Tok<T> {
   fn cmp(&self, other: &Self) -> std::cmp::Ordering {
     self.id.cmp(&other.id)
   }
 }
-impl<T> PartialOrd for Token<T> {
+impl<T> PartialOrd for Tok<T> {
   fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-    Some(self.cmp(&other))
+    Some(self.cmp(other))
   }
 }
 
-impl<T> Hash for Token<T> {
+impl<T> Hash for Tok<T> {
   fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
     state.write_u32(self.id.into())
   }

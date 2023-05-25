@@ -1,16 +1,16 @@
-use crate::utils::{BoxedIter, iter::box_once};
-
-use super::{ProjectError, ErrorPosition};
+use super::{ErrorPosition, ProjectError};
+use crate::utils::iter::box_once;
+use crate::utils::BoxedIter;
 
 /// Error produced when an import refers to a nonexistent module
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ModuleNotFound {
   pub file: Vec<String>,
-  pub subpath: Vec<String>
+  pub subpath: Vec<String>,
 }
 impl ProjectError for ModuleNotFound {
   fn description(&self) -> &str {
-      "an import refers to a nonexistent module"
+    "an import refers to a nonexistent module"
   }
   fn message(&self) -> String {
     format!(

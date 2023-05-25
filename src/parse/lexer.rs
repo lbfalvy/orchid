@@ -1,31 +1,36 @@
 use std::fmt;
 use std::ops::Range;
 
+use chumsky::prelude::*;
+use chumsky::text::keyword;
+use chumsky::{Parser, Span};
 use ordered_float::NotNan;
-use chumsky::{Parser, prelude::*, text::keyword, Span};
-
-use crate::ast::{Placeholder, PHClass};
-use crate::representations::Literal;
-use crate::interner::{Token, InternedDisplay, Interner};
 
 use super::context::Context;
-use super::placeholder;
-use super::{number, string, name, comment};
+use super::decls::SimpleParser;
+use super::{comment, name, number, placeholder, string};
+use crate::ast::{PHClass, Placeholder};
+use crate::interner::{InternedDisplay, Interner, Tok};
+use crate::representations::Literal;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Entry{
+pub struct Entry {
   pub lexeme: Lexeme,
-  pub range: Range<usize>
+  pub range: Range<usize>,
 }
 impl Entry {
   pub fn is_filler(&self) -> bool {
     matches!(self.lexeme, Lexeme::Comment(_))
-    || matches!(self.lexeme, Lexeme::BR)
+      || matches!(self.lexeme, Lexeme::BR)
   }
 }
 
 impl InternedDisplay for Entry {
-  fn fmt_i(&self, f: &mut std::fmt::Formatter<'_>, i: &Interner) -> std::fmt::Result {
+  fn fmt_i(
+    &self,
+    f: &mut std::fmt::Formatter<'_>,
+    i: &Interner,
+  ) -> std::fmt::Result {
     self.lexeme.fmt_i(f, i)
   }
 }
@@ -40,21 +45,24 @@ impl Span for Entry {
   type Context = Lexeme;
   type Offset = usize;
 
-  fn context(&self) -> Self::Context {self.lexeme.clone()}
-  fn start(&self) -> Self::Offset {self.range.start()}
-  fn end(&self) -> Self::Offset {self.range.end()}
+  fn context(&self) -> Self::Context {
+    self.lexeme.clone()
+  }
+  fn start(&self) -> Self::Offset {
+    self.range.start()
+  }
+  fn end(&self) -> Self::Offset {
+    self.range.end()
+  }
   fn new(context: Self::Context, range: Range<Self::Offset>) -> Self {
-    Self{
-      lexeme: context,
-      range
-    }
+    Self { lexeme: context, range }
   }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Lexeme {
   Literal(Literal),
-  Name(Token<String>),
+  Name(Tok<String>),
   Rule(NotNan<f64>),
   /// Walrus operator (formerly shorthand macro)
   Const,
@@ -74,11 +82,15 @@ pub enum Lexeme {
   Export,
   Import,
   Namespace,
-  PH(Placeholder)
+  PH(Placeholder),
 }
 
 impl InternedDisplay for Lexeme {
-  fn fmt_i(&self, f: &mut std::fmt::Formatter<'_>, i: &Interner) -> std::fmt::Result {
+  fn fmt_i(
+    &self,
+    f: &mut std::fmt::Formatter<'_>,
+    i: &Interner,
+  ) -> std::fmt::Result {
     match self {
       Self::Literal(l) => write!(f, "{:?}", l),
       Self::Name(token) => write!(f, "{}", i.r(*token)),
@@ -90,9 +102,9 @@ impl InternedDisplay for Lexeme {
         '(' => write!(f, ")"),
         '[' => write!(f, "]"),
         '{' => write!(f, "}}"),
-        _ => f.debug_tuple("RP").field(l).finish()
+        _ => f.debug_tuple("RP").field(l).finish(),
       },
-      Self::BR => write!(f, "\n"),
+      Self::BR => writeln!(f),
       Self::BS => write!(f, "\\"),
       Self::At => write!(f, "@"),
       Self::Type => write!(f, ":"),
@@ -103,27 +115,30 @@ impl InternedDisplay for Lexeme {
       Self::PH(Placeholder { name, class }) => match *class {
         PHClass::Scalar => write!(f, "${}", i.r(*name)),
         PHClass::Vec { nonzero, prio } => {
-          if nonzero {write!(f, "...")}
-          else {write!(f, "..")}?;
+          if nonzero {
+            write!(f, "...")
+          } else {
+            write!(f, "..")
+          }?;
           write!(f, "${}", i.r(*name))?;
-          if prio != 0 {write!(f, ":{}", prio)?;};
+          if prio != 0 {
+            write!(f, ":{}", prio)?;
+          };
           Ok(())
-        }
-      }
+        },
+      },
     }
   }
 }
 
 impl Lexeme {
   pub fn rule(prio: impl Into<f64>) -> Self {
-    Lexeme::Rule(
-      NotNan::new(prio.into())
-        .expect("Rule priority cannot be NaN")
-    )
+    Lexeme::Rule(NotNan::new(prio.into()).expect("Rule priority cannot be NaN"))
   }
 
-  pub fn parser<E: chumsky::Error<Entry>>(self)
-  -> impl Parser<Entry, Entry, Error = E> + Clone {
+  pub fn parser<E: chumsky::Error<Entry>>(
+    self,
+  ) -> impl Parser<Entry, Entry, Error = E> + Clone {
     filter(move |ent: &Entry| ent.lexeme == self)
   }
 }
@@ -141,16 +156,14 @@ impl InternedDisplay for LexedText {
   }
 }
 
-fn paren_parser(lp: char, rp: char)
--> impl Parser<char, Lexeme, Error=Simple<char>>
-{
-  just(lp).to(Lexeme::LP(lp))
-  .or(just(rp).to(Lexeme::RP(lp)))
+fn paren_parser(lp: char, rp: char) -> impl SimpleParser<char, Lexeme> {
+  just(lp).to(Lexeme::LP(lp)).or(just(rp).to(Lexeme::RP(lp)))
 }
 
-pub fn literal_parser() -> impl Parser<char, Literal, Error = Simple<char>> {
+pub fn literal_parser() -> impl SimpleParser<char, Literal> {
   choice((
-    number::int_parser().map(Literal::Uint), // all ints are valid floats so it takes precedence
+    // all ints are valid floats so it takes precedence
+    number::int_parser().map(Literal::Uint),
     number::float_parser().map(Literal::Num),
     string::char_parser().map(Literal::Char),
     string::str_parser().map(Literal::Str),
@@ -159,10 +172,12 @@ pub fn literal_parser() -> impl Parser<char, Literal, Error = Simple<char>> {
 
 pub static BASE_OPS: &[&str] = &[",", ".", "..", "..."];
 
-pub fn lexer<'a>(ctx: impl Context + 'a)
--> impl Parser<char, Vec<Entry>, Error=Simple<char>> + 'a
-{
-  let all_ops = ctx.ops().iter()
+pub fn lexer<'a>(
+  ctx: impl Context + 'a,
+) -> impl SimpleParser<char, Vec<Entry>> + 'a {
+  let all_ops = ctx
+    .ops()
+    .iter()
     .map(|op| op.as_ref())
     .chain(BASE_OPS.iter().cloned())
     .map(str::to_string)
@@ -175,7 +190,10 @@ pub fn lexer<'a>(ctx: impl Context + 'a)
     paren_parser('[', ']'),
     paren_parser('{', '}'),
     just(":=").to(Lexeme::Const),
-    just("=").ignore_then(number::float_parser()).then_ignore(just("=>")).map(Lexeme::rule),
+    just("=")
+      .ignore_then(number::float_parser())
+      .then_ignore(just("=>"))
+      .map(Lexeme::rule),
     comment::comment_parser().map(Lexeme::Comment),
     just("::").to(Lexeme::NS),
     just('\\').to(Lexeme::BS),
@@ -184,20 +202,18 @@ pub fn lexer<'a>(ctx: impl Context + 'a)
     just('\n').to(Lexeme::BR),
     placeholder::placeholder_parser(ctx.clone()).map(Lexeme::PH),
     literal_parser().map(Lexeme::Literal),
-    name::name_parser(&all_ops).map(move |n| {
-      Lexeme::Name(ctx.interner().i(&n))
-    })
+    name::name_parser(&all_ops)
+      .map(move |n| Lexeme::Name(ctx.interner().i(&n))),
   ))
-    .map_with_span(|lexeme, range| Entry{ lexeme, range })
-    .padded_by(one_of(" \t").repeated())
-    .repeated()
-    .then_ignore(end())
+  .map_with_span(|lexeme, range| Entry { lexeme, range })
+  .padded_by(one_of(" \t").repeated())
+  .repeated()
+  .then_ignore(end())
 }
 
-
 pub fn filter_map_lex<'a, O, M: ToString>(
-  f: impl Fn(Lexeme) -> Result<O, M> + Clone + 'a
-) -> impl Parser<Entry, (O, Range<usize>), Error = Simple<Entry>> + Clone + 'a {
+  f: impl Fn(Lexeme) -> Result<O, M> + Clone + 'a,
+) -> impl SimpleParser<Entry, (O, Range<usize>)> + Clone + 'a {
   filter_map(move |s: Range<usize>, e: Entry| {
     let out = f(e.lexeme).map_err(|msg| Simple::custom(s.clone(), msg))?;
     Ok((out, s))

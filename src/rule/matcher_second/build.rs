@@ -1,34 +1,28 @@
 use itertools::Itertools;
 
-use crate::{rule::vec_attrs::vec_attrs, ast::Clause};
-use crate::utils::Side;
-use crate::interner::Token;
-use crate::ast::{Expr, Placeholder, PHClass};
-
 use super::shared::{AnyMatcher, ScalMatcher, VecMatcher};
+use crate::ast::{Clause, Expr, PHClass, Placeholder};
+use crate::interner::Tok;
+use crate::rule::vec_attrs::vec_attrs;
+use crate::utils::Side;
 
+pub type MaxVecSplit<'a> = (&'a [Expr], (Tok<String>, u64, bool), &'a [Expr]);
 
-pub type MaxVecSplit<'a> = (&'a [Expr], (Token<String>, u64, bool), &'a [Expr]);
-
-/// Derive the details of the central vectorial and the two sides from a slice of Expr's
+/// Derive the details of the central vectorial and the two sides from a
+/// slice of Expr's
 fn split_at_max_vec(pattern: &[Expr]) -> Option<MaxVecSplit> {
-  let rngidx = pattern.iter()
-    .position_max_by_key(|expr| {
-      vec_attrs(expr)
-        .map(|attrs| attrs.1 as i64)
-        .unwrap_or(-1)
-    })?;
+  let rngidx = pattern.iter().position_max_by_key(|expr| {
+    vec_attrs(expr).map(|attrs| attrs.1 as i64).unwrap_or(-1)
+  })?;
   let (left, not_left) = pattern.split_at(rngidx);
-  let (placeh, right) = not_left.split_first()
+  let (placeh, right) = not_left
+    .split_first()
     .expect("The index of the greatest element must be less than the length");
-  vec_attrs(placeh)
-    .map(|attrs| (left, attrs, right))
+  vec_attrs(placeh).map(|attrs| (left, attrs, right))
 }
 
 fn scal_cnt<'a>(iter: impl Iterator<Item = &'a Expr>) -> usize {
-  iter
-    .take_while(|expr| vec_attrs(expr).is_none())
-    .count()
+  iter.take_while(|expr| vec_attrs(expr).is_none()).count()
 }
 
 /// Recursively convert this pattern into a matcher that can be
@@ -36,7 +30,7 @@ fn scal_cnt<'a>(iter: impl Iterator<Item = &'a Expr>) -> usize {
 pub fn mk_matcher(pattern: &[Expr]) -> AnyMatcher {
   let left_split = scal_cnt(pattern.iter());
   if pattern.len() <= left_split {
-    return AnyMatcher::Scalar(mk_scalv(pattern))
+    return AnyMatcher::Scalar(mk_scalv(pattern));
   }
   let (left, not_left) = pattern.split_at(left_split);
   let right_split = not_left.len() - scal_cnt(pattern.iter().rev());
@@ -56,11 +50,19 @@ fn mk_scalv(pattern: &[Expr]) -> Vec<ScalMatcher> {
 /// Pattern MUST start and end with a vectorial placeholder
 fn mk_vec(pattern: &[Expr]) -> VecMatcher {
   debug_assert!(!pattern.is_empty(), "pattern cannot be empty");
-  debug_assert!(pattern.first().map(vec_attrs).is_some(), "pattern must start with a vectorial");
-  debug_assert!(pattern.last().map(vec_attrs).is_some(), "pattern must end with a vectorial");
+  debug_assert!(
+    pattern.first().map(vec_attrs).is_some(),
+    "pattern must start with a vectorial"
+  );
+  debug_assert!(
+    pattern.last().map(vec_attrs).is_some(),
+    "pattern must end with a vectorial"
+  );
   let (left, (key, prio, nonzero), right) = split_at_max_vec(pattern)
     .expect("pattern must have vectorial placeholders at least at either end");
-  if prio >= 1 {println!("Nondefault priority {} found", prio)}
+  if prio >= 1 {
+    println!("Nondefault priority {} found", prio)
+  }
   let r_sep_size = scal_cnt(right.iter());
   let (r_sep, r_side) = right.split_at(r_sep_size);
   let l_sep_size = scal_cnt(left.iter().rev());
@@ -80,10 +82,11 @@ fn mk_vec(pattern: &[Expr]) -> VecMatcher {
       sep: mk_scalv(l_sep),
       right: Box::new(main),
     },
-    (_, _) => {
-      let mut key_order = l_side.iter()
+    (..) => {
+      let mut key_order = l_side
+        .iter()
         .chain(r_side.iter())
-        .filter_map(|e| vec_attrs(e))
+        .filter_map(vec_attrs)
         .collect::<Vec<_>>();
       key_order.sort_by_key(|(_, prio, _)| -(*prio as i64));
       VecMatcher::Middle {
@@ -92,9 +95,9 @@ fn mk_vec(pattern: &[Expr]) -> VecMatcher {
         mid: Box::new(main),
         right_sep: mk_scalv(r_sep),
         right: Box::new(mk_vec(r_side)),
-        key_order: key_order.into_iter().map(|(n, ..)| n).collect()
+        key_order: key_order.into_iter().map(|(n, ..)| n).collect(),
       }
-    }
+    },
   }
 }
 
@@ -103,15 +106,16 @@ fn mk_scalar(pattern: &Expr) -> ScalMatcher {
   match &pattern.value {
     Clause::P(p) => ScalMatcher::P(p.clone()),
     Clause::Name(n) => ScalMatcher::Name(*n),
-    Clause::Placeh(Placeholder{ name, class }) => {
-      debug_assert!(!matches!(class, PHClass::Vec{..}), "Scalar matcher cannot be built from vector pattern");
+    Clause::Placeh(Placeholder { name, class }) => {
+      debug_assert!(
+        !matches!(class, PHClass::Vec { .. }),
+        "Scalar matcher cannot be built from vector pattern"
+      );
       ScalMatcher::Placeh(*name)
-    }
-    Clause::S(c, body) => ScalMatcher::S(*c, Box::new(mk_matcher(&body))),
-    Clause::Lambda(arg, body) => ScalMatcher::Lambda(
-      Box::new(mk_scalar(&arg)),
-      Box::new(mk_matcher(&body))
-    )
+    },
+    Clause::S(c, body) => ScalMatcher::S(*c, Box::new(mk_matcher(body))),
+    Clause::Lambda(arg, body) =>
+      ScalMatcher::Lambda(Box::new(mk_scalar(arg)), Box::new(mk_matcher(body))),
   }
 }
 
@@ -119,35 +123,42 @@ fn mk_scalar(pattern: &Expr) -> ScalMatcher {
 mod test {
   use std::rc::Rc;
 
-  use crate::interner::{Interner, InternedDisplay};
-  use crate::ast::{Clause, Placeholder, PHClass};
-
   use super::mk_matcher;
+  use crate::ast::{Clause, PHClass, Placeholder};
+  use crate::interner::{InternedDisplay, Interner};
 
   #[test]
   fn test_scan() {
     let i = Interner::new();
     let pattern = vec![
-      Clause::Placeh(Placeholder{
-        class: PHClass::Vec{ nonzero: false, prio: 0 },
-        name: i.i("::prefix"),
-      }).into_expr(),
-      Clause::Name(i.i(&[i.i("prelude"), i.i("do")][..])).into_expr(),
-      Clause::S('(', Rc::new(vec![
-        Clause::Placeh(Placeholder{
-          class: PHClass::Vec{ nonzero: false, prio: 0 },
-          name: i.i("expr"),
-        }).into_expr(),
-        Clause::Name(i.i(&[i.i("prelude"), i.i(";")][..])).into_expr(),
-        Clause::Placeh(Placeholder {
-          class: PHClass::Vec{ nonzero: false, prio: 1 },
-          name: i.i("rest"),
-        }).into_expr()
-      ])).into_expr(),
       Clause::Placeh(Placeholder {
-        class: PHClass::Vec{ nonzero: false, prio: 0 },
+        class: PHClass::Vec { nonzero: false, prio: 0 },
+        name: i.i("::prefix"),
+      })
+      .into_expr(),
+      Clause::Name(i.i(&[i.i("prelude"), i.i("do")][..])).into_expr(),
+      Clause::S(
+        '(',
+        Rc::new(vec![
+          Clause::Placeh(Placeholder {
+            class: PHClass::Vec { nonzero: false, prio: 0 },
+            name: i.i("expr"),
+          })
+          .into_expr(),
+          Clause::Name(i.i(&[i.i("prelude"), i.i(";")][..])).into_expr(),
+          Clause::Placeh(Placeholder {
+            class: PHClass::Vec { nonzero: false, prio: 1 },
+            name: i.i("rest"),
+          })
+          .into_expr(),
+        ]),
+      )
+      .into_expr(),
+      Clause::Placeh(Placeholder {
+        class: PHClass::Vec { nonzero: false, prio: 0 },
         name: i.i("::suffix"),
-      }).into_expr(),
+      })
+      .into_expr(),
     ];
     let matcher = mk_matcher(&pattern);
     println!("{}", matcher.bundle(&i));

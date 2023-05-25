@@ -1,30 +1,25 @@
 use std::any::Any;
 use std::error::Error;
-use std::fmt::{Display, Debug};
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::rc::Rc;
 
 use dyn_clone::DynClone;
 
-use crate::interpreter::{RuntimeError, Context};
-
-use crate::representations::Primitive;
+use crate::interpreter::{Context, RuntimeError};
 pub use crate::representations::interpreted::Clause;
 use crate::representations::interpreted::ExprInst;
+use crate::representations::Primitive;
 
 pub struct AtomicReturn {
   pub clause: Clause,
   pub gas: Option<usize>,
-  pub inert: bool
+  pub inert: bool,
 }
 impl AtomicReturn {
   /// Wrap an inert atomic for delivery to the supervisor
   pub fn from_data<D: Atomic>(d: D, c: Context) -> Self {
-    AtomicReturn {
-      clause: d.to_atom_cls(),
-      gas: c.gas,
-      inert: false
-    }
+    AtomicReturn { clause: d.to_atom_cls(), gas: c.gas, inert: false }
   }
 }
 
@@ -36,7 +31,9 @@ pub type RcExpr = ExprInst;
 
 pub trait ExternError: Display {
   fn into_extern(self) -> Rc<dyn ExternError>
-  where Self: 'static + Sized {
+  where
+    Self: 'static + Sized,
+  {
     Rc::new(self)
   }
 }
@@ -58,14 +55,19 @@ pub trait ExternFn: DynClone {
   fn hash(&self, state: &mut dyn std::hash::Hasher) {
     state.write_str(self.name())
   }
-  fn to_xfn_cls(self) -> Clause where Self: Sized + 'static {
+  fn to_xfn_cls(self) -> Clause
+  where
+    Self: Sized + 'static,
+  {
     Clause::P(Primitive::ExternFn(Box::new(self)))
   }
 }
 
 impl Eq for dyn ExternFn {}
 impl PartialEq for dyn ExternFn {
-  fn eq(&self, other: &Self) -> bool { self.name() == other.name() }
+  fn eq(&self, other: &Self) -> bool {
+    self.name() == other.name()
+  }
 }
 impl Hash for dyn ExternFn {
   fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -78,10 +80,16 @@ impl Debug for dyn ExternFn {
   }
 }
 
-pub trait Atomic: Any + Debug + DynClone where Self: 'static {
+pub trait Atomic: Any + Debug + DynClone
+where
+  Self: 'static,
+{
   fn as_any(&self) -> &dyn Any;
   fn run(&self, ctx: Context) -> AtomicResult;
-  fn to_atom_cls(self) -> Clause where Self: Sized {
+  fn to_atom_cls(self) -> Clause
+  where
+    Self: Sized,
+  {
     Clause::P(Primitive::Atom(Atom(Box::new(self))))
   }
 }
@@ -105,10 +113,11 @@ impl Atom {
   pub fn try_cast<T: Atomic>(&self) -> Result<&T, ()> {
     self.data().as_any().downcast_ref().ok_or(())
   }
-  pub fn is<T: 'static>(&self) -> bool { self.data().as_any().is::<T>() }
+  pub fn is<T: 'static>(&self) -> bool {
+    self.data().as_any().is::<T>()
+  }
   pub fn cast<T: 'static>(&self) -> &T {
-    self.data().as_any().downcast_ref()
-      .expect("Type mismatch on Atom::cast")
+    self.data().as_any().downcast_ref().expect("Type mismatch on Atom::cast")
   }
   pub fn run(&self, ctx: Context) -> AtomicResult {
     self.0.run(ctx)

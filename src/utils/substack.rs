@@ -3,28 +3,32 @@ use std::fmt::Debug;
 
 // TODO: extract to crate
 
-/// A FILO stack that lives on the regular call stack as a linked list.
-/// Mainly useful to detect loops in recursive algorithms where
-/// the recursion isn't deep enough to warrant a heap-allocated set.
+/// A frame of [Substack] which contains an element and a reference to the
+/// rest of the stack.
 #[derive(Clone, Copy)]
 pub struct Stackframe<'a, T> {
   pub item: T,
   pub prev: &'a Substack<'a, T>,
-  pub len: usize
+  pub len: usize,
 }
 
+/// A FILO stack that lives on the regular call stack as a linked list.
+/// Mainly useful to detect loops in recursive algorithms where
+/// the recursion isn't deep enough to warrant a heap-allocated set.
 #[derive(Clone, Copy)]
 pub enum Substack<'a, T> {
   Frame(Stackframe<'a, T>),
-  Bottom
+  Bottom,
 }
 
 impl<'a, T> Substack<'a, T> {
   /// Convert the substack into an option of stackframe
-  pub fn opt(&'a self) -> Option<&'a Stackframe<'a, T>> { match self {
-    Self::Frame(f) => Some(f),
-    Self::Bottom => None
-  } }
+  pub fn opt(&'a self) -> Option<&'a Stackframe<'a, T>> {
+    match self {
+      Self::Frame(f) => Some(f),
+      Self::Bottom => None,
+    }
+  }
   /// Construct an iterator over the listlike, very fast O(1)
   pub fn iter(&self) -> SubstackIterator<T> {
     SubstackIterator { curr: self }
@@ -33,22 +37,25 @@ impl<'a, T> Substack<'a, T> {
     Self::Frame(self.new_frame(item))
   }
   pub fn new_frame(&'a self, item: T) -> Stackframe<'a, T> {
-    Stackframe {
-      item,
-      prev: self,
-      len: self.opt().map_or(1, |s| s.len)
-    }
+    Stackframe { item, prev: self, len: self.opt().map_or(1, |s| s.len) }
   }
   pub fn pop(&'a self, count: usize) -> Option<&'a Stackframe<'a, T>> {
     if let Self::Frame(p) = self {
-      if count == 0 {Some(p)}
-      else {p.prev.pop(count - 1)}
-    } else {None}
+      if count == 0 {
+        Some(p)
+      } else {
+        p.prev.pop(count - 1)
+      }
+    } else {
+      None
+    }
   }
-  pub fn len(&self) -> usize { match self {
-    Self::Frame(f) => f.len,
-    Self::Bottom => 0
-   } }
+  pub fn len(&self) -> usize {
+    match self {
+      Self::Frame(f) => f.len,
+      Self::Bottom => 0,
+    }
+  }
 }
 
 impl<'a, T: Debug> Debug for Substack<'a, T> {
@@ -58,29 +65,31 @@ impl<'a, T: Debug> Debug for Substack<'a, T> {
   }
 }
 
+/// Iterates over a substack from the top down
 pub struct SubstackIterator<'a, T> {
-  curr: &'a Substack<'a, T>
+  curr: &'a Substack<'a, T>,
 }
 
 impl<'a, T> SubstackIterator<'a, T> {
-  #[allow(unused)]
-  pub fn first_some<U,
-    F: Fn(&T) -> Option<U>
-  >(&mut self, f: F) -> Option<U> {
+  pub fn first_some<U, F: Fn(&T) -> Option<U>>(&mut self, f: F) -> Option<U> {
     for x in self.by_ref() {
       if let Some(result) = f(x) {
-        return Some(result)
+        return Some(result);
       }
     }
     None
   }
 
   /// Returns an iterator that starts from the bottom of the stack
-  /// and ends at the current position. This moves all items to the
-  /// heap by copying them to a [Vec]
-  pub fn rev_vec_clone(self) -> Vec<T> where T: Clone {
+  /// and ends at the current position.
+  pub fn rev_vec_clone(self) -> Vec<T>
+  where
+    T: Clone,
+  {
     let mut deque = VecDeque::with_capacity(self.curr.len());
-    for item in self { deque.push_front(item.clone()) }
+    for item in self {
+      deque.push_front(item.clone())
+    }
     deque.into()
   }
 }
@@ -106,6 +115,3 @@ impl<'a, T> Iterator for SubstackIterator<'a, T> {
     (self.curr.len(), Some(self.curr.len()))
   }
 }
-
-
-

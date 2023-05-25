@@ -1,29 +1,27 @@
 use hashbrown::HashMap;
 
+use crate::interner::{Interner, Sym};
 use crate::representations::interpreted::ExprInst;
-use crate::interner::{Token, Interner};
 
+/// All the data associated with an interpreter run
 #[derive(Clone)]
 pub struct Context<'a> {
-  pub symbols: &'a HashMap<Token<Vec<Token<String>>>, ExprInst>,
+  /// Table used to resolve constants
+  pub symbols: &'a HashMap<Sym, ExprInst>,
+  /// The interner used for strings internally, so external functions can deduce
+  /// referenced constant names on the fly
   pub interner: &'a Interner,
+  /// The number of reduction steps the interpreter can take before returning
   pub gas: Option<usize>,
 }
 
-impl Context<'_> {
-  pub fn is_stuck(&self, res: Option<usize>) -> bool {
-    match (res, self.gas) {
-      (Some(a), Some(b)) => a == b,
-      (None, None) => false,
-      (None, Some(_)) => panic!("gas not tracked despite limit"),
-      (Some(_), None) => panic!("gas tracked without request"),
-    }
-  }
-}
-
+/// All the data produced by an interpreter run
 #[derive(Clone)]
 pub struct Return {
+  /// The new expression tree
   pub state: ExprInst,
+  /// Leftover [Context::gas] if counted
   pub gas: Option<usize>,
+  /// If true, the next run would not modify the expression
   pub inert: bool,
 }

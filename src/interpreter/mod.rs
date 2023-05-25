@@ -1,6 +1,6 @@
 mod apply;
-mod error;
 mod context;
+mod error;
 mod run;
 
 pub use context::{Context, Return};

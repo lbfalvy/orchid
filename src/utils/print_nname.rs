@@ -1,16 +1,8 @@
 use itertools::Itertools;
 
-use crate::interner::{Interner, Token};
+use crate::interner::{Interner, Sym};
 
-#[allow(unused)]
-pub fn print_nname(t: Token<Vec<Token<String>>>, i: &Interner) -> String {
+/// Print symbols to :: delimited strings
+pub fn sym2string(t: Sym, i: &Interner) -> String {
   i.r(t).iter().map(|t| i.r(*t)).join("::")
-}
-
-#[allow(unused)]
-pub fn print_nname_seq<'a>(
-  tv: impl Iterator<Item = &'a Token<Vec<Token<String>>>>,
-  i: &Interner
-) -> String {
-  tv.map(|t| print_nname(*t, i)).join(", ")
 }

@@ -1,14 +1,16 @@
-/// Imitates a regular for loop with an exit clause using Rust's `loop` keyword.
-/// This macro brings the break value to all existing Rust loops, by allowing you to specify
-/// an exit expression in case the loop was broken by the condition and not an explicit `break`.
-/// 
-/// Since the exit expression can also be a block, this also allows you to execute other code when
-/// the condition fails. This can also be used to re-enter the loop with an explicit `continue`
-/// statement.
-/// 
-/// The macro also adds support for classic for loops familiar to everyone since C, except with
-/// the addition of an exit statement these too can be turned into expressions.
-/// 
+/// Imitates a regular for loop with an exit clause using Rust's `loop`
+/// keyword. This macro brings the break value to all existing Rust loops,
+/// by allowing you to specify an exit expression in case the loop was
+/// broken by the condition and not an explicit `break`.
+///
+/// Since the exit expression can also be a block, this also allows you to
+/// execute other code when the condition fails. This can also be used to
+/// re-enter the loop with an explicit `continue` statement.
+///
+/// The macro also adds support for classic for loops familiar to everyone
+/// since C, except with the addition of an exit statement these too can
+/// be turned into expressions.
+///
 /// ```
 /// xloop!(for i in 0..10; {
 ///   connection.try_connect()
@@ -17,9 +19,10 @@
 ///   }
 /// }; None)
 /// ```
-/// 
-/// While loop with reentry. This is a very convoluted example but displays the idea quite clearly.
-/// 
+///
+/// While loop with reentry. This is a very convoluted example but
+/// displays the idea quite clearly.
+///
 /// ```
 /// xloop!(while socket.is_open(); {
 ///   let (data, is_end) = socket.read();
@@ -35,19 +38,19 @@
 ///   }
 /// })
 /// ```
-/// 
+///
 /// CUDA algorythm for O(log n) summation using a C loop
-/// 
+///
 /// ```
 /// xloop!(let mut leap = 1; own_id*2 + leap < batch_size; leap *= 2; {
 ///   batch[own_id*2] += batch[own_id*2 + leap]
 /// })
 /// ```
-/// 
-/// The above loop isn't used as an expression, but an exit expression - or block - can be added
-/// to these as well just like the others. In all cases the exit expression is optional, its
-/// default value is `()`.
-/// 
+///
+/// The above loop isn't used as an expression, but an exit expression -
+/// or block - can be added to these as well just like the others. In all
+/// cases the exit expression is optional, its default value is `()`.
+///
 /// TODO: find a valid use case for While let for a demo
 /// TODO: break out into crate
 #[macro_export]

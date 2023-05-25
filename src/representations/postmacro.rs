@@ -1,26 +1,30 @@
-use crate::utils::string_from_charset;
-use crate::interner::Token;
-
-use super::location::Location;
-use super::primitive::Primitive;
-
 use std::fmt::{Debug, Write};
 use std::rc::Rc;
 
-/// Indicates whether either side needs to be wrapped. Syntax whose end is ambiguous on that side
-/// must use parentheses, or forward the flag
+use super::location::Location;
+use super::primitive::Primitive;
+use crate::interner::Sym;
+use crate::utils::string_from_charset;
+
+/// Indicates whether either side needs to be wrapped. Syntax whose end is
+/// ambiguous on that side must use parentheses, or forward the flag
 #[derive(PartialEq, Eq, Clone, Copy)]
 struct Wrap(bool, bool);
 
 #[derive(Clone)]
-pub struct Expr{
+pub struct Expr {
   pub value: Clause,
   pub location: Location,
 }
 
 impl Expr {
-  fn deep_fmt(&self, f: &mut std::fmt::Formatter<'_>, depth: usize, tr: Wrap) -> std::fmt::Result {
-    let Expr{ value, .. } = self;
+  fn deep_fmt(
+    &self,
+    f: &mut std::fmt::Formatter<'_>,
+    depth: usize,
+    tr: Wrap,
+  ) -> std::fmt::Result {
+    let Expr { value, .. } = self;
     value.deep_fmt(f, depth, tr)?;
     Ok(())
   }
@@ -36,7 +40,7 @@ impl Debug for Expr {
 pub enum Clause {
   Apply(Rc<Expr>, Rc<Expr>),
   Lambda(Rc<Expr>),
-  Constant(Token<Vec<Token<String>>>),
+  Constant(Sym),
   LambdaArg(usize),
   P(Primitive),
 }
@@ -44,21 +48,32 @@ pub enum Clause {
 const ARGNAME_CHARSET: &str = "abcdefghijklmnopqrstuvwxyz";
 
 fn parametric_fmt(
-  f: &mut std::fmt::Formatter<'_>, depth: usize,
-  prefix: &str, body: &Expr, wrap_right: bool
+  f: &mut std::fmt::Formatter<'_>,
+  depth: usize,
+  prefix: &str,
+  body: &Expr,
+  wrap_right: bool,
 ) -> std::fmt::Result {
-  if wrap_right { f.write_char('(')?; }
+  if wrap_right {
+    f.write_char('(')?;
+  }
   f.write_str(prefix)?;
   f.write_str(&string_from_charset(depth as u64, ARGNAME_CHARSET))?;
   f.write_str(".")?;
   body.deep_fmt(f, depth + 1, Wrap(false, false))?;
-  if wrap_right { f.write_char(')')?; }
+  if wrap_right {
+    f.write_char(')')?;
+  }
   Ok(())
 }
 
 impl Clause {
-  fn deep_fmt(&self, f: &mut std::fmt::Formatter<'_>, depth: usize, Wrap(wl, wr): Wrap)
-  -> std::fmt::Result {
+  fn deep_fmt(
+    &self,
+    f: &mut std::fmt::Formatter<'_>,
+    depth: usize,
+    Wrap(wl, wr): Wrap,
+  ) -> std::fmt::Result {
     match self {
       Self::P(p) => write!(f, "{p:?}"),
       Self::Lambda(body) => parametric_fmt(f, depth, "\\", body, wr),
@@ -67,19 +82,19 @@ impl Clause {
         f.write_str(&string_from_charset(lambda_depth, ARGNAME_CHARSET))
       },
       Self::Apply(func, x) => {
-        if wl { f.write_char('(')?; }
+        if wl {
+          f.write_char('(')?;
+        }
         func.deep_fmt(f, depth, Wrap(false, true))?;
         f.write_char(' ')?;
         x.deep_fmt(f, depth, Wrap(true, wr && !wl))?;
-        if wl { f.write_char(')')?; }
+        if wl {
+          f.write_char(')')?;
+        }
         Ok(())
-      }
-      Self::Constant(token) => write!(f, "{:?}", token)
+      },
+      Self::Constant(token) => write!(f, "{:?}", token),
     }
-  }
-  #[allow(unused)]
-  pub fn wrap(self) -> Box<Expr> {
-    Box::new(Expr{ value: self, location: Location::Unknown })
   }
 }
 

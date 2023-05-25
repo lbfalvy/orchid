@@ -1,8 +1,12 @@
 /// Produces filter_mapping functions for enum types:
 /// ```rs
-/// enum_parser!(Foo::Bar | "Some error!") // Accepts Foo::Bar(T) into T
-/// enum_parser!(Foo::Bar) // same as above but with the default error "Expected Foo::Bar"
-/// enum_parser!(Foo >> Quz; Bar, Baz) // Parses  Foo::Bar(T) into Quz::Bar(T) and Foo::Baz(U) into Quz::Baz(U)
+/// enum_parser!(Foo::Bar | "Some error!")
+/// // Foo::Bar(T) into T
+/// enum_parser!(Foo::Bar)
+/// // same as above but with the default error "Expected Foo::Bar"
+/// enum_parser!(Foo >> Quz; Bar, Baz)
+/// // Foo::Bar(T) into Quz::Bar(T)
+/// // Foo::Baz(U) into Quz::Baz(U)
 /// ```
 #[macro_export]
 macro_rules! enum_filter {

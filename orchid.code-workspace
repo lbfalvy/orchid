@@ -24,7 +24,7 @@
 			"editor.formatOnType": true,
 		},
 		"[rust]": {
-			"editor.rulers": [74]
+			"editor.rulers": [80],
 		},
 		"rust-analyzer.showUnlinkedFileNotification": false,
 		"rust-analyzer.checkOnSave": true,

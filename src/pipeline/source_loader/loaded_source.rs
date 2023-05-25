@@ -1,8 +1,8 @@
-use std::{rc::Rc, collections::HashMap};
-
-use crate::interner::Token;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 use super::preparse::Preparsed;
+use crate::interner::Sym;
 
 #[derive(Debug)]
 pub struct LoadedSource {
@@ -10,4 +10,4 @@ pub struct LoadedSource {
   pub preparsed: Preparsed,
 }
 
-pub type LoadedSourceTable = HashMap<Token<Vec<Token<String>>>, LoadedSource>;
+pub type LoadedSourceTable = HashMap<Sym, LoadedSource>;

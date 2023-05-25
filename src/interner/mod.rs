@@ -1,9 +1,21 @@
+mod display;
 mod monotype;
 mod multitype;
 mod token;
-mod display;
 
+pub use display::{DisplayBundle, InternedDisplay};
 pub use monotype::TypedInterner;
 pub use multitype::Interner;
-pub use token::Token;
-pub use display::{DisplayBundle, InternedDisplay};
+pub use token::Tok;
+
+/// A symbol, nsname, nname or namespaced name is a sequence of namespaces
+/// and an identifier. The [Vec] can never be empty.
+/// 
+/// Throughout different stages of processing, these names can be
+/// 
+/// - local names to be prefixed with the current module
+/// - imported names starting with a segment
+///   - ending a single import or
+///   - defined in one of the glob imported modules
+/// - absolute names
+pub type Sym = Tok<Vec<Tok<String>>>;

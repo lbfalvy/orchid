@@ -1,8 +1,9 @@
 use std::rc::Rc;
 
-use crate::{utils::{BoxedIter, iter::box_once}, representations::location::Location};
-
-use super::{ProjectError, ErrorPosition};
+use super::{ErrorPosition, ProjectError};
+use crate::representations::location::Location;
+use crate::utils::iter::box_once;
+use crate::utils::BoxedIter;
 
 /// Error produced when an import path starts with more `super` segments
 /// than the current module's absolute path
@@ -10,12 +11,12 @@ use super::{ProjectError, ErrorPosition};
 pub struct TooManySupers {
   pub path: Vec<String>,
   pub offender_file: Vec<String>,
-  pub offender_mod: Vec<String>
+  pub offender_mod: Vec<String>,
 }
 impl ProjectError for TooManySupers {
   fn description(&self) -> &str {
-      "an import path starts with more `super` segments than \
-      the current module's absolute path"
+    "an import path starts with more `super` segments than the current \
+     module's absolute path"
   }
   fn message(&self) -> String {
     format!(
@@ -32,7 +33,7 @@ impl ProjectError for TooManySupers {
         "path {} in {} contains too many `super` steps.",
         self.path.join("::"),
         self.offender_mod.join("::")
-      ))
+      )),
     })
   }
 }

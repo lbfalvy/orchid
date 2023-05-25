@@ -1,36 +1,37 @@
 use std::fmt::Write;
 use std::rc::Rc;
 
+use super::any_match::any_match;
+use super::build::mk_matcher;
 use crate::ast::Expr;
-use crate::rule::{matcher::Matcher, state::State};
-use crate::unwrap_or;
-use crate::utils::{Side, print_nname};
-use crate::interner::{Token, InternedDisplay, Interner};
+use crate::interner::{InternedDisplay, Interner, Sym, Tok};
 use crate::representations::Primitive;
-
-use super::{build::mk_matcher, any_match::any_match};
+use crate::rule::matcher::Matcher;
+use crate::rule::state::State;
+use crate::unwrap_or;
+use crate::utils::{sym2string, Side};
 
 pub enum ScalMatcher {
   P(Primitive),
-  Name(Token<Vec<Token<String>>>),
+  Name(Sym),
   S(char, Box<AnyMatcher>),
   Lambda(Box<ScalMatcher>, Box<AnyMatcher>),
-  Placeh(Token<String>),
+  Placeh(Tok<String>),
 }
 
 pub enum VecMatcher {
-  Placeh{
-    key: Token<String>,
-    nonzero: bool
+  Placeh {
+    key: Tok<String>,
+    nonzero: bool,
   },
-  Scan{
+  Scan {
     left: Box<VecMatcher>,
     sep: Vec<ScalMatcher>,
     right: Box<VecMatcher>,
     /// The separator traverses the sequence towards this side
-    direction: Side
+    direction: Side,
   },
-  Middle{
+  Middle {
     /// Matches the left outer region
     left: Box<VecMatcher>,
     /// Matches the left separator
@@ -43,19 +44,15 @@ pub enum VecMatcher {
     right: Box<VecMatcher>,
     /// Order of significance for sorting equally good solutions based on
     /// the length of matches on either side.
-    /// 
+    ///
     /// Vectorial keys that appear on either side, in priority order
-    key_order: Vec<Token<String>>
-  }
+    key_order: Vec<Tok<String>>,
+  },
 }
 
 pub enum AnyMatcher {
   Scalar(Vec<ScalMatcher>),
-  Vec{
-    left: Vec<ScalMatcher>,
-    mid: VecMatcher,
-    right: Vec<ScalMatcher>
-  }
+  Vec { left: Vec<ScalMatcher>, mid: VecMatcher, right: Vec<ScalMatcher> },
 }
 impl Matcher for AnyMatcher {
   fn new(pattern: Rc<Vec<Expr>>) -> Self {
@@ -70,9 +67,9 @@ impl Matcher for AnyMatcher {
 // ################ InternedDisplay ################
 
 fn disp_scalv(
-  scalv: &Vec<ScalMatcher>,
+  scalv: &[ScalMatcher],
   f: &mut std::fmt::Formatter<'_>,
-  i: &Interner
+  i: &Interner,
 ) -> std::fmt::Result {
   let (head, tail) = unwrap_or!(scalv.split_first(); return Ok(()));
   head.fmt_i(f, i)?;
@@ -84,37 +81,52 @@ fn disp_scalv(
 }
 
 impl InternedDisplay for ScalMatcher {
-  fn fmt_i(&self, f: &mut std::fmt::Formatter<'_>, i: &Interner) -> std::fmt::Result {
+  fn fmt_i(
+    &self,
+    f: &mut std::fmt::Formatter<'_>,
+    i: &Interner,
+  ) -> std::fmt::Result {
     match self {
       Self::P(p) => write!(f, "{:?}", p),
       Self::Placeh(n) => write!(f, "${}", i.r(*n)),
-      Self::Name(n) => write!(f, "{}", print_nname(*n, i)),
+      Self::Name(n) => write!(f, "{}", sym2string(*n, i)),
       Self::S(c, body) => {
         f.write_char(*c)?;
         body.fmt_i(f, i)?;
-        f.write_char(match c {'('=>')','['=>']','{'=>'}',_=>unreachable!()})
+        f.write_char(match c {
+          '(' => ')',
+          '[' => ']',
+          '{' => '}',
+          _ => unreachable!(),
+        })
       },
       Self::Lambda(arg, body) => {
         f.write_char('\\')?;
         arg.fmt_i(f, i)?;
         f.write_char('.')?;
         body.fmt_i(f, i)
-      }
+      },
     }
   }
 }
 
 impl InternedDisplay for VecMatcher {
-  fn fmt_i(&self, f: &mut std::fmt::Formatter<'_>, i: &Interner) -> std::fmt::Result {
+  fn fmt_i(
+    &self,
+    f: &mut std::fmt::Formatter<'_>,
+    i: &Interner,
+  ) -> std::fmt::Result {
     match self {
       Self::Placeh { key, nonzero } => {
-        if *nonzero {f.write_char('.')?;};
+        if *nonzero {
+          f.write_char('.')?;
+        };
         write!(f, "..${}", i.r(*key))
-      }
+      },
       Self::Scan { left, sep, right, direction } => {
         let arrow = match direction {
           Side::Left => " <== ",
-          Side::Right => " ==> "
+          Side::Right => " ==> ",
         };
         write!(f, "Scan{{")?;
         left.fmt_i(f, i)?;
@@ -136,19 +148,23 @@ impl InternedDisplay for VecMatcher {
         f.write_str("|")?;
         right.fmt_i(f, i)?;
         write!(f, "}}")
-      }
+      },
     }
   }
 }
 
 impl InternedDisplay for AnyMatcher {
-  fn fmt_i(&self, f: &mut std::fmt::Formatter<'_>, i: &Interner) -> std::fmt::Result {
+  fn fmt_i(
+    &self,
+    f: &mut std::fmt::Formatter<'_>,
+    i: &Interner,
+  ) -> std::fmt::Result {
     match self {
       Self::Scalar(s) => {
         write!(f, "(")?;
         disp_scalv(s, f, i)?;
         write!(f, ")")
-      }
+      },
       Self::Vec { left, mid, right } => {
         write!(f, "[")?;
         disp_scalv(left, f, i)?;
@@ -157,7 +173,7 @@ impl InternedDisplay for AnyMatcher {
         write!(f, "|")?;
         disp_scalv(right, f, i)?;
         write!(f, "]")
-      }
+      },
     }
   }
 }

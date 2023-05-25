@@ -8,7 +8,7 @@ use crate::utils::BoxedIter;
 /// processing got stuck, a command that is likely to be incorrect
 pub struct ErrorPosition {
   pub location: Location,
-  pub message: Option<String>
+  pub message: Option<String>,
 }
 
 impl ErrorPosition {
@@ -24,12 +24,17 @@ pub trait ProjectError: Debug {
   /// A general description of this type of error
   fn description(&self) -> &str;
   /// A formatted message that includes specific parameters
-  fn message(&self) -> String {String::new()}
+  fn message(&self) -> String {
+    String::new()
+  }
   /// Code positions relevant to this error
   fn positions(&self) -> BoxedIter<ErrorPosition>;
   /// Convert the error into an [Rc<dyn ProjectError>] to be able to
   /// handle various errors together
-  fn rc(self) -> Rc<dyn ProjectError> where Self: Sized + 'static {
+  fn rc(self) -> Rc<dyn ProjectError>
+  where
+    Self: Sized + 'static,
+  {
     Rc::new(self)
   }
 }
@@ -41,7 +46,9 @@ impl Display for dyn ProjectError {
     let positions = self.positions();
     write!(f, "Problem with the project: {description}; {message}")?;
     for ErrorPosition { location, message } in positions {
-      write!(f, "@{location}: {}",
+      write!(
+        f,
+        "@{location}: {}",
         message.unwrap_or("location of interest".to_string())
       )?
     }

@@ -1,4 +1,6 @@
-use std::{ops::Range, rc::Rc, fmt::Display};
+use std::fmt::Display;
+use std::ops::Range;
+use std::rc::Rc;
 
 use itertools::Itertools;
 
@@ -6,23 +8,24 @@ use itertools::Itertools;
 pub enum Location {
   Unknown,
   File(Rc<Vec<String>>),
-  Range{
-    file: Rc<Vec<String>>,
-    range: Range<usize>,
-  }
+  Range { file: Rc<Vec<String>>, range: Range<usize> },
 }
 
 impl Location {
   pub fn range(&self) -> Option<Range<usize>> {
-    if let Self::Range{ range, .. } = self {
+    if let Self::Range { range, .. } = self {
       Some(range.clone())
-    } else { None }
+    } else {
+      None
+    }
   }
 
   pub fn file(&self) -> Option<Rc<Vec<String>>> {
     if let Self::File(file) | Self::Range { file, .. } = self {
       Some(file.clone())
-    } else { None }
+    } else {
+      None
+    }
   }
 }
 
@@ -31,10 +34,13 @@ impl Display for Location {
     match self {
       Self::Unknown => write!(f, "unknown"),
       Self::File(file) => write!(f, "{}.orc", file.iter().join("/")),
-      Self::Range{ file, range } => write!(f,
+      Self::Range { file, range } => write!(
+        f,
         "{}.orc:{}..{}",
-        file.iter().join("/"), range.start, range.end
-      )
+        file.iter().join("/"),
+        range.start,
+        range.end
+      ),
     }
   }
 }

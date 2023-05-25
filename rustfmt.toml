@@ -1,0 +1,34 @@
+# meta
+format_code_in_doc_comments = true
+unstable_features = true
+version = "Two"
+
+# space
+tab_spaces = 2
+max_width = 80
+error_on_line_overflow = true
+format_macro_matchers = true
+newline_style = "Unix"
+normalize_comments = true
+wrap_comments = true
+overflow_delimited_expr = true
+single_line_if_else_max_width = 50
+use_small_heuristics = "Max"
+
+# literals
+hex_literal_case = "Lower"
+format_strings = true
+
+# delimiters
+match_arm_blocks = false
+match_block_trailing_comma = true
+
+# structure
+condense_wildcard_suffixes = true
+use_field_init_shorthand = true
+use_try_shorthand = true
+
+# Modules
+group_imports = "StdExternalCrate"
+imports_granularity = "Module"
+reorder_modules = true

@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
-use crate::{utils::BoxedIter, representations::location::Location};
-
-use super::{ProjectError, ErrorPosition};
+use super::{ErrorPosition, ProjectError};
+use crate::representations::location::Location;
+use crate::utils::BoxedIter;
 
 #[derive(Debug)]
 pub struct NotExported {
@@ -16,21 +16,21 @@ impl ProjectError for NotExported {
     "An import refers to a symbol that exists but isn't exported"
   }
   fn positions(&self) -> BoxedIter<ErrorPosition> {
-    Box::new([
-      ErrorPosition{
-        location: Location::File(Rc::new(self.file.clone())),
-        message: Some(format!(
-          "{} isn't exported",
-          self.subpath.join("::")
-        )),
-      },
-      ErrorPosition{
-        location: Location::File(Rc::new(self.referrer_file.clone())),
-        message: Some(format!(
-          "{} cannot see this symbol",
-          self.referrer_subpath.join("::")
-        )),
-      }
-    ].into_iter())
+    Box::new(
+      [
+        ErrorPosition {
+          location: Location::File(Rc::new(self.file.clone())),
+          message: Some(format!("{} isn't exported", self.subpath.join("::"))),
+        },
+        ErrorPosition {
+          location: Location::File(Rc::new(self.referrer_file.clone())),
+          message: Some(format!(
+            "{} cannot see this symbol",
+            self.referrer_subpath.join("::")
+          )),
+        },
+      ]
+      .into_iter(),
+    )
   }
 }

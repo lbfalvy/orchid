@@ -1,23 +1,27 @@
-use std::rc::Rc;
 use std::fmt::Display;
+use std::rc::Rc;
 
 use crate::foreign::ExternError;
 use crate::representations::interpreted::ExprInst;
 
-
+/// Some expectation (usually about the argument types of a function) did not
+/// hold.
 #[derive(Clone)]
-pub struct AssertionError{
+pub struct AssertionError {
   pub value: ExprInst,
   pub assertion: &'static str,
 }
 
 impl AssertionError {
-  pub fn fail(value: ExprInst, assertion: &'static str) -> Result<!, Rc<dyn ExternError>> {
-    return Err(Self { value, assertion }.into_extern())
+  pub fn fail(
+    value: ExprInst,
+    assertion: &'static str,
+  ) -> Result<!, Rc<dyn ExternError>> {
+    return Err(Self { value, assertion }.into_extern());
   }
 
   pub fn ext(value: ExprInst, assertion: &'static str) -> Rc<dyn ExternError> {
-    return Self { value, assertion }.into_extern()
+    return Self { value, assertion }.into_extern();
   }
 }
 
@@ -27,4 +31,4 @@ impl Display for AssertionError {
   }
 }
 
-impl ExternError for AssertionError{}
+impl ExternError for AssertionError {}

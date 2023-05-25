@@ -1,4 +1,4 @@
-use std::ops::{Add, Sub, Mul, Div, Rem};
+use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::rc::Rc;
 
 use ordered_float::NotNan;
@@ -6,21 +6,21 @@ use ordered_float::NotNan;
 use crate::external::assertion_error::AssertionError;
 use crate::external::litconv::with_lit;
 use crate::foreign::ExternError;
-use crate::representations::Literal;
-use crate::representations::Primitive;
 use crate::representations::interpreted::{Clause, ExprInst};
+use crate::representations::{Literal, Primitive};
 
+/// A number, either floating point or unsigned int, visible to Orchid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Numeric {
   Uint(u64),
-  Num(NotNan<f64>)
+  Num(NotNan<f64>),
 }
 
 impl Numeric {
   /// Wrap a f64 in a Numeric
-  /// 
+  ///
   /// # Panics
-  /// 
+  ///
   /// if the value is NaN or Infinity.try_into()
   fn num<T: Into<f64>>(value: T) -> Self {
     let f = value.into();
@@ -36,9 +36,9 @@ impl Add for Numeric {
     match (self, rhs) {
       (Numeric::Uint(a), Numeric::Uint(b)) => Numeric::Uint(a + b),
       (Numeric::Num(a), Numeric::Num(b)) => Numeric::num(a + b),
-      (Numeric::Uint(a), Numeric::Num(b)) |
-      (Numeric::Num(b), Numeric::Uint(a))
-        => Numeric::num::<f64>(a as f64 + *b)
+      (Numeric::Uint(a), Numeric::Num(b))
+      | (Numeric::Num(b), Numeric::Uint(a)) =>
+        Numeric::num::<f64>(a as f64 + *b),
     }
   }
 }
@@ -49,11 +49,10 @@ impl Sub for Numeric {
   fn sub(self, rhs: Self) -> Self::Output {
     match (self, rhs) {
       (Numeric::Uint(a), Numeric::Uint(b)) if b <= a => Numeric::Uint(a - b),
-      (Numeric::Uint(a), Numeric::Uint(b))
-        => Numeric::num(a as f64 - b as f64),
+      (Numeric::Uint(a), Numeric::Uint(b)) => Numeric::num(a as f64 - b as f64),
       (Numeric::Num(a), Numeric::Num(b)) => Numeric::num(a - b),
       (Numeric::Uint(a), Numeric::Num(b)) => Numeric::num(a as f64 - *b),
-      (Numeric::Num(a), Numeric::Uint(b)) => Numeric::num(*a - b as f64)
+      (Numeric::Num(a), Numeric::Uint(b)) => Numeric::num(*a - b as f64),
     }
   }
 }
@@ -65,9 +64,9 @@ impl Mul for Numeric {
     match (self, rhs) {
       (Numeric::Uint(a), Numeric::Uint(b)) => Numeric::Uint(a * b),
       (Numeric::Num(a), Numeric::Num(b)) => Numeric::num(a * b),
-      (Numeric::Uint(a), Numeric::Num(b)) |
-      (Numeric::Num(b), Numeric::Uint(a))
-        => Numeric::Num(NotNan::new(a as f64).unwrap() * b)
+      (Numeric::Uint(a), Numeric::Num(b))
+      | (Numeric::Num(b), Numeric::Uint(a)) =>
+        Numeric::Num(NotNan::new(a as f64).unwrap() * b),
     }
   }
 }
@@ -90,7 +89,7 @@ impl Rem for Numeric {
       (Numeric::Uint(a), Numeric::Uint(b)) => Numeric::Uint(a % b),
       (Numeric::Num(a), Numeric::Num(b)) => Numeric::num(a % b),
       (Numeric::Uint(a), Numeric::Num(b)) => Numeric::num(a as f64 % *b),
-      (Numeric::Num(a), Numeric::Uint(b)) => Numeric::num(*a % b as f64)
+      (Numeric::Num(a), Numeric::Uint(b)) => Numeric::num(*a % b as f64),
     }
   }
 }
@@ -101,7 +100,7 @@ impl TryFrom<ExprInst> for Numeric {
     with_lit(&value.clone(), |l| match l {
       Literal::Uint(i) => Ok(Numeric::Uint(*i)),
       Literal::Num(n) => Ok(Numeric::Num(*n)),
-      _ => AssertionError::fail(value, "an integer or number")?
+      _ => AssertionError::fail(value, "an integer or number")?,
     })
   }
 }
@@ -110,7 +109,7 @@ impl From<Numeric> for Clause {
   fn from(value: Numeric) -> Self {
     Clause::P(Primitive::Literal(match value {
       Numeric::Uint(i) => Literal::Uint(i),
-      Numeric::Num(n) => Literal::Num(n)
+      Numeric::Num(n) => Literal::Num(n),
     }))
   }
 }
@@ -119,16 +118,16 @@ impl From<Numeric> for String {
   fn from(value: Numeric) -> Self {
     match value {
       Numeric::Uint(i) => i.to_string(),
-      Numeric::Num(n) => n.to_string()
+      Numeric::Num(n) => n.to_string(),
     }
   }
 }
 
-impl Into<f64> for Numeric {
-  fn into(self) -> f64 {
-    match self {
+impl From<Numeric> for f64 {
+  fn from(val: Numeric) -> Self {
+    match val {
       Numeric::Num(n) => *n,
-      Numeric::Uint(i) => i as f64
+      Numeric::Uint(i) => i as f64,
     }
   }
 }

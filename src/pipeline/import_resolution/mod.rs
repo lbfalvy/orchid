@@ -1,7 +1,7 @@
 mod alias_map;
-mod collect_aliases;
 mod apply_aliases;
-mod resolve_imports;
+mod collect_aliases;
 mod decls;
+mod resolve_imports;
 
 pub use resolve_imports::resolve_imports;

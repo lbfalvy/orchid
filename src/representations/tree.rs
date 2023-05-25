@@ -1,113 +1,98 @@
 use std::ops::Add;
 use std::rc::Rc;
+
 use hashbrown::HashMap;
 
-use crate::interner::Token;
+use super::sourcefile::Import;
+use crate::interner::Tok;
 use crate::utils::Substack;
 
-use super::sourcefile::Import;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ModMember<TItem: Clone, TExt: Clone>{
+pub enum ModMember<TItem: Clone, TExt: Clone> {
   Item(TItem),
-  Sub(Rc<Module<TItem, TExt>>)
-}
-impl<TItem: Clone, TExt: Clone> ModMember<TItem, TExt> {
-  #[allow(unused)]
-  pub fn item(&self) -> &TItem {
-    if let Self::Item(it) = self {it} else {
-      panic!("Expected item, found submodule")
-    }
-  }
-
-  #[allow(unused)]
-  pub fn sub(&self) -> &Rc<Module<TItem, TExt>> {
-    if let Self::Sub(sub) = self {sub} else {
-      panic!("Expected submodule, found item")
-    }
-  }
+  Sub(Rc<Module<TItem, TExt>>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModEntry<TItem: Clone, TExt: Clone>{
+pub struct ModEntry<TItem: Clone, TExt: Clone> {
   pub member: ModMember<TItem, TExt>,
-  pub exported: bool
+  pub exported: bool,
 }
 
-/// A module, containing imports, 
+/// A module, containing imports,
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Module<TItem: Clone, TExt: Clone>{
+pub struct Module<TItem: Clone, TExt: Clone> {
   pub imports: Vec<Import>,
-  pub items: HashMap<Token<String>, ModEntry<TItem, TExt>>,
-  pub extra: TExt
+  pub items: HashMap<Tok<String>, ModEntry<TItem, TExt>>,
+  pub extra: TExt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WalkErrorKind {
   Private,
-  Missing
+  Missing,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WalkError {
   pub pos: usize,
-  pub kind: WalkErrorKind
+  pub kind: WalkErrorKind,
 }
 
-pub type ModPath<'a> = Substack<'a, Token<String>>;
+pub type ModPath<'a> = Substack<'a, Tok<String>>;
 impl<TItem: Clone, TExt: Clone> Module<TItem, TExt> {
-  pub fn walk(self: &Rc<Self>,
-    path: &[Token<String>], require_exported: bool
+  pub fn walk(
+    self: &Rc<Self>,
+    path: &[Tok<String>],
+    require_exported: bool,
   ) -> Result<Rc<Self>, WalkError> {
     let mut cur = self;
     for (pos, step) in path.iter().enumerate() {
-      if let Some(ModEntry{
-        member: ModMember::Sub(next),
-        exported,
-      }) = cur.items.get(step) {
+      if let Some(ModEntry { member: ModMember::Sub(next), exported }) =
+        cur.items.get(step)
+      {
         if require_exported && !exported {
-          return Err(WalkError{ pos, kind: WalkErrorKind::Private })
+          return Err(WalkError { pos, kind: WalkErrorKind::Private });
         }
         cur = next
       } else {
-        return Err(WalkError{ pos, kind: WalkErrorKind::Missing })
+        return Err(WalkError { pos, kind: WalkErrorKind::Missing });
       }
     }
     Ok(cur.clone())
   }
 
-  fn visit_all_imports_rec<E>(&self,
+  fn visit_all_imports_rec<E>(
+    &self,
     path: ModPath,
-    callback: &mut impl FnMut(ModPath, &Self, &Import) -> Result<(), E>
+    callback: &mut impl FnMut(ModPath, &Self, &Import) -> Result<(), E>,
   ) -> Result<(), E> {
     for import in self.imports.iter() {
       callback(path, self, import)?
     }
     for (name, entry) in self.items.iter() {
       if let ModMember::Sub(module) = &entry.member {
-        module.visit_all_imports_rec(
-          path.push(*name),
-          callback
-        )?
+        module.visit_all_imports_rec(path.push(*name), callback)?
       }
     }
     Ok(())
   }
 
-  pub fn visit_all_imports<E>(&self,
-    callback: &mut impl FnMut(ModPath, &Self, &Import) -> Result<(), E>
+  pub fn visit_all_imports<E>(
+    &self,
+    callback: &mut impl FnMut(ModPath, &Self, &Import) -> Result<(), E>,
   ) -> Result<(), E> {
     self.visit_all_imports_rec(Substack::Bottom, callback)
   }
 }
 
 impl<TItem: Clone, TExt: Clone + Add<Output = TExt>> Add
-for Module<TItem, TExt>
+  for Module<TItem, TExt>
 {
   type Output = Self;
 
   fn add(mut self, rhs: Self) -> Self::Output {
-    let Module{ extra, imports, items } = rhs;
+    let Module { extra, imports, items } = rhs;
     for (key, right) in items {
       // if both contain a submodule
       if let Some(left) = self.items.remove(&key) {
@@ -115,9 +100,9 @@ for Module<TItem, TExt>
           if let ModMember::Sub(lsub) = &left.member {
             // merge them with rhs exportedness
             let new_mod = lsub.as_ref().clone() + rsub.as_ref().clone();
-            self.items.insert(key, ModEntry{
+            self.items.insert(key, ModEntry {
               exported: right.exported,
-              member: ModMember::Sub(Rc::new(new_mod))
+              member: ModMember::Sub(Rc::new(new_mod)),
             });
             continue;
           }

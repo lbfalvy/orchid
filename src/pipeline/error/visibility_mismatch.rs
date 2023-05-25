@@ -1,13 +1,14 @@
 use std::rc::Rc;
-use crate::representations::location::Location;
-use crate::utils::{BoxedIter, iter::box_once};
 
-use super::project_error::{ProjectError, ErrorPosition};
+use super::project_error::{ErrorPosition, ProjectError};
+use crate::representations::location::Location;
+use crate::utils::iter::box_once;
+use crate::utils::BoxedIter;
 
 #[derive(Debug)]
-pub struct VisibilityMismatch{
+pub struct VisibilityMismatch {
   pub namespace: Vec<String>,
-  pub file: Rc<Vec<String>>
+  pub file: Rc<Vec<String>>,
 }
 impl ProjectError for VisibilityMismatch {
   fn description(&self) -> &str {
@@ -19,7 +20,7 @@ impl ProjectError for VisibilityMismatch {
       message: Some(format!(
         "{} is opened multiple times with different visibilities",
         self.namespace.join("::")
-      ))
+      )),
     })
   }
 }

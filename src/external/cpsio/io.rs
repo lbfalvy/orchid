@@ -1,35 +1,40 @@
-use std::io::{self, Write, stdin};
+use std::io::{self, Write};
 
-use crate::{representations::{interpreted::{ExprInst, Clause}, Primitive, Literal}, atomic_inert, interpreter::{HandlerParm, HandlerRes}, unwrap_or, external::runtime_error::RuntimeError};
+use crate::external::runtime_error::RuntimeError;
+use crate::interpreter::{HandlerParm, HandlerRes};
+use crate::representations::interpreted::{Clause, ExprInst};
+use crate::representations::{Literal, Primitive};
+use crate::{atomic_inert, unwrap_or};
 
+/// An IO command to be handled by the host application.
 #[derive(Clone, Debug)]
 pub enum IO {
   Print(String, ExprInst),
-  Readline(ExprInst)
+  Readline(ExprInst),
 }
 atomic_inert!(IO);
 
+/// Default xommand handler for IO actions
 pub fn handle(effect: HandlerParm) -> HandlerRes {
-  let io: &IO = unwrap_or!(
-    effect.as_any().downcast_ref();
-    return Err(effect)
-  );
-  match io {
+  // Downcast command
+  let io: &IO = unwrap_or!(effect.as_any().downcast_ref(); Err(effect)?);
+  // Interpret and execute
+  Ok(match io {
     IO::Print(str, cont) => {
       print!("{}", str);
-      io::stdout().flush().unwrap();
-      Ok(Ok(cont.clone()))
+      io::stdout()
+        .flush()
+        .map_err(|e| RuntimeError::ext(e.to_string(), "writing to stdout"))?;
+      cont.clone()
     },
     IO::Readline(cont) => {
       let mut buf = String::new();
-      if let Err(e) = stdin().read_line(&mut buf) {
-        return Ok(Err(RuntimeError::ext(e.to_string(), "reading from stdin")));
-      }
+      io::stdin()
+        .read_line(&mut buf)
+        .map_err(|e| RuntimeError::ext(e.to_string(), "reading from stdin"))?;
       buf.pop();
-      Ok(Ok(Clause::Apply {
-        f: cont.clone(),
-        x: Clause::P(Primitive::Literal(Literal::Str(buf))).wrap()
-      }.wrap()))
-    }
-  }
+      let x = Clause::P(Primitive::Literal(Literal::Str(buf))).wrap();
+      Clause::Apply { f: cont.clone(), x }.wrap()
+    },
+  })
 }

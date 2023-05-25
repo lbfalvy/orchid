@@ -1,7 +1,9 @@
-use std::{rc::Rc, fmt::Display};
+use std::fmt::Display;
+use std::rc::Rc;
 
 use crate::foreign::ExternError;
 
+/// Some external event prevented the operation from succeeding
 #[derive(Clone)]
 pub struct RuntimeError {
   message: String,
@@ -9,12 +11,15 @@ pub struct RuntimeError {
 }
 
 impl RuntimeError {
-  pub fn fail(message: String, operation: &'static str) -> Result<!, Rc<dyn ExternError>> {
-    return Err(Self { message, operation }.into_extern())
+  pub fn fail(
+    message: String,
+    operation: &'static str,
+  ) -> Result<!, Rc<dyn ExternError>> {
+    return Err(Self { message, operation }.into_extern());
   }
 
   pub fn ext(message: String, operation: &'static str) -> Rc<dyn ExternError> {
-    return Self { message, operation }.into_extern()
+    return Self { message, operation }.into_extern();
   }
 }
 
@@ -24,4 +29,4 @@ impl Display for RuntimeError {
   }
 }
 
-impl ExternError for RuntimeError{}
+impl ExternError for RuntimeError {}

@@ -1,11 +1,11 @@
-mod num;
 mod assertion_error;
-pub mod std;
-mod conv;
-mod str;
-mod cpsio;
-mod runtime_error;
 mod bool;
+mod conv;
+mod cpsio;
 mod litconv;
+mod num;
+mod runtime_error;
+pub mod std;
+mod str;
 
-pub use cpsio::{IO, handle};
+pub use cpsio::{handle, IO};
