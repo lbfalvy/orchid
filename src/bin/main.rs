@@ -6,14 +6,14 @@ use std::rc::Rc;
 use clap::Parser;
 use hashbrown::HashMap;
 use itertools::Itertools;
-use orchid::interner::{InternedDisplay, Interner, Sym};
-use orchid::pipeline::file_loader::{mk_cache, Loaded};
-use orchid::pipeline::{
+use orchidlang::interner::{InternedDisplay, Interner, Sym};
+use orchidlang::pipeline::file_loader::{mk_cache, Loaded};
+use orchidlang::pipeline::{
   collect_consts, collect_rules, from_const_tree, parse_layer, ProjectTree,
 };
-use orchid::rule::Repo;
-use orchid::sourcefile::{FileEntry, Import};
-use orchid::{ast_to_interpreted, interpreter, stl};
+use orchidlang::rule::Repo;
+use orchidlang::sourcefile::{FileEntry, Import};
+use orchidlang::{ast_to_interpreted, interpreter, stl};
 
 /// Orchid interpreter
 #[derive(Parser, Debug)]
@@ -167,7 +167,7 @@ pub fn run_dir(dir: &Path) {
         .join(", ")
     )
   });
-  let io_handler = orchid::stl::handleIO;
+  let io_handler = orchidlang::stl::handleIO;
   let ret = interpreter::run_handler(entrypoint.clone(), io_handler, ctx);
   let interpreter::Return { gas, state, inert } =
     ret.unwrap_or_else(|e| panic!("Runtime error: {}", e));

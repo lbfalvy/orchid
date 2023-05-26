@@ -19,10 +19,14 @@ Namespaces are inspired by Rust modules and ES6. Every file and directory is imp
 The project uses the nighly rust toolchain. Go to one of the folders within `examples` and run
 
 ```sh
-cargo run -- -p .
+cargo run 
 ```
 
 you can try modifying the examples, but error reporting for the time being is pretty terrible.
+
+# The name
+
+Orchids and mangrove trees form complex ecosystems; The flowers persuade the tree to grow in different ways than it normally would to provide better support for their vines, and kill fungi and other pests. The metaphor is about vines growing on a tree and moving branches into more optimal positions for other vines.
 
 # Contribution
 

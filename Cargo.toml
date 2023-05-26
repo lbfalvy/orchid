@@ -1,13 +1,17 @@
 [package]
-name = "orchid"
+name = "orchidlang"
 version = "0.2.1"
 edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/lbfalvy/orchid"
+description = """
+An embeddable pure functional scripting language
+"""
 authors = [
   "Lawrence Bethlenfalvy <lbfalvy@protonmail.com>"
 ]
 
 [lib]
-name = "orchid"
 path = "src/lib.rs"
 
 [[bin]]
