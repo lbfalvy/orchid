@@ -53,12 +53,16 @@ fn map_at<E>(
     .map(|p| p.0)
 }
 
+/// TODO replace when `!` gets stabilized
+#[derive(Debug)]
+enum Never {}
+
 /// Replace the [Clause::LambdaArg] placeholders at the ends of the [PathSet]
 /// with the value in the body. Note that a path may point to multiple
 /// placeholders.
 fn substitute(paths: &PathSet, value: Clause, body: ExprInst) -> ExprInst {
   let PathSet { steps, next } = paths;
-  map_at(steps, body, &mut |checkpoint| -> Result<Clause, !> {
+  map_at(steps, body, &mut |checkpoint| -> Result<Clause, Never> {
     match (checkpoint, next) {
       (Clause::Lambda { .. }, _) => unreachable!("Handled by map_at"),
       (Clause::Apply { f, x }, Some((left, right))) => Ok(Clause::Apply {
@@ -72,7 +76,7 @@ fn substitute(paths: &PathSet, value: Clause, body: ExprInst) -> ExprInst {
         panic!("Substitution path leads into something other than Apply"),
     }
   })
-  .into_ok()
+  .unwrap()
 }
 
 /// Apply a function-like expression to a parameter.

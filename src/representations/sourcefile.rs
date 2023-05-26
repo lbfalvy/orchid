@@ -1,10 +1,12 @@
+//! Building blocks of a source file
 use itertools::{Either, Itertools};
 
 use crate::ast::{Constant, Rule};
 use crate::interner::{Interner, Sym, Tok};
-use crate::unwrap_or;
-use crate::utils::BoxedIter;
+use crate::utils::{unwrap_or, BoxedIter};
 
+/// An import pointing at another module, either specifying the symbol to be
+/// imported or importing all available symbols with a globstar (*)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Import {
   pub path: Sym,
@@ -112,6 +114,11 @@ pub fn normalize_namespaces(
   Ok(rest)
 }
 
+/// Produced by [absolute_path] if there are more `super` segments in the
+/// import than the length of the current absolute path
+#[derive(Debug, Clone)]
+pub struct TooManySupers;
+
 /// Turn a relative (import) path into an absolute path.
 /// If the import path is empty, the return value is also empty.
 ///
@@ -123,12 +130,12 @@ pub fn absolute_path(
   abs_location: &[Tok<String>],
   rel_path: &[Tok<String>],
   i: &Interner,
-) -> Result<Vec<Tok<String>>, ()> {
+) -> Result<Vec<Tok<String>>, TooManySupers> {
   let (head, tail) = unwrap_or!(rel_path.split_first();
     return Ok(vec![])
   );
   if *head == i.i("super") {
-    let (_, new_abs) = abs_location.split_last().ok_or(())?;
+    let (_, new_abs) = abs_location.split_last().ok_or(TooManySupers)?;
     if tail.is_empty() {
       Ok(new_abs.to_vec())
     } else {

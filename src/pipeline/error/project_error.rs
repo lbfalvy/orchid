@@ -29,7 +29,7 @@ pub trait ProjectError: Debug {
   }
   /// Code positions relevant to this error
   fn positions(&self) -> BoxedIter<ErrorPosition>;
-  /// Convert the error into an [Rc<dyn ProjectError>] to be able to
+  /// Convert the error into an `Rc<dyn ProjectError>` to be able to
   /// handle various errors together
   fn rc(self) -> Rc<dyn ProjectError>
   where

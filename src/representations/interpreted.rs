@@ -1,3 +1,7 @@
+//! The interpreter's changing internal representation of the code at runtime
+//!
+//! This code may be generated to minimize the number of states external
+//! functions have to define
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
@@ -12,6 +16,7 @@ use crate::utils::sym2string;
 
 // TODO: implement Debug, Eq and Hash with cycle detection
 
+/// An expression with metadata
 pub struct Expr {
   pub clause: Clause,
   pub location: Location,
@@ -43,8 +48,12 @@ impl InternedDisplay for Expr {
   }
 }
 
+/// [ExprInst::with_literal] produces this marker unit to indicate that the
+/// expression is not a literal
+pub struct NotALiteral;
+
 /// A wrapper around expressions to handle their multiple occurences in
-/// the tree
+/// the tree together
 #[derive(Clone)]
 pub struct ExprInst(pub Rc<RefCell<Expr>>);
 impl ExprInst {
@@ -88,15 +97,17 @@ impl ExprInst {
     predicate(&self.expr().clause)
   }
 
+  /// Call the predicate on the value inside this expression if it is a
+  /// primitive
   pub fn with_literal<T>(
     &self,
     predicate: impl FnOnce(&Literal) -> T,
-  ) -> Result<T, ()> {
+  ) -> Result<T, NotALiteral> {
     let expr = self.expr();
     if let Clause::P(Primitive::Literal(l)) = &expr.clause {
       Ok(predicate(l))
     } else {
-      Err(())
+      Err(NotALiteral)
     }
   }
 }
@@ -123,12 +134,18 @@ impl InternedDisplay for ExprInst {
   }
 }
 
+/// Distinct types of expressions recognized by the interpreter
 #[derive(Debug, Clone)]
 pub enum Clause {
+  /// An unintrospectable unit
   P(Primitive),
+  /// A function application
   Apply { f: ExprInst, x: ExprInst },
+  /// A name to be looked up in the interpreter's symbol table
   Constant(Sym),
+  /// A function
   Lambda { args: Option<PathSet>, body: ExprInst },
+  /// A placeholder within a function that will be replaced upon application
   LambdaArg,
 }
 impl Clause {

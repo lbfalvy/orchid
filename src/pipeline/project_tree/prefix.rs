@@ -35,11 +35,11 @@ fn member_rec(
     }),
     Member::Rule(rule) => Member::Rule(Rule {
       prio: rule.prio,
-      source: Rc::new(
-        rule.source.iter().map(|e| e.prefix(prefix, i, &except)).collect(),
+      pattern: Rc::new(
+        rule.pattern.iter().map(|e| e.prefix(prefix, i, &except)).collect(),
       ),
-      target: Rc::new(
-        rule.target.iter().map(|e| e.prefix(prefix, i, &except)).collect(),
+      template: Rc::new(
+        rule.template.iter().map(|e| e.prefix(prefix, i, &except)).collect(),
       ),
     }),
   }

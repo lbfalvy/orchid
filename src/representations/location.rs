@@ -4,6 +4,8 @@ use std::rc::Rc;
 
 use itertools::Itertools;
 
+/// A location in a file, identifies a sequence of suspect characters for any
+/// error. Meaningful within the context of a project.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Location {
   Unknown,

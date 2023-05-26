@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::external::assertion_error::AssertionError;
+use super::assertion_error::AssertionError;
 use crate::foreign::ExternError;
 use crate::representations::interpreted::ExprInst;
 use crate::representations::Literal;
@@ -12,7 +12,7 @@ pub fn with_lit<T>(
   predicate: impl FnOnce(&Literal) -> Result<T, Rc<dyn ExternError>>,
 ) -> Result<T, Rc<dyn ExternError>> {
   x.with_literal(predicate)
-    .map_err(|()| AssertionError::ext(x.clone(), "a literal value"))
+    .map_err(|_| AssertionError::ext(x.clone(), "a literal value"))
     .and_then(|r| r)
 }
 

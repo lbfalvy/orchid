@@ -1,14 +1,14 @@
 use std::fmt::Debug;
 
 use super::super::assertion_error::AssertionError;
+use super::super::litconv::with_lit;
 use super::boolean::Boolean;
-use crate::external::litconv::with_lit;
 use crate::representations::interpreted::ExprInst;
 use crate::representations::Literal;
 use crate::{atomic_impl, atomic_redirect, externfn_impl};
 
 /// Compares the inner values if
-/// 
+///
 /// - both values are char,
 /// - both are string,
 /// - both are either uint or num

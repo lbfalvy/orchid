@@ -24,7 +24,7 @@ fn op_parser<'a>(
 /// Characters that cannot be parsed as part of an operator
 ///
 /// The initial operator list overrides this.
-static NOT_NAME_CHAR: &[char] = &[
+pub static NOT_NAME_CHAR: &[char] = &[
   ':', // used for namespacing and type annotations
   '\\', '@', // parametric expression starters
   '"', '\'', // parsed as primitives and therefore would never match

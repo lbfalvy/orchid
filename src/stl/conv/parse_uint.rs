@@ -2,8 +2,8 @@ use std::fmt::Debug;
 
 use chumsky::Parser;
 
-use crate::external::assertion_error::AssertionError;
-use crate::external::litconv::with_lit;
+use super::super::assertion_error::AssertionError;
+use super::super::litconv::with_lit;
 use crate::parse::int_parser;
 use crate::representations::interpreted::ExprInst;
 use crate::representations::Literal;

@@ -2,10 +2,12 @@ use std::cell::RefCell;
 use std::hash::Hash;
 
 use hashbrown::HashMap;
+use trait_set::trait_set;
 
 // TODO: make this a crate
-pub trait Callback<'a, I, O: 'static> = Fn(I, &Cache<'a, I, O>) -> O;
-
+trait_set! {
+  pub trait Callback<'a, I, O: 'static> = Fn(I, &Cache<'a, I, O>) -> O;
+}
 pub type CbBox<'a, I, O> = Box<dyn Callback<'a, I, O> + 'a>;
 
 /// Cache the return values of an effectless closure in a hashmap

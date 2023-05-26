@@ -25,9 +25,7 @@ fn scal_cnt<'a>(iter: impl Iterator<Item = &'a Expr>) -> usize {
   iter.take_while(|expr| vec_attrs(expr).is_none()).count()
 }
 
-/// Recursively convert this pattern into a matcher that can be
-/// efficiently applied to slices.
-pub fn mk_matcher(pattern: &[Expr]) -> AnyMatcher {
+pub fn mk_any(pattern: &[Expr]) -> AnyMatcher {
   let left_split = scal_cnt(pattern.iter());
   if pattern.len() <= left_split {
     return AnyMatcher::Scalar(mk_scalv(pattern));
@@ -113,9 +111,9 @@ fn mk_scalar(pattern: &Expr) -> ScalMatcher {
       );
       ScalMatcher::Placeh(*name)
     },
-    Clause::S(c, body) => ScalMatcher::S(*c, Box::new(mk_matcher(body))),
+    Clause::S(c, body) => ScalMatcher::S(*c, Box::new(mk_any(body))),
     Clause::Lambda(arg, body) =>
-      ScalMatcher::Lambda(Box::new(mk_scalar(arg)), Box::new(mk_matcher(body))),
+      ScalMatcher::Lambda(Box::new(mk_scalar(arg)), Box::new(mk_any(body))),
   }
 }
 
@@ -123,7 +121,7 @@ fn mk_scalar(pattern: &Expr) -> ScalMatcher {
 mod test {
   use std::rc::Rc;
 
-  use super::mk_matcher;
+  use super::mk_any;
   use crate::ast::{Clause, PHClass, Placeholder};
   use crate::interner::{InternedDisplay, Interner};
 
@@ -160,7 +158,7 @@ mod test {
       })
       .into_expr(),
     ];
-    let matcher = mk_matcher(&pattern);
+    let matcher = mk_any(&pattern);
     println!("{}", matcher.bundle(&i));
   }
 }

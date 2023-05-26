@@ -22,24 +22,24 @@ fn pad(mut rule: Rule, i: &Interner) -> Rule {
     location: Location::Unknown,
     value: Clause::Placeh(Placeholder { name: i.i("::suffix"), class }),
   }];
-  let rule_head = rule.source.first().expect("Src can never be empty!");
+  let rule_head = rule.pattern.first().expect("Src can never be empty!");
   let prefix_explicit = vec_attrs(rule_head).is_some();
-  let rule_tail = rule.source.last().expect("Unreachable branch!");
+  let rule_tail = rule.pattern.last().expect("Unreachable branch!");
   let suffix_explicit = vec_attrs(rule_tail).is_some();
   let prefix_v = if prefix_explicit { empty } else { prefix };
   let suffix_v = if suffix_explicit { empty } else { suffix };
-  rule.source = Rc::new(
+  rule.pattern = Rc::new(
     prefix_v
       .iter()
-      .chain(rule.source.iter())
+      .chain(rule.pattern.iter())
       .chain(suffix_v.iter())
       .cloned()
       .collect(),
   );
-  rule.target = Rc::new(
+  rule.template = Rc::new(
     prefix_v
       .iter()
-      .chain(rule.target.iter())
+      .chain(rule.template.iter())
       .chain(suffix_v.iter())
       .cloned()
       .collect(),
@@ -118,8 +118,8 @@ fn check_rec_exprv(
 pub fn prepare_rule(rule: Rule, i: &Interner) -> Result<Rule, RuleError> {
   // Dimension check
   let mut types = HashMap::new();
-  check_rec_exprv(&rule.source, &mut types, false)?;
-  check_rec_exprv(&rule.target, &mut types, true)?;
+  check_rec_exprv(&rule.pattern, &mut types, false)?;
+  check_rec_exprv(&rule.template, &mut types, true)?;
   // Padding
   Ok(pad(rule, i))
 }

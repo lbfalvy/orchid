@@ -12,23 +12,30 @@ use crate::representations::tree::{ModEntry, ModMember, Module};
 use crate::representations::Primitive;
 use crate::utils::{pushed, Substack};
 
+/// A lightweight module tree that can be built declaratively by hand to
+/// describe libraries of external functions in Rust. It implements [Add] for
+/// added convenience
 pub enum ConstTree {
   Const(Expr),
   Tree(HashMap<Tok<String>, ConstTree>),
 }
 impl ConstTree {
+  /// Describe a [Primitive]
   pub fn primitive(primitive: Primitive) -> Self {
     Self::Const(Expr {
       location: Location::Unknown,
       value: Clause::P(primitive),
     })
   }
+  /// Describe an [ExternFn]
   pub fn xfn(xfn: impl ExternFn + 'static) -> Self {
     Self::primitive(Primitive::ExternFn(Box::new(xfn)))
   }
+  /// Describe an [Atomic]
   pub fn atom(atom: impl Atomic + 'static) -> Self {
     Self::primitive(Primitive::Atom(Atom(Box::new(atom))))
   }
+  /// Describe a module
   pub fn tree(arr: impl IntoIterator<Item = (Tok<String>, Self)>) -> Self {
     Self::Tree(arr.into_iter().collect())
   }
@@ -89,6 +96,8 @@ fn from_const_tree_rec(
   }
 }
 
+/// Convert a map of [ConstTree] into a [ProjectTree] that can be used with the
+/// layered parsing system
 pub fn from_const_tree(
   consts: HashMap<Tok<String>, ConstTree>,
   file: &[Tok<String>],

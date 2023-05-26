@@ -1,20 +1,45 @@
-use std::path::Path;
+use std::borrow::Borrow;
+use std::fs::File;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use clap::Parser;
 use hashbrown::HashMap;
 use itertools::Itertools;
-
-use crate::external::handle;
-use crate::interner::{InternedDisplay, Interner, Sym};
-use crate::interpreter::Return;
-use crate::pipeline::file_loader::{mk_cache, Loaded};
-use crate::pipeline::{
+use orchid::interner::{InternedDisplay, Interner, Sym};
+use orchid::pipeline::file_loader::{mk_cache, Loaded};
+use orchid::pipeline::{
   collect_consts, collect_rules, from_const_tree, parse_layer, ProjectTree,
 };
-use crate::representations::sourcefile::{FileEntry, Import};
-use crate::representations::{ast_to_postmacro, postmacro_to_interpreted};
-use crate::rule::Repo;
-use crate::{external, interpreter, xloop};
+use orchid::rule::Repo;
+use orchid::sourcefile::{FileEntry, Import};
+use orchid::{ast_to_interpreted, interpreter, stl};
+
+/// Orchid interpreter
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+  /// Folder containing main.orc
+  #[arg(short, long, default_value = ".")]
+  pub project: String,
+}
+impl Args {
+  pub fn chk_proj(&self) -> Result<(), String> {
+    let mut path = PathBuf::from(&self.project);
+    path.push(PathBuf::from("main.orc"));
+    if File::open(&path).is_ok() {
+      Ok(())
+    } else {
+      Err(format!("{} not found", path.display()))
+    }
+  }
+}
+
+fn main() {
+  let args = Args::parse();
+  args.chk_proj().unwrap_or_else(|e| panic!("{e}"));
+  run_dir(PathBuf::try_from(args.project).unwrap().borrow());
+}
 
 static PRELUDE_TXT: &str = r#"
 import std::(
@@ -63,7 +88,7 @@ fn entrypoint(i: &Interner) -> Sym {
 
 fn load_environment(i: &Interner) -> ProjectTree {
   let env = from_const_tree(
-    HashMap::from([(i.i("std"), external::std::std(i))]),
+    HashMap::from([(i.i("std"), stl::mk_stl(i))]),
     &[i.i("std")],
     i,
   );
@@ -90,7 +115,6 @@ fn load_dir(i: &Interner, dir: &Path) -> ProjectTree {
     .expect("Failed to load source code")
 }
 
-#[allow(unused)]
 pub fn run_dir(dir: &Path) {
   let i = Interner::new();
   let project = load_dir(&i, dir);
@@ -113,7 +137,11 @@ pub fn run_dir(dir: &Path) {
     let displayname = i.extern_vec(*name).join("::");
     let macro_timeout = 100;
     println!("Executing macros in {displayname}...",);
-    let unmatched = xloop!(let mut idx = 0; idx < macro_timeout; idx += 1; {
+    let mut idx = 0;
+    let unmatched = loop {
+      if idx == macro_timeout {
+        panic!("Macro execution in {displayname} didn't halt")
+      }
       match repo.step(&tree) {
         None => break tree,
         Some(phase) => {
@@ -121,10 +149,10 @@ pub fn run_dir(dir: &Path) {
           tree = phase;
         },
       }
-    }; panic!("Macro execution in {displayname} didn't halt"));
-    let pmtree = ast_to_postmacro::expr(&unmatched)
+      idx += 1;
+    };
+    let runtree = ast_to_interpreted(&unmatched)
       .unwrap_or_else(|e| panic!("Postmacro conversion error: {e}"));
-    let runtree = postmacro_to_interpreted::expr(&pmtree);
     exec_table.insert(*name, runtree);
   }
   println!("macro execution complete");
@@ -139,9 +167,9 @@ pub fn run_dir(dir: &Path) {
         .join(", ")
     )
   });
-  let io_handler = handle;
+  let io_handler = orchid::stl::handleIO;
   let ret = interpreter::run_handler(entrypoint.clone(), io_handler, ctx);
-  let Return { gas, state, inert } =
+  let interpreter::Return { gas, state, inert } =
     ret.unwrap_or_else(|e| panic!("Runtime error: {}", e));
   if inert {
     println!("Settled at {}", state.expr().clause.bundle(&i));

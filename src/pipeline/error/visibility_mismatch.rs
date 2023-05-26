@@ -5,6 +5,7 @@ use crate::representations::location::Location;
 use crate::utils::iter::box_once;
 use crate::utils::BoxedIter;
 
+/// Multiple occurences of the same namespace with different visibility
 #[derive(Debug)]
 pub struct VisibilityMismatch {
   pub namespace: Vec<String>,

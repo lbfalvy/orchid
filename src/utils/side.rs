@@ -66,8 +66,8 @@ impl Side {
       Side::Right => (opposite, this),
     }
   }
-  /// Produces an increasing sequence on Right, and a decreasing sequence
-  /// on Left
+  /// Walk a double ended iterator (assumed to be left-to-right) in this
+  /// direction
   pub fn walk<'a, I: DoubleEndedIterator + 'a>(
     &self,
     iter: I,

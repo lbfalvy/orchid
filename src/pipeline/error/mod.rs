@@ -1,3 +1,4 @@
+//! Various errors the pipeline can produce
 mod module_not_found;
 mod not_exported;
 mod parse_error_with_path;

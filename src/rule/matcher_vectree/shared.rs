@@ -2,14 +2,13 @@ use std::fmt::Write;
 use std::rc::Rc;
 
 use super::any_match::any_match;
-use super::build::mk_matcher;
+use super::build::mk_any;
 use crate::ast::Expr;
 use crate::interner::{InternedDisplay, Interner, Sym, Tok};
 use crate::representations::Primitive;
 use crate::rule::matcher::Matcher;
 use crate::rule::state::State;
-use crate::unwrap_or;
-use crate::utils::{sym2string, Side};
+use crate::utils::{sym2string, unwrap_or, Side};
 
 pub enum ScalMatcher {
   P(Primitive),
@@ -56,7 +55,7 @@ pub enum AnyMatcher {
 }
 impl Matcher for AnyMatcher {
   fn new(pattern: Rc<Vec<Expr>>) -> Self {
-    mk_matcher(&pattern)
+    mk_any(&pattern)
   }
 
   fn apply<'a>(&self, source: &'a [Expr]) -> Option<State<'a>> {
@@ -175,5 +174,29 @@ impl InternedDisplay for AnyMatcher {
         write!(f, "]")
       },
     }
+  }
+}
+
+// ################ External ################
+
+/// A [Matcher] implementation that builds a priority-order tree of the
+/// vectorial placeholders and handles the scalars on leaves.
+pub struct VectreeMatcher(AnyMatcher);
+impl Matcher for VectreeMatcher {
+  fn new(pattern: Rc<Vec<Expr>>) -> Self {
+    Self(AnyMatcher::new(pattern))
+  }
+
+  fn apply<'a>(&self, source: &'a [Expr]) -> Option<State<'a>> {
+    self.0.apply(source)
+  }
+}
+impl InternedDisplay for VectreeMatcher {
+  fn fmt_i(
+    &self,
+    f: &mut std::fmt::Formatter<'_>,
+    i: &Interner,
+  ) -> std::fmt::Result {
+    self.0.fmt_i(f, i)
   }
 }

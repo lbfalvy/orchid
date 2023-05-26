@@ -8,8 +8,8 @@ use crate::representations::interpreted::ExprInst;
 pub struct Context<'a> {
   /// Table used to resolve constants
   pub symbols: &'a HashMap<Sym, ExprInst>,
-  /// The interner used for strings internally, so external functions can deduce
-  /// referenced constant names on the fly
+  /// The interner used for strings internally, so external functions can
+  /// deduce referenced constant names on the fly
   pub interner: &'a Interner,
   /// The number of reduction steps the interpreter can take before returning
   pub gas: Option<usize>,

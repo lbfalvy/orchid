@@ -5,7 +5,7 @@ use itertools::Itertools;
 
 use crate::ast::{Clause, Expr, PHClass, Placeholder};
 use crate::interner::Tok;
-use crate::unwrap_or;
+use crate::utils::unwrap_or;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum StateEntry<'a> {

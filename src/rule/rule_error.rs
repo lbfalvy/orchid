@@ -2,13 +2,16 @@ use std::fmt;
 
 use crate::interner::{InternedDisplay, Interner, Tok};
 
+/// Various reasons why a substitution rule may be invalid
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuleError {
+  /// A key is present in the template but not the pattern
   Missing(Tok<String>),
+  /// A key uses a different arity in the template and in the pattern
   TypeMismatch(Tok<String>),
-  /// Multiple occurences of a placeholder in a pattern are no longer
-  /// supported.
+  /// Multiple occurences of a placeholder in a pattern
   Multiple(Tok<String>),
+  /// Two vectorial placeholders are next to each other
   VecNeighbors(Tok<String>, Tok<String>),
 }
 

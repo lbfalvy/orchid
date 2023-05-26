@@ -56,6 +56,9 @@ impl<'a, T> Substack<'a, T> {
       Self::Bottom => 0,
     }
   }
+  pub fn is_empty(&self) -> bool {
+    self.len() == 0
+  }
 }
 
 impl<'a, T: Debug> Debug for Substack<'a, T> {

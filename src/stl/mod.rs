@@ -3,9 +3,10 @@ mod bool;
 mod conv;
 mod cpsio;
 mod litconv;
+mod mk_stl;
 mod num;
 mod runtime_error;
-pub mod std;
 mod str;
 
-pub use cpsio::{handle, IO};
+pub use cpsio::{handle as handleIO, IO};
+pub use mk_stl::mk_stl;

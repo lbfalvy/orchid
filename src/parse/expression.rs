@@ -6,8 +6,8 @@ use chumsky::{self, Parser};
 
 use super::context::Context;
 use super::decls::SimpleParser;
+use super::enum_filter::enum_filter;
 use super::lexer::{filter_map_lex, Entry, Lexeme};
-use crate::enum_filter;
 use crate::interner::Sym;
 use crate::representations::ast::{Clause, Expr};
 use crate::representations::location::Location;

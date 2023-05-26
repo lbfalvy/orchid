@@ -4,7 +4,8 @@ use std::rc::Rc;
 
 use crate::utils::Side;
 
-/// A set of paths into a Lambda expression
+/// A branching path selecting some placeholders (but at least one) in a Lambda
+/// expression
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PathSet {
   /// The definite steps
@@ -40,7 +41,8 @@ impl Add<Side> for PathSet {
   type Output = Self;
   fn add(self, rhs: Side) -> Self::Output {
     let PathSet { steps, next } = self;
-    let mut new_steps = Rc::unwrap_or_clone(steps);
+    let mut new_steps =
+      Rc::try_unwrap(steps).unwrap_or_else(|rc| rc.as_ref().clone());
     new_steps.insert(0, rhs);
     Self { steps: Rc::new(new_steps), next }
   }

@@ -1,7 +1,7 @@
 #[allow(unused)]
-use super::atomic_impl;
+use crate::atomic_impl;
 
-/// Implement the traits required by [atomic_impl] to redirect run_* functions
+/// Implement the traits required by [atomic_impl] to redirect run calls
 /// to a field with a particular name.
 #[macro_export]
 macro_rules! atomic_redirect {
@@ -18,14 +18,18 @@ macro_rules! atomic_redirect {
     }
   };
   ($typ:ident, $field:ident) => {
-    impl AsRef<$crate::foreign::RcExpr> for $typ {
-      fn as_ref(&self) -> &$crate::foreign::RcExpr {
+    impl AsRef<$crate::representations::interpreted::ExprInst> for $typ {
+      fn as_ref(&self) -> &$crate::representations::interpreted::ExprInst {
         &self.$field
       }
     }
-    impl From<(&Self, $crate::foreign::RcExpr)> for $typ {
+    impl From<(&Self, $crate::representations::interpreted::ExprInst)>
+      for $typ
+    {
       #[allow(clippy::needless_update)]
-      fn from((old, $field): (&Self, $crate::foreign::RcExpr)) -> Self {
+      fn from(
+        (old, $field): (&Self, $crate::representations::interpreted::ExprInst),
+      ) -> Self {
         Self { $field, ..old.clone() }
       }
     }

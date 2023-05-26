@@ -8,11 +8,13 @@ use crate::interner::{Interner, Sym, Tok};
 use crate::representations::tree::{ModMember, Module};
 use crate::utils::Substack;
 
+/// Additional data about a loaded module beyond the list of constants and
+/// submodules
 #[derive(Clone, Debug, Default)]
 pub struct ProjectExt {
   /// Pairs each foreign token to the module it was imported from
   pub imports_from: HashMap<Tok<String>, Sym>,
-  /// Pairs each exported token to its original full name.
+  /// Pairs each exported token to its original full name
   pub exports: HashMap<Tok<String>, Sym>,
   /// All rules defined in this module, exported or not
   pub rules: Vec<Rule>,
@@ -35,7 +37,10 @@ impl Add for ProjectExt {
   }
 }
 
+/// A node in the tree describing the project
 pub type ProjectModule = Module<Expr, ProjectExt>;
+
+/// Module corresponding to the root of a project
 pub struct ProjectTree(pub Rc<ProjectModule>);
 
 fn collect_rules_rec(bag: &mut Vec<Rule>, module: &ProjectModule) {
@@ -47,6 +52,8 @@ fn collect_rules_rec(bag: &mut Vec<Rule>, module: &ProjectModule) {
   }
 }
 
+/// Collect the complete list of rules to be used by the rule repository from
+/// the [ProjectTree]
 pub fn collect_rules(project: &ProjectTree) -> Vec<Rule> {
   let mut rules = Vec::new();
   collect_rules_rec(&mut rules, project.0.as_ref());
@@ -72,6 +79,7 @@ fn collect_consts_rec(
   }
 }
 
+/// Extract the symbol table from a [ProjectTree]
 pub fn collect_consts(
   project: &ProjectTree,
   i: &Interner,

@@ -1,3 +1,6 @@
+//! Generic module tree structure
+//!
+//! Used by various stages of the pipeline with different parameters
 use std::ops::Add;
 use std::rc::Rc;
 
@@ -27,20 +30,29 @@ pub struct Module<TItem: Clone, TExt: Clone> {
   pub extra: TExt,
 }
 
+/// Possible causes why the path could not be walked
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WalkErrorKind {
+  /// `require_exported` was set to `true` and a module wasn't exported
   Private,
+  /// A module was not found
   Missing,
 }
 
+/// Error produced by [Module::walk]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WalkError {
+  /// The 0-based index of the offending segment
   pub pos: usize,
+  /// The cause of the error
   pub kind: WalkErrorKind,
 }
 
+/// The path taken to reach a given module
 pub type ModPath<'a> = Substack<'a, Tok<String>>;
+
 impl<TItem: Clone, TExt: Clone> Module<TItem, TExt> {
+  /// Return the module at the end of the given path.
   pub fn walk(
     self: &Rc<Self>,
     path: &[Tok<String>],
@@ -78,6 +90,8 @@ impl<TItem: Clone, TExt: Clone> Module<TItem, TExt> {
     Ok(())
   }
 
+  /// Call the provided function on every import in the tree. Can be
+  /// short-circuited by returning Err
   pub fn visit_all_imports<E>(
     &self,
     callback: &mut impl FnMut(ModPath, &Self, &Import) -> Result<(), E>,

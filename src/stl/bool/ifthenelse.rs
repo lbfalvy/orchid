@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 use std::rc::Rc;
 
+use super::super::assertion_error::AssertionError;
 use super::Boolean;
-use crate::external::assertion_error::AssertionError;
 use crate::representations::interpreted::{Clause, ExprInst};
 use crate::representations::PathSet;
 use crate::{atomic_impl, atomic_redirect, externfn_impl};

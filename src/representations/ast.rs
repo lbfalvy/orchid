@@ -1,3 +1,10 @@
+//! Datastructures representing syntax as written
+//!
+//! These structures are produced by the parser, processed by the macro
+//! executor, and then converted to other usable formats. This module is public
+//! in order to allow users to define injected libraries programmatically,
+//! although going through the parser is usually preferable.
+
 use std::hash::Hash;
 use std::rc::Rc;
 
@@ -9,7 +16,7 @@ use super::primitive::Primitive;
 use crate::interner::{InternedDisplay, Interner, Sym, Tok};
 use crate::utils::Substack;
 
-/// An S-expression with a type
+/// A [Clause] with associated metadata
 #[derive(Clone, Debug, PartialEq)]
 pub struct Expr {
   pub value: Clause,
@@ -17,10 +24,12 @@ pub struct Expr {
 }
 
 impl Expr {
+  /// Obtain the contained clause
   pub fn into_clause(self) -> Clause {
     self.value
   }
 
+  /// Call the function on every name in this expression
   pub fn visit_names(&self, binds: Substack<Sym>, cb: &mut impl FnMut(Sym)) {
     let Expr { value, .. } = self;
     value.visit_names(binds, cb);
@@ -61,12 +70,21 @@ impl InternedDisplay for Expr {
   }
 }
 
+/// Various types of placeholders
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PHClass {
-  Vec { nonzero: bool, prio: u64 },
+  /// Matches multiple tokens, lambdas or parenthesized groups
+  Vec {
+    /// If true, must match at least one clause
+    nonzero: bool,
+    /// Greediness in the allocation of tokens
+    prio: u64,
+  },
+  /// Matches exactly one token, lambda or parenthesized group
   Scalar,
 }
 
+/// Properties of a placeholder that matches unknown tokens in macros
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Placeholder {
   pub name: Tok<String>,
@@ -95,6 +113,7 @@ impl InternedDisplay for Placeholder {
 /// An S-expression as read from a source file
 #[derive(Debug, PartialEq, Clone)]
 pub enum Clause {
+  /// A primitive
   P(Primitive),
   /// A c-style name or an operator, eg. `+`, `i`, `foo::bar`
   Name(Sym),
@@ -257,7 +276,7 @@ fn fmt_expr_seq<'a>(
   Ok(())
 }
 
-pub fn fmt_name(
+pub(crate) fn fmt_name(
   name: Sym,
   f: &mut std::fmt::Formatter,
   i: &Interner,
@@ -302,15 +321,17 @@ impl InternedDisplay for Clause {
 /// A substitution rule as read from the source
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rule {
-  pub source: Rc<Vec<Expr>>,
+  pub pattern: Rc<Vec<Expr>>,
   pub prio: NotNan<f64>,
-  pub target: Rc<Vec<Expr>>,
+  pub template: Rc<Vec<Expr>>,
 }
 
 impl Rule {
+  /// Return a list of all names that don't contain a namespace separator `::`.
+  /// These are exported when the rule is exported
   pub fn collect_single_names(&self, i: &Interner) -> Vec<Tok<String>> {
     let mut names = Vec::new();
-    for e in self.source.iter() {
+    for e in self.pattern.iter() {
       e.visit_names(Substack::Bottom, &mut |tok| {
         let ns_name = i.r(tok);
         let (name, excess) =
@@ -324,6 +345,7 @@ impl Rule {
     names
   }
 
+  /// Namespace all tokens in the rule
   pub fn prefix(
     &self,
     prefix: Sym,
@@ -332,11 +354,11 @@ impl Rule {
   ) -> Self {
     Self {
       prio: self.prio,
-      source: Rc::new(
-        self.source.iter().map(|e| e.prefix(prefix, i, except)).collect(),
+      pattern: Rc::new(
+        self.pattern.iter().map(|e| e.prefix(prefix, i, except)).collect(),
       ),
-      target: Rc::new(
-        self.target.iter().map(|e| e.prefix(prefix, i, except)).collect(),
+      template: Rc::new(
+        self.template.iter().map(|e| e.prefix(prefix, i, except)).collect(),
       ),
     }
   }
@@ -348,12 +370,12 @@ impl InternedDisplay for Rule {
     f: &mut std::fmt::Formatter<'_>,
     i: &Interner,
   ) -> std::fmt::Result {
-    for e in self.source.iter() {
+    for e in self.pattern.iter() {
       e.fmt_i(f, i)?;
       write!(f, " ")?;
     }
     write!(f, "={}=>", self.prio)?;
-    for e in self.target.iter() {
+    for e in self.template.iter() {
       write!(f, " ")?;
       e.fmt_i(f, i)?;
     }

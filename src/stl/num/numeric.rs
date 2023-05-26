@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use ordered_float::NotNan;
 
-use crate::external::assertion_error::AssertionError;
-use crate::external::litconv::with_lit;
+use super::super::assertion_error::AssertionError;
+use super::super::litconv::with_lit;
 use crate::foreign::ExternError;
 use crate::representations::interpreted::{Clause, ExprInst};
 use crate::representations::{Literal, Primitive};

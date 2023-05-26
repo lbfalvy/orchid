@@ -90,17 +90,17 @@ fn apply_aliases_rec(
     .rules
     .iter()
     .map(|rule| {
-      let Rule { source, prio, target } = rule;
+      let Rule { pattern, prio, template } = rule;
       Rule {
         prio: *prio,
-        source: Rc::new(
-          source
+        pattern: Rc::new(
+          pattern
             .iter()
             .map(|expr| process_expr(expr, alias_map, injected_as, i))
             .collect::<Vec<_>>(),
         ),
-        target: Rc::new(
-          target
+        template: Rc::new(
+          template
             .iter()
             .map(|expr| process_expr(expr, alias_map, injected_as, i))
             .collect::<Vec<_>>(),

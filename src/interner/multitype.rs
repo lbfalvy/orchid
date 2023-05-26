@@ -16,10 +16,12 @@ pub struct Interner {
   interners: RefCell<HashMap<TypeId, Rc<dyn Any>>>,
 }
 impl Interner {
+  /// Create a new interner
   pub fn new() -> Self {
     Self { interners: RefCell::new(HashMap::new()) }
   }
 
+  /// Intern something
   pub fn i<Q: ?Sized + Eq + Hash + ToOwned>(&self, q: &Q) -> Tok<Q::Owned>
   where
     Q::Owned: 'static + Eq + Hash + Clone + Borrow<Q>,
@@ -29,6 +31,7 @@ impl Interner {
     interner.i(q)
   }
 
+  /// Resolve a token to a reference
   pub fn r<T: 'static + Eq + Hash + Clone>(&self, t: Tok<T>) -> &T {
     let mut interners = self.interners.borrow_mut();
     let interner = get_interner(&mut interners);
@@ -36,7 +39,7 @@ impl Interner {
     unsafe { (interner.r(t) as *const T).as_ref().unwrap() }
   }
 
-  /// Fully resolve
+  /// Fully resolve an interned list of interned things
   /// TODO: make this generic over containers
   pub fn extern_vec<T: 'static + Eq + Hash + Clone>(
     &self,
@@ -49,6 +52,7 @@ impl Interner {
     v.iter().map(|t| t_int.r(*t)).cloned().collect()
   }
 
+  /// Fully resolve a list of interned things.
   pub fn extern_all<T: 'static + Eq + Hash + Clone>(
     &self,
     s: &[Tok<T>],

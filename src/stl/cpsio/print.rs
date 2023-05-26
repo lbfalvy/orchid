@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
+use super::super::litconv::with_str;
 use super::io::IO;
-use crate::external::litconv::with_str;
 use crate::foreign::{Atomic, AtomicResult, AtomicReturn};
 use crate::interpreter::Context;
 use crate::representations::interpreted::ExprInst;

@@ -3,12 +3,13 @@ use std::fmt::Debug;
 use super::Literal;
 use crate::foreign::{Atom, ExternFn};
 
+/// A value the interpreter can't inspect
 pub enum Primitive {
   /// A literal value, eg. `1`, `"hello"`
   Literal(Literal),
-  /// An opaque function, eg. an effectful function employing CPS.
+  /// An opaque function, eg. an effectful function employing CPS
   ExternFn(Box<dyn ExternFn>),
-  /// An opaque non-callable value, eg. a file handle.
+  /// An opaque non-callable value, eg. a file handle
   Atom(Atom),
 }
 

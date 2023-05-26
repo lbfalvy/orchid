@@ -11,10 +11,10 @@ pub struct RuntimeError {
 }
 
 impl RuntimeError {
-  pub fn fail(
+  pub fn fail<T>(
     message: String,
     operation: &'static str,
-  ) -> Result<!, Rc<dyn ExternError>> {
+  ) -> Result<T, Rc<dyn ExternError>> {
     return Err(Self { message, operation }.into_extern());
   }
 

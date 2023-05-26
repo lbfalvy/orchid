@@ -1,3 +1,7 @@
+//! Interaction with foreign code
+//!
+//! Structures and traits used in the exposure of external functions and values
+//! to Orchid code
 use std::any::Any;
 use std::error::Error;
 use std::fmt::{Debug, Display};
@@ -11,6 +15,8 @@ pub use crate::representations::interpreted::Clause;
 use crate::representations::interpreted::ExprInst;
 use crate::representations::Primitive;
 
+/// Information returned by [Atomic::run]. This mirrors
+/// [crate::interpreter::Return] but with a clause instead of an Expr.
 pub struct AtomicReturn {
   pub clause: Clause,
   pub gas: Option<usize>,
@@ -23,12 +29,14 @@ impl AtomicReturn {
   }
 }
 
-// Aliases for concise macros
+/// A type-erased error in external code
 pub type RcError = Rc<dyn ExternError>;
+/// Returned by [Atomic::run]
 pub type AtomicResult = Result<AtomicReturn, RuntimeError>;
+/// Returned by [ExternFn::apply]
 pub type XfnResult = Result<Clause, RcError>;
-pub type RcExpr = ExprInst;
 
+/// Errors produced by external code
 pub trait ExternError: Display {
   fn into_extern(self) -> Rc<dyn ExternError>
   where
@@ -50,11 +58,15 @@ impl Error for dyn ExternError {}
 /// the executor. Since Orchid lacks basic numerical operations,
 /// these are also external functions.
 pub trait ExternFn: DynClone {
+  /// Display name of the function
   fn name(&self) -> &str;
+  /// Combine the function with an argument to produce a new clause
   fn apply(&self, arg: ExprInst, ctx: Context) -> XfnResult;
-  fn hash(&self, state: &mut dyn std::hash::Hasher) {
-    state.write_str(self.name())
+  /// Hash the name to get a somewhat unique hash.
+  fn hash(&self, mut state: &mut dyn std::hash::Hasher) {
+    self.name().hash(&mut state)
   }
+  /// Wrap this function in a clause to be placed in an [AtomicResult].
   fn to_xfn_cls(self) -> Clause
   where
     Self: Sized + 'static,
@@ -80,12 +92,20 @@ impl Debug for dyn ExternFn {
   }
 }
 
+/// Functionality the interpreter needs to handle a value
 pub trait Atomic: Any + Debug + DynClone
 where
   Self: 'static,
 {
+  /// Casts this value to [Any] so that its original value can be salvaged
+  /// during introspection by other external code. There is no other way to
+  /// interact with values of unknown types at the moment.
   fn as_any(&self) -> &dyn Any;
+  /// Attempt to normalize this value. If it wraps a value, this should report
+  /// inert. If it wraps a computation, it should execute one logical step of
+  /// the computation and return a structure representing the ntext.
   fn run(&self, ctx: Context) -> AtomicResult;
+  /// Wrap the atom in a clause to be placed in an [AtomicResult].
   fn to_atom_cls(self) -> Clause
   where
     Self: Sized,
@@ -96,12 +116,11 @@ where
 
 /// Represents a black box unit of code with its own normalization steps.
 /// Typically [ExternFn] will produce an [Atom] when applied to a [Clause],
-/// this [Atom] will then forward `run_*` calls to the argument until it
-/// yields [InternalError::NonReducible] at which point the [Atom] will
-/// validate and process the argument, returning a different [Atom]
-/// intended for processing by external code, a new [ExternFn] to capture
-/// an additional argument, or an Orchid expression
-/// to pass control back to the interpreter.
+/// this [Atom] will then forward `run` calls to the argument until it becomes
+/// inert at which point the [Atom] will validate and process the argument,
+/// returning a different [Atom] intended for processing by external code, a new
+/// [ExternFn] to capture an additional argument, or an Orchid expression
+/// to pass control back to the interpreter.btop
 pub struct Atom(pub Box<dyn Atomic>);
 impl Atom {
   pub fn new<T: 'static + Atomic>(data: T) -> Self {
@@ -110,8 +129,8 @@ impl Atom {
   pub fn data(&self) -> &dyn Atomic {
     self.0.as_ref() as &dyn Atomic
   }
-  pub fn try_cast<T: Atomic>(&self) -> Result<&T, ()> {
-    self.data().as_any().downcast_ref().ok_or(())
+  pub fn try_cast<T: Atomic>(&self) -> Option<&T> {
+    self.data().as_any().downcast_ref()
   }
   pub fn is<T: 'static>(&self) -> bool {
     self.data().as_any().is::<T>()

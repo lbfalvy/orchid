@@ -63,7 +63,7 @@ impl<'a> Context<'a> {
   }
 }
 
-/// Recursive state of [exprv]
+/// Process an expression sequence
 fn exprv_rec<'a>(
   v: &'a [ast::Expr],
   ctx: Context<'a>,
@@ -78,7 +78,7 @@ fn exprv_rec<'a>(
   Ok(postmacro::Expr { value, location: Location::Unknown })
 }
 
-/// Recursive state of [expr]
+/// Process an expression
 fn expr_rec<'a>(
   ast::Expr { value, location }: &'a ast::Expr,
   ctx: Context<'a>,
@@ -95,11 +95,7 @@ fn expr_rec<'a>(
   }
 }
 
-// (\t:(@T. Pair T T). t \left.\right. left) @number -- this will fail
-// (@T. \t:Pair T T. t \left.\right. left) @number -- this is the correct
-// phrasing
-
-/// Recursive state of [clause]
+/// Process a clause
 fn clause_rec<'a>(
   cls: &'a ast::Clause,
   ctx: Context<'a>,

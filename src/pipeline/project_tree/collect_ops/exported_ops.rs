@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use hashbrown::HashSet;
 use itertools::Itertools;
+use trait_set::trait_set;
 
 use crate::interner::{Interner, Sym, Tok};
 use crate::pipeline::error::{ModuleNotFound, ProjectError};
@@ -14,7 +15,9 @@ use crate::utils::Cache;
 pub type OpsResult = Result<Rc<HashSet<Tok<String>>>, Rc<dyn ProjectError>>;
 pub type ExportedOpsCache<'a> = Cache<'a, Sym, OpsResult>;
 
-pub trait InjectedOperatorsFn = Fn(Sym) -> Option<Rc<HashSet<Tok<String>>>>;
+trait_set! {
+  pub trait InjectedOperatorsFn = Fn(Sym) -> Option<Rc<HashSet<Tok<String>>>>;
+}
 
 fn coprefix<T: Eq>(
   l: impl Iterator<Item = T>,

@@ -1,3 +1,7 @@
+use trait_set::trait_set;
+
 use crate::interner::{Sym, Tok};
 
-pub trait InjectedAsFn = Fn(&[Tok<String>]) -> Option<Sym>;
+trait_set! {
+  pub trait InjectedAsFn = Fn(&[Tok<String>]) -> Option<Sym>;
+}

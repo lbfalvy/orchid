@@ -8,7 +8,6 @@
 /// // Foo::Bar(T) into Quz::Bar(T)
 /// // Foo::Baz(U) into Quz::Baz(U)
 /// ```
-#[macro_export]
 macro_rules! enum_filter {
   ($p:path | $m:tt) => {
     {
@@ -48,3 +47,5 @@ macro_rules! enum_filter {
     enum_filter!($p | {concat!("Expected ", stringify!($p))})
   };
 }
+
+pub(crate) use enum_filter;

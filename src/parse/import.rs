@@ -4,18 +4,17 @@ use itertools::Itertools;
 
 use super::context::Context;
 use super::decls::{SimpleParser, SimpleRecursive};
+use super::enum_filter::enum_filter;
 use super::lexer::{filter_map_lex, Lexeme};
 use super::Entry;
 use crate::interner::Tok;
 use crate::representations::sourcefile::Import;
 use crate::utils::iter::{
-  box_flatten, box_once, into_boxed_iter, BoxedIterIter,
+  box_chain, box_flatten, box_once, into_boxed_iter, BoxedIterIter,
 };
-use crate::{box_chain, enum_filter};
 
-/// initialize a BoxedIter<BoxedIter<String>> with a single element.
+/// initialize an iterator of iterator with a single element.
 fn init_table(name: Tok<String>) -> BoxedIterIter<'static, Tok<String>> {
-  // I'm not at all confident that this is a good approach.
   box_once(box_once(name))
 }
 
@@ -24,7 +23,7 @@ fn init_table(name: Tok<String>) -> BoxedIterIter<'static, Tok<String>> {
 /// semi and the delimiters are plain parentheses. Namespaces should
 /// preferably contain crossplatform filename-legal characters but the
 /// symbols are explicitly allowed to go wild.
-/// There's a blacklist in [name]
+/// There's a blacklist in [crate::parse::name::NOT_NAME_CHAR]
 pub fn import_parser<'a>(
   ctx: impl Context + 'a,
 ) -> impl SimpleParser<Entry, Vec<Import>> + 'a {

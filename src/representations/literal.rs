@@ -2,8 +2,8 @@ use std::fmt::Debug;
 
 use ordered_float::NotNan;
 
-/// An exact value, read from the AST and unmodified in shape until
-/// compilation
+/// Exact values read from the AST which have a shared meaning recognized by all
+/// external functions
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Literal {
   Num(NotNan<f64>),

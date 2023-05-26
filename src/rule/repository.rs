@@ -8,7 +8,7 @@ use ordered_float::NotNan;
 use super::matcher::Matcher;
 use super::prepare_rule::prepare_rule;
 use super::state::apply_exprv;
-use super::{update_first_seq, AnyMatcher, RuleError};
+use super::{update_first_seq, RuleError, VectreeMatcher};
 use crate::ast::{Expr, Rule};
 use crate::interner::{InternedDisplay, Interner, Sym};
 use crate::utils::Substack;
@@ -16,7 +16,7 @@ use crate::utils::Substack;
 #[derive(Debug)]
 pub struct CachedRule<M: Matcher> {
   matcher: M,
-  source: Rc<Vec<Expr>>,
+  pattern: Rc<Vec<Expr>>,
   template: Rc<Vec<Expr>>,
 }
 
@@ -26,7 +26,7 @@ impl<M: InternedDisplay + Matcher> InternedDisplay for CachedRule<M> {
     f: &mut std::fmt::Formatter<'_>,
     i: &Interner,
   ) -> std::fmt::Result {
-    for item in self.source.iter() {
+    for item in self.pattern.iter() {
       item.fmt_i(f, i)?;
       f.write_char(' ')?;
     }
@@ -35,8 +35,13 @@ impl<M: InternedDisplay + Matcher> InternedDisplay for CachedRule<M> {
   }
 }
 
-/// Manages a priority queue of substitution rules and allows to apply
-/// them
+/// Substitution rule scheduler
+///
+/// Manages a priority queue of rules and offers functions to apply them. The
+/// rules are stored in an optimized structure but the repository is generic
+/// over the implementation of this optimized form.
+///
+/// If you don't know what to put in the generic parameter, use [Repo]
 pub struct Repository<M: Matcher> {
   cache: Vec<(CachedRule<M>, HashSet<Sym>, NotNan<f64>)>,
 }
@@ -52,14 +57,17 @@ impl<M: Matcher> Repository<M> {
         let prio = r.prio;
         let rule = prepare_rule(r.clone(), i).map_err(|e| (r, e))?;
         let mut glossary = HashSet::new();
-        for e in rule.source.iter() {
+        for e in rule.pattern.iter() {
           e.visit_names(Substack::Bottom, &mut |op| {
             glossary.insert(op);
           })
         }
-        let matcher = M::new(rule.source.clone());
-        let prep =
-          CachedRule { matcher, source: rule.source, template: rule.target };
+        let matcher = M::new(rule.pattern.clone());
+        let prep = CachedRule {
+          matcher,
+          pattern: rule.pattern,
+          template: rule.template,
+        };
         Ok((prep, glossary, prio))
       })
       .collect::<Result<Vec<_>, _>>()?;
@@ -163,4 +171,5 @@ impl<M: InternedDisplay + Matcher> InternedDisplay for Repository<M> {
   }
 }
 
-pub type Repo = Repository<AnyMatcher>;
+/// Repository with the default matcher implementation
+pub type Repo = Repository<VectreeMatcher>;

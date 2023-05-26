@@ -28,7 +28,7 @@ macro_rules! externfn_impl {
       }
       fn apply(
         &self,
-        arg: $crate::foreign::RcExpr,
+        arg: $crate::representations::interpreted::ExprInst,
         _ctx: $crate::interpreter::Context,
       ) -> $crate::foreign::XfnResult {
         let closure = $next_atomic;

@@ -4,6 +4,7 @@ use super::{ErrorPosition, ProjectError};
 use crate::representations::location::Location;
 use crate::utils::BoxedIter;
 
+/// An import refers to a symbol which exists but is not exported.
 #[derive(Debug)]
 pub struct NotExported {
   pub file: Vec<String>,

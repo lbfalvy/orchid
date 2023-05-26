@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::external::litconv::with_str;
+use super::super::litconv::with_str;
 use crate::foreign::ExternError;
 use crate::representations::interpreted::ExprInst;
 use crate::{atomic_impl, atomic_redirect, externfn_impl};

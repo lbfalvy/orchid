@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use hashbrown::HashMap;
+use itertools::Itertools;
 
 use super::collect_ops::InjectedOperatorsFn;
 use super::parse_file::parse_file;
@@ -87,7 +88,7 @@ fn source_to_module(
           Member::Namespace(ns) => box_once(mk_ent(ns.name)),
           Member::Rule(rule) => {
             let mut names = Vec::new();
-            for e in rule.source.iter() {
+            for e in rule.pattern.iter() {
               e.visit_names(Substack::Bottom, &mut |n| {
                 if let Some([name]) = i.r(n).strip_prefix(&path_v[..]) {
                   names.push((*name, n))
@@ -177,7 +178,7 @@ fn source_to_module(
 
 fn files_to_module(
   path: Substack<Tok<String>>,
-  files: &[ParsedSource],
+  files: Vec<ParsedSource>,
   i: &Interner,
 ) -> Rc<Module<Expr, ProjectExt>> {
   let lvl = path.len();
@@ -192,11 +193,13 @@ fn files_to_module(
     );
   }
   let items = files
-    .group_by(|a, b| a.path[lvl] == b.path[lvl])
-    .map(|files| {
-      let namespace = files[0].path[lvl];
+    .into_iter()
+    .group_by(|f| f.path[lvl])
+    .into_iter()
+    .map(|(namespace, files)| {
       let subpath = path.push(namespace);
-      let module = files_to_module(subpath, files, i);
+      let files_v = files.collect::<Vec<_>>();
+      let module = files_to_module(subpath, files_v, i);
       let member = ModMember::Sub(module);
       (namespace, ModEntry { exported: true, member })
     })
@@ -206,11 +209,6 @@ fn files_to_module(
     .copied()
     .map(|name| (name, i.i(&pushed(&path_v, name))))
     .collect();
-  // println!(
-  //   "Constructing module {} with items ({})",
-  //   i.extern_all(&path_v[..]).join("::"),
-  //   exports.keys().map(|t| i.r(*t)).join(", ")
-  // );
   Rc::new(Module {
     items,
     imports: vec![],
@@ -250,5 +248,5 @@ pub fn build_tree(
       path: path.clone(),
     })
     .collect::<Vec<_>>();
-  Ok(ProjectTree(files_to_module(Substack::Bottom, &files, i)))
+  Ok(ProjectTree(files_to_module(Substack::Bottom, files, i)))
 }

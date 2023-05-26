@@ -2,10 +2,10 @@
 use crate::foreign::Atomic;
 
 /// A macro that generates the straightforward, syntactically invariant part of
-/// implementing [Atomic]. Implemented fns are [Atomic::as_any],
-/// [Atomic::definitely_eq] and [Atomic::hash].
+/// implementing [Atomic].
 ///
-/// It depends on [Eq] and [Hash]
+/// Currently implements
+/// - [Atomic::as_any]
 #[macro_export]
 macro_rules! atomic_defaults {
   () => {

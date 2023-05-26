@@ -7,12 +7,12 @@ use itertools::Itertools;
 
 use super::context::Context;
 use super::decls::{SimpleParser, SimpleRecursive};
+use super::enum_filter::enum_filter;
 use super::expression::xpr_parser;
 use super::import::import_parser;
 use super::lexer::{filter_map_lex, Lexeme};
 use super::Entry;
 use crate::ast::{Clause, Constant, Expr, Rule};
-use crate::enum_filter;
 use crate::representations::location::Location;
 use crate::representations::sourcefile::{FileEntry, Member, Namespace};
 
@@ -24,10 +24,10 @@ fn rule_parser<'a>(
     .at_least(1)
     .then(filter_map_lex(enum_filter!(Lexeme::Rule)))
     .then(xpr_parser(ctx).repeated().at_least(1))
-    .map(|((s, (prio, _)), t)| Rule {
-      source: Rc::new(s),
+    .map(|((p, (prio, _)), t)| Rule {
+      pattern: Rc::new(p),
       prio,
-      target: Rc::new(t),
+      template: Rc::new(t),
     })
     .labelled("Rule")
 }

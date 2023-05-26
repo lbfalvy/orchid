@@ -13,10 +13,10 @@ pub struct AssertionError {
 }
 
 impl AssertionError {
-  pub fn fail(
+  pub fn fail<T>(
     value: ExprInst,
     assertion: &'static str,
-  ) -> Result<!, Rc<dyn ExternError>> {
+  ) -> Result<T, Rc<dyn ExternError>> {
     return Err(Self { value, assertion }.into_extern());
   }
 

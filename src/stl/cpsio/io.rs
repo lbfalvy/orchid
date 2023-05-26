@@ -1,10 +1,11 @@
 use std::io::{self, Write};
 
-use crate::external::runtime_error::RuntimeError;
+use super::super::runtime_error::RuntimeError;
+use crate::atomic_inert;
 use crate::interpreter::{HandlerParm, HandlerRes};
 use crate::representations::interpreted::{Clause, ExprInst};
 use crate::representations::{Literal, Primitive};
-use crate::{atomic_inert, unwrap_or};
+use crate::utils::unwrap_or;
 
 /// An IO command to be handled by the host application.
 #[derive(Clone, Debug)]

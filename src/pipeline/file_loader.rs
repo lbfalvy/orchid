@@ -1,3 +1,4 @@
+//! File system implementation of the source loader callback
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::{fs, io};
@@ -9,6 +10,7 @@ use crate::pipeline::error::{
 use crate::utils::iter::box_once;
 use crate::utils::{BoxedIter, Cache};
 
+/// All the data available about a failed source load call
 #[derive(Debug)]
 pub struct FileLoadingError {
   file: io::Error,
@@ -40,9 +42,8 @@ impl Loaded {
   }
 }
 
+/// Returned by any source loading callback
 pub type IOResult = Result<Loaded, Rc<dyn ProjectError>>;
-
-pub type FileCache<'a> = Cache<'a, Sym, IOResult>;
 
 /// Load a file from a path expressed in Rust strings, but relative to
 /// a root expressed as an OS Path.
@@ -81,7 +82,7 @@ pub fn load_file(root: &Path, path: &[impl AsRef<str>]) -> IOResult {
 }
 
 /// Generates a cached file loader for a directory
-pub fn mk_cache(root: PathBuf, i: &Interner) -> FileCache {
+pub fn mk_cache(root: PathBuf, i: &Interner) -> Cache<Sym, IOResult> {
   Cache::new(move |token: Sym, _this| -> IOResult {
     let path = i.r(token).iter().map(|t| i.r(*t).as_str()).collect::<Vec<_>>();
     load_file(&root, &path)

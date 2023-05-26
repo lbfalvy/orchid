@@ -20,13 +20,7 @@ pub trait InternedDisplay {
 
   /// Converts the value to a string to be displayed
   fn to_string_i(&self, i: &Interner) -> String {
-    // Copied from <https://doc.rust-lang.org/src/alloc/string.rs.html#2526>
-    let mut buf = String::new();
-    let mut formatter = Formatter::new(&mut buf);
-    // Bypass format_args!() to avoid write_str with zero-length strs
-    Self::fmt_i(self, &mut formatter, i)
-      .expect("a Display implementation returned an error unexpectedly");
-    buf
+    self.bundle(i).to_string()
   }
 
   fn bundle<'a>(&'a self, interner: &'a Interner) -> DisplayBundle<'a, Self> {
@@ -47,12 +41,14 @@ where
   }
 }
 
+/// A reference to an [InternedDisplay] type and an [Interner] tied together
+/// to implement [Display]
 pub struct DisplayBundle<'a, T: InternedDisplay + ?Sized> {
   interner: &'a Interner,
   data: &'a T,
 }
 
-impl<'a, T: InternedDisplay> Display for DisplayBundle<'a, T> {
+impl<'a, T: InternedDisplay + ?Sized> Display for DisplayBundle<'a, T> {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
     self.data.fmt_i(f, self.interner)
   }

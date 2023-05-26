@@ -8,7 +8,8 @@ use hashbrown::HashMap;
 use super::token::Tok;
 
 /// An interner for any type that implements [Borrow]. This is inspired by
-/// Lasso but much simpler, in part because not much can be known about the type.
+/// Lasso but much simpler, in part because not much can be known about the
+/// type.
 pub struct TypedInterner<T: 'static + Eq + Hash + Clone> {
   tokens: RefCell<HashMap<&'static T, Tok<T>>>,
   values: RefCell<Vec<(&'static T, bool)>>,
@@ -45,7 +46,7 @@ impl<T: Eq + Hash + Clone> TypedInterner<T> {
     *kv.1
   }
 
-  /// Resolve a token, obtaining an object
+  /// Resolve a token, obtaining a reference to the held object.
   /// It is illegal to use a token obtained from one interner with
   /// another.
   pub fn r(&self, t: Tok<T>) -> &T {
@@ -71,6 +72,12 @@ impl<T: Eq + Hash + Clone> TypedInterner<T> {
       })
       .1;
     token
+  }
+}
+
+impl<T: Eq + Hash + Clone> Default for TypedInterner<T> {
+  fn default() -> Self {
+    Self::new()
   }
 }
 

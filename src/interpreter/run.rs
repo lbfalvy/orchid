@@ -78,23 +78,24 @@ impl From<HandlerParm> for HandlerErr {
   }
 }
 
-/// Various possible outcomes of a [Handler] execution.
+/// Various possible outcomes of a [Handler] execution. Ok returns control to
+/// the interpreter. The meaning of Err is decided by the value in it.
 pub type HandlerRes = Result<ExprInst, HandlerErr>;
 
 /// A trait for things that may be able to handle commands returned by Orchid
-/// code. This trait is implemented for [FnMut(HandlerParm) -> HandlerRes] and
-/// [(Handler, Handler)], users are not supposed to implement it themselves.
+/// code. This trait is implemented for `FnMut(HandlerParm) -> HandlerRes` and
+/// `(Handler, Handler)`, users are not supposed to implement it themselves.
 ///
 /// A handler receives an arbitrary inert [Atomic] and uses [Atomic::as_any]
-/// then [std::any::Any::downcast_ref] to obtain a known type. If this fails, it
-/// returns the box in [HandlerErr::NA] which will be passed to the next
+/// then downcast_ref of [std::any::Any] to obtain a known type. If this fails,
+/// it returns the box in [HandlerErr::NA] which will be passed to the next
 /// handler.
 pub trait Handler {
   /// Attempt to resolve a command with this handler.
   fn resolve(&mut self, data: HandlerParm) -> HandlerRes;
 
   /// If this handler isn't applicable, try the other one.
-  fn or<T: Handler>(self, t: T) -> impl Handler
+  fn or<T: Handler>(self, t: T) -> (Self, T)
   where
     Self: Sized,
   {

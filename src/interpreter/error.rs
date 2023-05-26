@@ -7,7 +7,9 @@ use crate::representations::interpreted::ExprInst;
 /// Problems in the process of execution
 #[derive(Clone, Debug)]
 pub enum RuntimeError {
+  /// A Rust function encountered an error
   Extern(Rc<dyn ExternError>),
+  /// Primitive applied as function
   NonFunctionApplication(ExprInst),
 }
 

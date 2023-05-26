@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::external::litconv::with_lit;
+use super::super::litconv::with_lit;
 use crate::representations::interpreted::ExprInst;
 use crate::representations::Literal;
 use crate::{atomic_impl, atomic_redirect, externfn_impl};
