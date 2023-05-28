@@ -19,7 +19,7 @@ Namespaces are inspired by Rust modules and ES6. Every file and directory is imp
 The project uses the nighly rust toolchain. Go to one of the folders within `examples` and run
 
 ```sh
-cargo run 
+cargo run --release
 ```
 
 you can try modifying the examples, but error reporting for the time being is pretty terrible.

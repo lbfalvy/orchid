@@ -18,7 +18,9 @@ use crate::utils::sym2string;
 
 /// An expression with metadata
 pub struct Expr {
+  /// The actual value
   pub clause: Clause,
+  /// Information about the code that produced this value
   pub location: Location,
 }
 
@@ -57,10 +59,20 @@ pub struct NotALiteral;
 #[derive(Clone)]
 pub struct ExprInst(pub Rc<RefCell<Expr>>);
 impl ExprInst {
+  /// Read-only access to the shared expression instance
+  ///
+  /// # Panics
+  ///
+  /// if the expression is already borrowed in read-write mode
   pub fn expr(&self) -> impl Deref<Target = Expr> + '_ {
     self.0.as_ref().borrow()
   }
 
+  /// Read-Write access to the shared expression instance
+  ///
+  /// # Panics
+  ///
+  /// if the expression is already borrowed
   pub fn expr_mut(&self) -> impl DerefMut<Target = Expr> + '_ {
     self.0.as_ref().borrow_mut()
   }
@@ -140,11 +152,23 @@ pub enum Clause {
   /// An unintrospectable unit
   P(Primitive),
   /// A function application
-  Apply { f: ExprInst, x: ExprInst },
+  Apply {
+    /// Function to be applied
+    f: ExprInst,
+    /// Argument to be substituted in the function
+    x: ExprInst,
+  },
   /// A name to be looked up in the interpreter's symbol table
   Constant(Sym),
   /// A function
-  Lambda { args: Option<PathSet>, body: ExprInst },
+  Lambda {
+    /// A collection of (zero or more) paths to placeholders belonging to this
+    /// function
+    args: Option<PathSet>,
+    /// The tree produced by this function, with placeholders where the
+    /// argument will go
+    body: ExprInst,
+  },
   /// A placeholder within a function that will be replaced upon application
   LambdaArg,
 }

@@ -7,9 +7,13 @@ use crate::utils::BoxedIter;
 /// An import refers to a symbol which exists but is not exported.
 #[derive(Debug)]
 pub struct NotExported {
+  /// The containing file - files are always exported
   pub file: Vec<String>,
+  /// The path leading to the unexported module
   pub subpath: Vec<String>,
+  /// The offending file
   pub referrer_file: Vec<String>,
+  /// The module containing the offending import
   pub referrer_subpath: Vec<String>,
 }
 impl ProjectError for NotExported {

@@ -5,7 +5,9 @@ use crate::utils::BoxedIter;
 /// Error produced when an import refers to a nonexistent module
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ModuleNotFound {
+  /// The file containing the invalid import
   pub file: Vec<String>,
+  /// The invalid import path
   pub subpath: Vec<String>,
 }
 impl ProjectError for ModuleNotFound {

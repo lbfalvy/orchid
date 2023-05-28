@@ -7,7 +7,9 @@ use super::BoxedIter;
 /// are technically usable for this purpose, they're very easy to confuse
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Side {
+  /// Left, low, or high-to-low in the case of sequences
   Left,
+  /// Right, high, or low-to-high in the case of sequences
   Right,
 }
 
@@ -21,6 +23,7 @@ impl Display for Side {
 }
 
 impl Side {
+  /// Get the side that is not the current one
   pub fn opposite(&self) -> Self {
     match self {
       Self::Left => Self::Right,

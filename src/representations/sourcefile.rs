@@ -9,6 +9,12 @@ use crate::utils::{unwrap_or, BoxedIter};
 /// imported or importing all available symbols with a globstar (*)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Import {
+  /// Import path, a sequence of module names. Can either start with
+  ///
+  /// - `self` to reference the current module
+  /// - any number of `super` to reference the parent module of the implied
+  ///   `self`
+  /// - a root name
   pub path: Sym,
   /// If name is None, this is a wildcard import
   pub name: Option<Tok<String>>,
@@ -31,25 +37,37 @@ impl Import {
 /// A namespace block
 #[derive(Debug, Clone)]
 pub struct Namespace {
+  /// Name prefixed to all names in the block
   pub name: Tok<String>,
+  /// Prefixed entries
   pub body: Vec<FileEntry>,
 }
 
 /// Things that may be prefixed with an export
 #[derive(Debug, Clone)]
 pub enum Member {
+  /// A substitution rule. Rules apply even when they're not in scope, if the
+  /// absolute names are present eg. because they're produced by other rules
   Rule(Rule),
+  /// A constant (or function) associated with a name
   Constant(Constant),
+  /// A prefixed set of other entries
   Namespace(Namespace),
 }
 
 /// Anything we might encounter in a file
 #[derive(Debug, Clone)]
 pub enum FileEntry {
+  /// Imports one or all names in a module
   Import(Vec<Import>),
+  /// Comments are kept here in case dev tooling wants to parse documentation
   Comment(String),
+  /// An element visible to the outside
   Exported(Member),
+  /// An element only visible from local code
   Internal(Member),
+  /// A list of tokens exported explicitly. This can also create new exported
+  /// tokens that the local module doesn't actually define a role for
   Export(Vec<Tok<String>>),
 }
 

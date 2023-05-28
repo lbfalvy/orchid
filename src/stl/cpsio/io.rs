@@ -10,7 +10,9 @@ use crate::utils::unwrap_or;
 /// An IO command to be handled by the host application.
 #[derive(Clone, Debug)]
 pub enum IO {
+  /// Print a string to standard output and resume execution
   Print(String, ExprInst),
+  /// Read a line from standard input and pass it to the calback
   Readline(ExprInst),
 }
 atomic_inert!(IO);

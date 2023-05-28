@@ -33,10 +33,14 @@ impl ProjectError for FileLoadingError {
 /// as the file system.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Loaded {
+  /// Conceptually equivalent to a sourcefile
   Code(Rc<String>),
+  /// Conceptually equivalent to the list of *.orc files in a folder, without
+  /// the extension
   Collection(Rc<Vec<String>>),
 }
 impl Loaded {
+  /// Is the loaded item source code (not a collection)?
   pub fn is_code(&self) -> bool {
     matches!(self, Loaded::Code(_))
   }

@@ -16,7 +16,9 @@ use crate::utils::{pushed, Substack};
 /// describe libraries of external functions in Rust. It implements [Add] for
 /// added convenience
 pub enum ConstTree {
+  /// A function or constant
   Const(Expr),
+  /// A submodule
   Tree(HashMap<Tok<String>, ConstTree>),
 }
 impl ConstTree {

@@ -6,6 +6,7 @@ use crate::utils::BoxedIter;
 /// a path that refers to a directory
 #[derive(Debug)]
 pub struct UnexpectedDirectory {
+  /// Path to the offending collection
   pub path: Vec<String>,
 }
 impl ProjectError for UnexpectedDirectory {

@@ -17,7 +17,9 @@ pub struct Stackframe<'a, T> {
 /// the recursion isn't deep enough to warrant a heap-allocated set.
 #[derive(Clone, Copy)]
 pub enum Substack<'a, T> {
+  /// A level in the linked list
   Frame(Stackframe<'a, T>),
+  /// The end of the list
   Bottom,
 }
 
@@ -33,12 +35,16 @@ impl<'a, T> Substack<'a, T> {
   pub fn iter(&self) -> SubstackIterator<T> {
     SubstackIterator { curr: self }
   }
+  /// Add the item to this substack
   pub fn push(&'a self, item: T) -> Self {
     Self::Frame(self.new_frame(item))
   }
+  /// Create a new frame on top of this substack
   pub fn new_frame(&'a self, item: T) -> Stackframe<'a, T> {
     Stackframe { item, prev: self, len: self.opt().map_or(1, |s| s.len) }
   }
+  /// obtain the previous stackframe if one exists
+  /// TODO: this should return a [Substack]
   pub fn pop(&'a self, count: usize) -> Option<&'a Stackframe<'a, T>> {
     if let Self::Frame(p) = self {
       if count == 0 {
@@ -50,12 +56,14 @@ impl<'a, T> Substack<'a, T> {
       None
     }
   }
+  /// number of stackframes
   pub fn len(&self) -> usize {
     match self {
       Self::Frame(f) => f.len,
       Self::Bottom => 0,
     }
   }
+  /// is this the bottom of the stack
   pub fn is_empty(&self) -> bool {
     self.len() == 0
   }

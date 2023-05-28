@@ -8,8 +8,11 @@ use crate::utils::BoxedIter;
 /// Produced by stages that parse text when it fails.
 #[derive(Debug)]
 pub struct ParseErrorWithPath {
+  /// The complete source of the faulty file
   pub full_source: String,
+  /// The path to the faulty file
   pub path: Vec<String>,
+  /// The parse error produced by Chumsky
   pub error: ParseError,
 }
 impl ProjectError for ParseErrorWithPath {

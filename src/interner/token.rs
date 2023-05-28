@@ -13,12 +13,15 @@ pub struct Tok<T> {
   phantom_data: PhantomData<T>,
 }
 impl<T> Tok<T> {
+  /// Wrap an ID number into a token
   pub fn from_id(id: NonZeroU32) -> Self {
     Self { id, phantom_data: PhantomData }
   }
+  /// Take the ID number out of a token
   pub fn into_id(self) -> NonZeroU32 {
     self.id
   }
+  /// Cast into usize
   pub fn into_usize(self) -> usize {
     let zero: u32 = self.id.into();
     zero as usize

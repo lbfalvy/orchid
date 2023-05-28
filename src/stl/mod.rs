@@ -1,3 +1,4 @@
+//! Constants exposed to usercode by the interpreter
 mod assertion_error;
 mod bool;
 mod conv;

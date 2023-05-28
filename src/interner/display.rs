@@ -23,6 +23,7 @@ pub trait InternedDisplay {
     self.bundle(i).to_string()
   }
 
+  /// Combine with an interner to implement [Display]
   fn bundle<'a>(&'a self, interner: &'a Interner) -> DisplayBundle<'a, Self> {
     DisplayBundle { interner, data: self }
   }

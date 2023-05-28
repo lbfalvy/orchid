@@ -46,6 +46,7 @@ pub struct Repository<M: Matcher> {
   cache: Vec<(CachedRule<M>, HashSet<Sym>, NotNan<f64>)>,
 }
 impl<M: Matcher> Repository<M> {
+  /// Build a new repository to hold the given set of rules
   pub fn new(
     mut rules: Vec<Rule>,
     i: &Interner,

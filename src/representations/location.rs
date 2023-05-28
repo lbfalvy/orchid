@@ -8,12 +8,21 @@ use itertools::Itertools;
 /// error. Meaningful within the context of a project.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Location {
+  /// Location information lost or code generated on the fly
   Unknown,
+  /// Only the file is known
   File(Rc<Vec<String>>),
-  Range { file: Rc<Vec<String>>, range: Range<usize> },
+  /// Character slice of the code
+  Range {
+    /// Argument to the file loading callback that produced this code
+    file: Rc<Vec<String>>,
+    /// Index of the unicode code points associated with the code
+    range: Range<usize>
+  },
 }
 
 impl Location {
+  /// Range, if known. If the range is known, the file is always known
   pub fn range(&self) -> Option<Range<usize>> {
     if let Self::Range { range, .. } = self {
       Some(range.clone())
@@ -22,6 +31,7 @@ impl Location {
     }
   }
 
+  /// File, if known
   pub fn file(&self) -> Option<Rc<Vec<String>>> {
     if let Self::File(file) | Self::Range { file, .. } = self {
       Some(file.clone())

@@ -1,3 +1,7 @@
+#![deny(missing_docs)]
+#![doc(html_logo_url = "../logo.jpg")]
+//! Orchid is a lazy, pure scripting language to be embedded in Rust
+//! applications. Check out the repo for examples and other links.
 pub mod foreign;
 mod foreign_macros;
 pub mod interner;

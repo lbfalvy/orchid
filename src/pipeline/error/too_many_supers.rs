@@ -9,8 +9,11 @@ use crate::utils::BoxedIter;
 /// than the current module's absolute path
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TooManySupers {
+  /// The offending import path
   pub path: Vec<String>,
+  /// The file containing the offending import
   pub offender_file: Vec<String>,
+  /// The module containing the offending import
   pub offender_mod: Vec<String>,
 }
 impl ProjectError for TooManySupers {

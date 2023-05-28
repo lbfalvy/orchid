@@ -10,23 +10,32 @@ use super::sourcefile::Import;
 use crate::interner::Tok;
 use crate::utils::Substack;
 
+/// The member in a [ModEntry] which is associated with a name in a [Module]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModMember<TItem: Clone, TExt: Clone> {
+  /// Arbitrary data
   Item(TItem),
+  /// A child module
   Sub(Rc<Module<TItem, TExt>>),
 }
 
+/// Data about a name in a [Module]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModEntry<TItem: Clone, TExt: Clone> {
+  /// The submodule or item
   pub member: ModMember<TItem, TExt>,
+  /// Whether the member is visible to modules other than the parent
   pub exported: bool,
 }
 
 /// A module, containing imports,
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Module<TItem: Clone, TExt: Clone> {
+  /// Import statements present this module
   pub imports: Vec<Import>,
+  /// Submodules and items by name
   pub items: HashMap<Tok<String>, ModEntry<TItem, TExt>>,
+  /// Additional information associated with the module
   pub extra: TExt,
 }
 

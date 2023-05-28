@@ -8,7 +8,9 @@ use crate::utils::BoxedIter;
 /// Multiple occurences of the same namespace with different visibility
 #[derive(Debug)]
 pub struct VisibilityMismatch {
+  /// The namespace with ambiguous visibility
   pub namespace: Vec<String>,
+  /// The file containing the namespace
   pub file: Rc<Vec<String>>,
 }
 impl ProjectError for VisibilityMismatch {

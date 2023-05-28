@@ -6,9 +6,13 @@ use ordered_float::NotNan;
 /// external functions
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Literal {
+  /// Any floating point number except `NaN`
   Num(NotNan<f64>),
+  /// An unsigned integer; a size, index or pointer
   Uint(u64),
+  /// A single utf-8 codepoint
   Char(char),
+  /// A utf-8 character sequence
   Str(String),
 }
 

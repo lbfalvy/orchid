@@ -7,7 +7,9 @@ use crate::utils::BoxedIter;
 /// A point of interest in resolving the error, such as the point where
 /// processing got stuck, a command that is likely to be incorrect
 pub struct ErrorPosition {
+  /// The suspected location
   pub location: Location,
+  /// Any information about the role of this location
   pub message: Option<String>,
 }
 
