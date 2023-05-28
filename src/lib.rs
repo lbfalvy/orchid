@@ -1,5 +1,6 @@
 #![deny(missing_docs)]
-#![doc(html_logo_url = "../logo.jpg")]
+#![doc(html_logo_url = "https://raw.githubusercontent.com/lbfalvy/orchid/master/icon.svg")]
+#![doc(html_favicon_url = "https://raw.githubusercontent.com/lbfalvy/orchid/master/icon.svg")]
 //! Orchid is a lazy, pure scripting language to be embedded in Rust
 //! applications. Check out the repo for examples and other links.
 pub mod foreign;
