@@ -8,7 +8,7 @@
    version="1.1"
    id="SVGRoot"
    sodipodi:docname="Orchid3.svg"
-   inkscape:export-filename="bitmap.png"
+   inkscape:export-filename="orchid.png"
    inkscape:export-xdpi="96"
    inkscape:export-ydpi="96"
    inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
@@ -36,7 +36,8 @@
      inkscape:window-y="0"
      inkscape:window-maximized="1"
      inkscape:current-layer="layer1"
-     showguides="true">
+     showguides="true"
+     shape-rendering="crispEdges">
     <inkscape:grid
        type="xygrid"
        id="grid384"
