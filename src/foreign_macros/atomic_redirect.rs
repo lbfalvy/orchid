@@ -23,13 +23,9 @@ macro_rules! atomic_redirect {
         &self.$field
       }
     }
-    impl From<(&Self, $crate::interpreted::ExprInst)>
-      for $typ
-    {
+    impl From<(&Self, $crate::interpreted::ExprInst)> for $typ {
       #[allow(clippy::needless_update)]
-      fn from(
-        (old, $field): (&Self, $crate::interpreted::ExprInst),
-      ) -> Self {
+      fn from((old, $field): (&Self, $crate::interpreted::ExprInst)) -> Self {
         Self { $field, ..old.clone() }
       }
     }

@@ -65,8 +65,9 @@ pub fn collect_exported_ops(
   let preparsed = &loaded[&fpath].preparsed;
   let module = preparsed.0.walk(subpath_v, false).map_err(|walk_err| {
     match walk_err.kind {
-      WalkErrorKind::Private =>
-        unreachable!("visibility is not being checked here"),
+      WalkErrorKind::Private => {
+        unreachable!("visibility is not being checked here")
+      },
       WalkErrorKind::Missing => ModuleNotFound {
         file: i.extern_vec(fpath),
         subpath: subpath_v

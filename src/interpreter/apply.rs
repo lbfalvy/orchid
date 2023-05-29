@@ -70,10 +70,12 @@ fn substitute(paths: &PathSet, value: Clause, body: ExprInst) -> ExprInst {
         x: substitute(right, value.clone(), x.clone()),
       }),
       (Clause::LambdaArg, None) => Ok(value.clone()),
-      (_, None) =>
-        panic!("Substitution path ends in something other than LambdaArg"),
-      (_, Some(_)) =>
-        panic!("Substitution path leads into something other than Apply"),
+      (_, None) => {
+        panic!("Substitution path ends in something other than LambdaArg")
+      },
+      (_, Some(_)) => {
+        panic!("Substitution path leads into something other than Apply")
+      },
     }
   })
   .unwrap()

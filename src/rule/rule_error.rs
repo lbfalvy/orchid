@@ -18,15 +18,17 @@ pub enum RuleError {
 impl InternedDisplay for RuleError {
   fn fmt_i(&self, f: &mut fmt::Formatter<'_>, i: &Interner) -> fmt::Result {
     match *self {
-      Self::Missing(key) =>
-        write!(f, "Key {:?} not in match pattern", i.r(key)),
+      Self::Missing(key) => {
+        write!(f, "Key {:?} not in match pattern", i.r(key))
+      },
       Self::TypeMismatch(key) => write!(
         f,
         "Key {:?} used inconsistently with and without ellipsis",
         i.r(key)
       ),
-      Self::Multiple(key) =>
-        write!(f, "Key {:?} appears multiple times in match pattern", i.r(key)),
+      Self::Multiple(key) => {
+        write!(f, "Key {:?} appears multiple times in match pattern", i.r(key))
+      },
       Self::VecNeighbors(left, right) => write!(
         f,
         "Keys {:?} and {:?} are two vectorials right next to each other",

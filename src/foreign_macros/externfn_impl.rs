@@ -34,11 +34,9 @@ macro_rules! externfn_impl {
         let closure = $next_atomic;
         match closure(self, arg) {
           // ? casts the result but we want to strictly forward it
-          Ok(r) => Ok($crate::interpreted::Clause::P(
-            $crate::Primitive::Atom(
-              $crate::foreign::Atom::new(r),
-            ),
-          )),
+          Ok(r) => Ok($crate::interpreted::Clause::P($crate::Primitive::Atom(
+            $crate::foreign::Atom::new(r),
+          ))),
           Err(e) => Err(e),
         }
       }

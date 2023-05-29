@@ -23,8 +23,9 @@ impl Display for RuntimeError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Extern(e) => write!(f, "Error in external function: {e}"),
-      Self::NonFunctionApplication(loc) =>
-        write!(f, "Primitive applied as function at {loc:?}"),
+      Self::NonFunctionApplication(loc) => {
+        write!(f, "Primitive applied as function at {loc:?}")
+      },
     }
   }
 }

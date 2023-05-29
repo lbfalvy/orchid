@@ -32,25 +32,30 @@ use crate::Primitive;
 ///
 /// _definition of the `add` function in the STL_
 /// ```
-/// use orchidlang::stl::Numeric;
 /// use orchidlang::interpreted::ExprInst;
+/// use orchidlang::stl::Numeric;
 /// use orchidlang::{atomic_impl, atomic_redirect, externfn_impl};
-/// 
+///
 /// #[derive(Clone)]
 /// pub struct Add2;
 /// externfn_impl!(Add2, |_: &Self, x: ExprInst| Ok(Add1 { x }));
-/// 
+///
 /// #[derive(Debug, Clone)]
-/// pub struct Add1 { x: ExprInst }
+/// pub struct Add1 {
+///   x: ExprInst,
+/// }
 /// atomic_redirect!(Add1, x);
 /// atomic_impl!(Add1);
 /// externfn_impl!(Add1, |this: &Self, x: ExprInst| {
 ///   let a: Numeric = this.x.clone().try_into()?;
 ///   Ok(Add0 { a, x })
 /// });
-/// 
+///
 /// #[derive(Debug, Clone)]
-/// pub struct Add0 { a: Numeric, x: ExprInst }
+/// pub struct Add0 {
+///   a: Numeric,
+///   x: ExprInst,
+/// }
 /// atomic_redirect!(Add0, x);
 /// atomic_impl!(Add0, |Self { a, x }: &Self, _| {
 ///   let b: Numeric = x.clone().try_into()?;
@@ -74,10 +79,8 @@ macro_rules! atomic_impl {
         ctx: $crate::interpreter::Context,
       ) -> $crate::foreign::AtomicResult {
         // extract the expression
-        let expr = <Self as AsRef<
-          $crate::interpreted::ExprInst,
-        >>::as_ref(self)
-        .clone();
+        let expr =
+          <Self as AsRef<$crate::interpreted::ExprInst>>::as_ref(self).clone();
         // run the expression
         let ret = $crate::interpreter::run(expr, ctx.clone())?;
         let $crate::interpreter::Return { gas, state, inert } = ret;

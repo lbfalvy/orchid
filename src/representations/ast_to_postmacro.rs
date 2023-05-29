@@ -23,8 +23,9 @@ pub enum Error {
 impl Display for Error {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Error::EmptyS =>
-        write!(f, "`()` as a clause is meaningless in lambda calculus"),
+      Error::EmptyS => {
+        write!(f, "`()` as a clause is meaningless in lambda calculus")
+      },
       Error::BadGroup(_) => write!(
         f,
         "Only `(...)` may be converted to typed lambdas. `[...]` and \
