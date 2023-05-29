@@ -12,7 +12,9 @@ use crate::representations::{Literal, Primitive};
 /// A number, either floating point or unsigned int, visible to Orchid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Numeric {
+  /// A nonnegative integer such as a size, index or count
   Uint(u64),
+  /// A float other than NaN. Orchid has no silent errors
   Num(NotNan<f64>),
 }
 

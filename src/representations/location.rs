@@ -17,7 +17,7 @@ pub enum Location {
     /// Argument to the file loading callback that produced this code
     file: Rc<Vec<String>>,
     /// Index of the unicode code points associated with the code
-    range: Range<usize>
+    range: Range<usize>,
   },
 }
 

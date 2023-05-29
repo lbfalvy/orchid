@@ -18,17 +18,17 @@ macro_rules! atomic_redirect {
     }
   };
   ($typ:ident, $field:ident) => {
-    impl AsRef<$crate::representations::interpreted::ExprInst> for $typ {
-      fn as_ref(&self) -> &$crate::representations::interpreted::ExprInst {
+    impl AsRef<$crate::interpreted::ExprInst> for $typ {
+      fn as_ref(&self) -> &$crate::interpreted::ExprInst {
         &self.$field
       }
     }
-    impl From<(&Self, $crate::representations::interpreted::ExprInst)>
+    impl From<(&Self, $crate::interpreted::ExprInst)>
       for $typ
     {
       #[allow(clippy::needless_update)]
       fn from(
-        (old, $field): (&Self, $crate::representations::interpreted::ExprInst),
+        (old, $field): (&Self, $crate::interpreted::ExprInst),
       ) -> Self {
         Self { $field, ..old.clone() }
       }

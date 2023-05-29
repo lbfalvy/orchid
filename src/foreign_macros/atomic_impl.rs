@@ -9,7 +9,7 @@ use dyn_clone::DynClone;
 #[allow(unused)] // for the doc comments
 use crate::foreign::{Atomic, ExternFn};
 #[allow(unused)] // for the doc comments
-use crate::representations::Primitive;
+use crate::Primitive;
 
 /// A macro that generates implementations of [Atomic] to simplify the
 /// development of external bindings for Orchid.
@@ -17,7 +17,7 @@ use crate::representations::Primitive;
 /// The macro depends on implementations of [`AsRef<Clause>`] and
 /// [`From<(&Self, Clause)>`] for extracting the clause to be processed and then
 /// reconstructing the [Atomic]. Naturally, supertraits of [Atomic] are also
-/// dependencies. These are [Any], [Debug] and [DynClone].
+/// dependencies. These are [Any], [Debug] and [Clone].
 ///
 /// The simplest form just requires the typename to be specified. This
 /// additionally depends on an implementation of [ExternFn] because after the
@@ -26,21 +26,36 @@ use crate::representations::Primitive;
 /// function where validation and the next state are defined in
 /// [ExternFn::apply].
 ///
-/// ```
-/// atomic_impl!(Multiply1)
-/// ```
-///
 /// The last stage of the function should use the extended form of the macro
 /// which takes an additional closure to explicitly describe what happens when
 /// the argument is fully processed.
 ///
+/// _definition of the `add` function in the STL_
 /// ```
-/// // excerpt from the exact implementation of Multiply
-/// atomic_impl!(Multiply0, |Self(a, cls): &Self| {
-///   let b: Numeric =
-///     cls.clone().try_into().map_err(AssertionError::into_extern)?;
-///   Ok(*a * b).into()
-/// })
+/// use orchidlang::stl::Numeric;
+/// use orchidlang::interpreted::ExprInst;
+/// use orchidlang::{atomic_impl, atomic_redirect, externfn_impl};
+/// 
+/// #[derive(Clone)]
+/// pub struct Add2;
+/// externfn_impl!(Add2, |_: &Self, x: ExprInst| Ok(Add1 { x }));
+/// 
+/// #[derive(Debug, Clone)]
+/// pub struct Add1 { x: ExprInst }
+/// atomic_redirect!(Add1, x);
+/// atomic_impl!(Add1);
+/// externfn_impl!(Add1, |this: &Self, x: ExprInst| {
+///   let a: Numeric = this.x.clone().try_into()?;
+///   Ok(Add0 { a, x })
+/// });
+/// 
+/// #[derive(Debug, Clone)]
+/// pub struct Add0 { a: Numeric, x: ExprInst }
+/// atomic_redirect!(Add0, x);
+/// atomic_impl!(Add0, |Self { a, x }: &Self, _| {
+///   let b: Numeric = x.clone().try_into()?;
+///   Ok((*a + b).into())
+/// });
 /// ```
 #[macro_export]
 macro_rules! atomic_impl {
@@ -60,7 +75,7 @@ macro_rules! atomic_impl {
       ) -> $crate::foreign::AtomicResult {
         // extract the expression
         let expr = <Self as AsRef<
-          $crate::representations::interpreted::ExprInst,
+          $crate::interpreted::ExprInst,
         >>::as_ref(self)
         .clone();
         // run the expression
@@ -69,7 +84,7 @@ macro_rules! atomic_impl {
         // rebuild the atomic
         let next_self = <Self as From<(
           &Self,
-          $crate::representations::interpreted::ExprInst,
+          $crate::interpreted::ExprInst,
         )>>::from((self, state));
         // branch off or wrap up
         let clause = if inert {

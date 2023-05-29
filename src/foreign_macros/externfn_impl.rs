@@ -28,14 +28,14 @@ macro_rules! externfn_impl {
       }
       fn apply(
         &self,
-        arg: $crate::representations::interpreted::ExprInst,
+        arg: $crate::interpreted::ExprInst,
         _ctx: $crate::interpreter::Context,
       ) -> $crate::foreign::XfnResult {
         let closure = $next_atomic;
         match closure(self, arg) {
           // ? casts the result but we want to strictly forward it
-          Ok(r) => Ok($crate::representations::interpreted::Clause::P(
-            $crate::representations::Primitive::Atom(
+          Ok(r) => Ok($crate::interpreted::Clause::P(
+            $crate::Primitive::Atom(
               $crate::foreign::Atom::new(r),
             ),
           )),
