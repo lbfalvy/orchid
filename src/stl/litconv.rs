@@ -1,3 +1,5 @@
+//! Utility functions that operate on literals. Because of the parallel locked
+//! nature of [ExprInst], returning a reference to [Literal] is not possible.
 use std::rc::Rc;
 
 use super::assertion_error::AssertionError;

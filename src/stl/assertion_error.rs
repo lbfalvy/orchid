@@ -8,11 +8,13 @@ use crate::representations::interpreted::ExprInst;
 /// hold.
 #[derive(Clone)]
 pub struct AssertionError {
-  pub value: ExprInst,
-  pub assertion: &'static str,
+  value: ExprInst,
+  assertion: &'static str,
 }
 
 impl AssertionError {
+  /// Construct, upcast and wrap in a Result that never succeeds for easy
+  /// short-circuiting
   pub fn fail<T>(
     value: ExprInst,
     assertion: &'static str,
@@ -20,6 +22,7 @@ impl AssertionError {
     return Err(Self { value, assertion }.into_extern());
   }
 
+  /// Construct and upcast to [ExternError]
   pub fn ext(value: ExprInst, assertion: &'static str) -> Rc<dyn ExternError> {
     return Self { value, assertion }.into_extern();
   }

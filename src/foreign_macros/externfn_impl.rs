@@ -19,7 +19,7 @@ use crate::{atomic_impl, atomic_redirect};
 /// reference to self and a closure. This can be used in conjunction with
 /// [atomic_impl] and [atomic_redirect] to normalize the argument automatically
 /// before using it.
-/// 
+///
 /// See [atomic_impl] for an example.
 #[macro_export]
 macro_rules! externfn_impl {

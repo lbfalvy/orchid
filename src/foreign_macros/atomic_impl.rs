@@ -65,7 +65,7 @@ use crate::Primitive;
 #[macro_export]
 macro_rules! atomic_impl {
   ($typ:ident) => {
-    atomic_impl! {$typ, |this: &Self, _: $crate::interpreter::Context| {
+    $crate::atomic_impl! {$typ, |this: &Self, _: $crate::interpreter::Context| {
       use $crate::foreign::ExternFn;
       Ok(this.clone().to_xfn_cls())
     }}

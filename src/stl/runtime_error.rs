@@ -11,6 +11,8 @@ pub struct RuntimeError {
 }
 
 impl RuntimeError {
+  /// Construct, upcast and wrap in a Result that never succeeds for easy
+  /// short-circuiting
   pub fn fail<T>(
     message: String,
     operation: &'static str,
@@ -18,6 +20,7 @@ impl RuntimeError {
     return Err(Self { message, operation }.into_extern());
   }
 
+  /// Construct and upcast to [ExternError]
   pub fn ext(message: String, operation: &'static str) -> Rc<dyn ExternError> {
     return Self { message, operation }.into_extern();
   }
