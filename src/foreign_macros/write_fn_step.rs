@@ -1,14 +1,18 @@
 #[allow(unused)] // for doc
+use crate::define_fn;
+#[allow(unused)] // for doc
 use crate::foreign::ExternFn;
 #[allow(unused)] // for doc
 use crate::interpreted::ExprInst;
 
 /// Write one step in the state machine representing a simple n-ary non-variadic
-/// Orchid function.
+/// Orchid function. There are no known use cases for it that aren't expressed
+/// better with [define_fn] which generates calls to this macro.
 ///
 /// There are three ways to call this macro for the initial state, internal
 /// state, and exit state. All of them are demonstrated in one example and
-/// discussed below.
+/// discussed below. The newly bound names (here `s` and `i` before `=`) can
+/// also receive type annotations.
 ///
 /// ```
 /// use orchidlang::{write_fn_step, Literal, Primitive};
@@ -21,13 +25,13 @@ use crate::interpreted::ExprInst;
 /// // Middle state
 /// write_fn_step!(
 ///   CharAt1 {}
-///   CharAt0 where s = |x| with_str(x, |s| Ok(s.clone()))
+///   CharAt0 where s = x => with_str(x, |s| Ok(s.clone()));
 /// );
 /// // Exit state
 /// write_fn_step!(
 ///   CharAt0 { s: String }
-///   i = |x| with_uint(x, Ok)
-///   => {
+///   i = x => with_uint(x, Ok);
+///   {
 ///     if let Some(c) = s.chars().nth(i as usize) {
 ///       Ok(Clause::P(Primitive::Literal(Literal::Char(c))))
 ///     } else {
@@ -47,12 +51,12 @@ use crate::interpreted::ExprInst;
 /// The middle state defines a sequence of arguments with types similarly to a
 /// struct definition. A field called `expr_inst` of type [ExprInst] is added
 /// implicitly, so the first middle state has an empty field list. The next
-/// state is also provided, alongside the name and conversion function of the
-/// next parameter which is [FnOnce(&ExprInst) -> Result<_, RuntimeError>]. The
-/// success type is inferred from the type of the field at the place of its
-/// actual definition. This conversion is done in the implementation of
-/// [ExternFn] which also places the new [ExprInst] into `expr_inst` on the next
-/// state.
+/// state is also provided, alongside the name and conversion of the next
+/// parameter from a [&ExprInst] under the provided alias to a
+/// `Result<_, Rc<dyn ExternError>>`. The success type is inferred from the
+/// type of the field at the place of its actual definition. This conversion is
+/// done in the implementation of [ExternFn] which also places the new
+/// [ExprInst] into `expr_inst` on the next state.
 ///
 /// The final state defines the sequence of all arguments except for the last
 /// one with the same syntax used by the middle state, and the name and
@@ -65,7 +69,9 @@ use crate::interpreted::ExprInst;
 /// before the body is evaluated.
 #[macro_export]
 macro_rules! write_fn_step {
-  ($quant:vis $name:ident > $next:ident) => {
+  // write entry stage
+  ( $( #[ $attr:meta ] )* $quant:vis $name:ident > $next:ident) => {
+    $( #[ $attr ] )*
     #[derive(Clone)]
     $quant struct $name;
     $crate::externfn_impl!{
@@ -75,12 +81,15 @@ macro_rules! write_fn_step {
       }
     }
   };
+  // write middle stage
   (
-    $quant:vis $name:ident {
+    $( #[ $attr:meta ] )* $quant:vis $name:ident {
       $( $arg:ident : $typ:ty ),*
     }
-    $next:ident where $added:ident = $extract:expr
+    $next:ident where
+    $added:ident $( : $added_typ:ty )? = $xname:ident => $extract:expr ;
   ) => {
+    $( #[ $attr ] )*
     #[derive(std::fmt::Debug, Clone)]
     $quant struct $name {
       $( $arg: $typ, )*
@@ -91,22 +100,24 @@ macro_rules! write_fn_step {
     $crate::externfn_impl!(
       $name,
       |this: &Self, expr_inst: $crate::interpreted::ExprInst| {
-        let lambda = $extract;
+        let $xname = &this.expr_inst;
+        let $added $( :$added_typ )? = $extract?;
         Ok($next{
           $( $arg: this.$arg.clone(), )*
-          $added: lambda(&this.expr_inst)?,
-          expr_inst
+          $added, expr_inst
         })
       }
     );
   };
+  // write final stage
   (
-    $quant:vis $name:ident {
+    $( #[ $attr:meta ] )* $quant:vis $name:ident {
       $( $arg:ident: $typ:ty ),*
     }
-    $added:ident = $extract:expr
-    => $process:expr
+    $added:ident $(: $added_typ:ty )? = $xname:ident => $extract:expr ;
+    $process:expr
   ) => {
+    $( #[ $attr ] )*
     #[derive(std::fmt::Debug, Clone)]
     $quant struct $name {
       $( $arg: $typ, )+
@@ -116,8 +127,8 @@ macro_rules! write_fn_step {
     $crate::atomic_impl!(
       $name,
       |Self{ $($arg, )* expr_inst }: &Self, _| {
-        let lambda = $extract;
-        let $added = lambda(expr_inst)?;
+        let $xname = expr_inst;
+        let $added $(: $added_typ )? = $extract?;
         $process
       }
     );

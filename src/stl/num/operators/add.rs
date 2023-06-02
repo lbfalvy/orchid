@@ -4,14 +4,10 @@ use super::super::Numeric;
 use crate::representations::interpreted::ExprInst;
 use crate::{atomic_impl, atomic_redirect, externfn_impl};
 
-/// Adds two numbers
-///
-/// Next state: [Add1]
 #[derive(Clone)]
 pub struct Add2;
 externfn_impl!(Add2, |_: &Self, x: ExprInst| Ok(Add1 { x }));
 
-/// Prev state: [Add2]; Next state: [Add0]
 #[derive(Debug, Clone)]
 pub struct Add1 {
   x: ExprInst,
@@ -23,7 +19,6 @@ externfn_impl!(Add1, |this: &Self, x: ExprInst| {
   Ok(Add0 { a, x })
 });
 
-/// Prev state: [Add1]
 #[derive(Debug, Clone)]
 pub struct Add0 {
   a: Numeric,

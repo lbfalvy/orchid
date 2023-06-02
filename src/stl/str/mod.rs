@@ -7,6 +7,6 @@ use crate::pipeline::ConstTree;
 pub fn str(i: &Interner) -> ConstTree {
   ConstTree::tree([(
     i.i("concatenate"),
-    ConstTree::xfn(concatenate::Concatenate2),
+    ConstTree::xfn(concatenate::Concatenate),
   )])
 }
