@@ -1,4 +1,4 @@
-import std::panic
+import std::io::panic
 
 export some := \v. \d.\f. f v
 export none := \d.\f. d

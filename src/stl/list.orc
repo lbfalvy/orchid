@@ -1,5 +1,4 @@
-import option
-import super::fn::*
+import super::(option, fn::*, bool::*, known::*, num::*,)
 
 pair := \a.\b. \f. f a b
 

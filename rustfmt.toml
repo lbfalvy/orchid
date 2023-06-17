@@ -12,7 +12,6 @@ newline_style = "Unix"
 normalize_comments = true
 wrap_comments = true
 overflow_delimited_expr = true
-single_line_if_else_max_width = 50
 use_small_heuristics = "Max"
 
 # literals

@@ -57,11 +57,7 @@ fn source_to_module(
   let imports = data
     .iter()
     .filter_map(|ent| {
-      if let FileEntry::Import(impv) = ent {
-        Some(impv.iter())
-      } else {
-        None
-      }
+      if let FileEntry::Import(impv) = ent { Some(impv.iter()) } else { None }
     })
     .flatten()
     .cloned()
@@ -182,6 +178,10 @@ fn files_to_module(
   i: &Interner,
 ) -> Rc<Module<Expr, ProjectExt>> {
   let lvl = path.len();
+  debug_assert!(
+    files.iter().map(|f| f.path.len()).max().unwrap() >= lvl,
+    "path is longer than any of the considered file paths"
+  );
   let path_v = path.iter().rev_vec_clone();
   if files.len() == 1 && files[0].path.len() == lvl {
     return source_to_module(
@@ -227,6 +227,7 @@ pub fn build_tree(
   prelude: &[FileEntry],
   injected: &impl InjectedOperatorsFn,
 ) -> Result<ProjectTree, Rc<dyn ProjectError>> {
+  assert!(!files.is_empty(), "A tree requires at least one module");
   let ops_cache = collect_ops::mk_cache(&files, i, injected);
   let mut entries = files
     .iter()

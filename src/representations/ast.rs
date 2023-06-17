@@ -179,11 +179,8 @@ impl Clause {
     match self {
       Clause::Lambda(arg, body) => {
         arg.visit_names(binds, cb);
-        let new_binds = if let Clause::Name(n) = arg.value {
-          binds.push(n)
-        } else {
-          binds
-        };
+        let new_binds =
+          if let Clause::Name(n) = arg.value { binds.push(n) } else { binds };
         for x in body.iter() {
           x.visit_names(new_binds, cb)
         }
@@ -216,11 +213,7 @@ impl Clause {
             val.unwrap_or_else(|| e.clone())
           })
           .collect();
-        if any_some {
-          Some(Clause::S(*c, Rc::new(new_body)))
-        } else {
-          None
-        }
+        if any_some { Some(Clause::S(*c, Rc::new(new_body))) } else { None }
       },
       Clause::Lambda(arg, body) => {
         let new_arg = arg.map_names(pred);

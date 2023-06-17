@@ -1,8 +1,4 @@
-import list
-import map
-import option
-import fn::*
-import std::(print, to_string)
+import std::(proc::*, io::print, to_string)
 
 export main := do{
   let foo = map::new[

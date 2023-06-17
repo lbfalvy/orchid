@@ -115,11 +115,7 @@ impl InternedDisplay for Lexeme {
       Self::PH(Placeholder { name, class }) => match *class {
         PHClass::Scalar => write!(f, "${}", i.r(*name)),
         PHClass::Vec { nonzero, prio } => {
-          if nonzero {
-            write!(f, "...")
-          } else {
-            write!(f, "..")
-          }?;
+          if nonzero { write!(f, "...") } else { write!(f, "..") }?;
           write!(f, "${}", i.r(*name))?;
           if prio != 0 {
             write!(f, ":{}", prio)?;

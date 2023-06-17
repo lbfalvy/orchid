@@ -52,7 +52,7 @@ impl<T: Eq + Hash + Clone> TypedInterner<T> {
   pub fn r(&self, t: Tok<T>) -> &T {
     let values = self.values.borrow();
     let key = t.into_usize() - 1;
-    values[key].0
+    values[key].0.borrow()
   }
 
   /// Intern a static reference without allocating the data on the heap
@@ -91,7 +91,7 @@ impl<T: Eq + Hash + Clone> Drop for TypedInterner<T> {
       if !owned {
         continue;
       }
-      unsafe { Box::from_raw((item as *const T).cast_mut()) };
+      let _ = unsafe { Box::from_raw((item as *const T).cast_mut()) };
     }
   }
 }

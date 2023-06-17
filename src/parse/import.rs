@@ -83,11 +83,7 @@ pub fn import_parser<'a>(
         Some(Import {
           path: ctx.interner().i(&path),
           name: {
-            if name == ctx.interner().i("*") {
-              None
-            } else {
-              Some(name)
-            }
+            if name == ctx.interner().i("*") { None } else { Some(name) }
           },
         })
       })

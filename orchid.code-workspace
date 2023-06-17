@@ -36,35 +36,13 @@
 	},
 	"extensions": {
 		"recommendations": [
-			"tomoki1207.pdf",
-			"james-yu.latex-workshop",
 			"bungcip.better-toml",
 			"maptz.regionfolder",
 			"serayuzgur.crates",
 			"tamasfe.even-better-toml",
-			"haskell.haskell",
-			"justusadam.language-haskell",
 			"yzhang.markdown-all-in-one",
-			"goessner.mdmath",
-			"gruntfuggly.todo-tree"
+			"gruntfuggly.todo-tree",
+			"vadimcn.vscode-lldb"
 		]
 	},
-	"launch": {
-		"version": "0.2.0",
-		"configurations": [
-			{
-				"type": "lldb",
-				"request": "launch",
-				"name": "Cargo launch",
-				"cwd": "${workspaceFolder:orchid}",
-				"program": "${workspaceFolder}/target/debug/orchid",
-				"cargo": {
-					"args": [
-						"run",
-					]
-				},
-				"args": []
-			}
-		]
-	}
 }

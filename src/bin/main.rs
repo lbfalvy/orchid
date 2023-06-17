@@ -1,170 +1,166 @@
-use std::borrow::Borrow;
+mod cli;
+
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::process;
 
 use clap::Parser;
 use hashbrown::HashMap;
 use itertools::Itertools;
 use orchidlang::interner::{InternedDisplay, Interner, Sym};
-use orchidlang::pipeline::file_loader::{mk_cache, Loaded};
-use orchidlang::pipeline::{
-  collect_consts, collect_rules, from_const_tree, parse_layer, ProjectTree,
-};
-use orchidlang::rule::Repo;
-use orchidlang::sourcefile::{FileEntry, Import};
-use orchidlang::{ast_to_interpreted, interpreter, stl};
+use orchidlang::{ast, ast_to_interpreted, interpreter, pipeline, rule, stl};
+
+use crate::cli::cmd_prompt;
 
 /// Orchid interpreter
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-  /// Folder containing main.orc
+  /// Folder containing main.orc or the manually specified entry module
   #[arg(short, long, default_value = ".")]
-  pub project: String,
+  pub dir: String,
+  /// Entrypoint for the interpreter
+  #[arg(short, long, default_value = "main::main")]
+  pub main: String,
+  /// Maximum number of steps taken by the macro executor
+  #[arg(long, default_value_t = 10_000)]
+  pub macro_limit: usize,
+  /// Print the parsed ruleset and exit
+  #[arg(long)]
+  pub dump_repo: bool,
+  /// Step through the macro execution process in the specified symbol
+  #[arg(long, default_value = "")]
+  pub macro_debug: String,
 }
 impl Args {
+  /// Validate the project directory and the
+  pub fn chk_dir_main(&self) -> Result<(), String> {
+    let dir_path = PathBuf::from(&self.dir);
+    if !dir_path.is_dir() {
+      return Err(format!("{} is not a directory", dir_path.display()));
+    }
+    let segs = self.main.split("::").collect::<Vec<_>>();
+    if segs.len() < 2 {
+      return Err("Entry point too short".to_string());
+    }
+    let (pathsegs, _) = segs.split_at(segs.len() - 1);
+    let mut possible_files = pathsegs.iter().scan(dir_path, |path, seg| {
+      path.push(seg);
+      Some(path.with_extension("orc"))
+    });
+    if possible_files.all(|p| File::open(p).is_err()) {
+      return Err(format!(
+        "{} not found in {}",
+        pathsegs.join("::"),
+        PathBuf::from(&self.dir).display()
+      ));
+    }
+    Ok(())
+  }
+
   pub fn chk_proj(&self) -> Result<(), String> {
-    let mut path = PathBuf::from(&self.project);
-    path.push(PathBuf::from("main.orc"));
-    if File::open(&path).is_ok() {
-      Ok(())
-    } else {
-      Err(format!("{} not found", path.display()))
+    self.chk_dir_main()
+  }
+}
+
+/// Load and parse all source related to the symbol `target` or all symbols
+/// in the namespace `target` in the context of the STL. All sourcefiles must
+/// reside within `dir`.
+fn load_dir(dir: &Path, target: Sym, i: &Interner) -> pipeline::ProjectTree {
+  let file_cache = pipeline::file_loader::mk_dir_cache(dir.to_path_buf(), i);
+  let library = stl::mk_stl(i, stl::StlOptions::default());
+  pipeline::parse_layer(
+    &[target],
+    &|path| file_cache.find(&path),
+    &library,
+    &stl::mk_prelude(i),
+    i,
+  )
+  .expect("Failed to load source code")
+}
+
+pub fn to_sym(data: &str, i: &Interner) -> Sym {
+  i.i(&data.split("::").map(|s| i.i(s)).collect::<Vec<_>>()[..])
+}
+
+/// A little utility to step through the resolution of a macro set
+pub fn macro_debug(repo: rule::Repo, mut code: ast::Expr, i: &Interner) {
+  let mut idx = 0;
+  println!("Macro debugger working on {}", code.bundle(i));
+  loop {
+    let (cmd, _) = cmd_prompt("cmd> ").unwrap();
+    match cmd.trim() {
+      "" | "n" | "next" =>
+        if let Some(c) = repo.step(&code) {
+          idx += 1;
+          code = c;
+          println!("Step {idx}: {}", code.bundle(i));
+        },
+      "p" | "print" => println!("Step {idx}: {}", code.bundle(i)),
+      "d" | "dump" => println!("Rules: {}", repo.bundle(i)),
+      "q" | "quit" => return,
+      "h" | "help" => println!(
+        "Available commands:
+        \t<blank>, n, next\t\ttake a step
+        \tp, print\t\tprint the current state
+        \tq, quit\t\texit
+        \th, help\t\tprint this text"
+      ),
+      _ => {
+        println!("unrecognized command \"{}\", try \"help\"", cmd);
+        continue;
+      },
     }
   }
 }
 
-fn main() {
+pub fn main() {
   let args = Args::parse();
   args.chk_proj().unwrap_or_else(|e| panic!("{e}"));
-  run_dir(PathBuf::try_from(args.project).unwrap().borrow());
-}
-
-static PRELUDE_TXT: &str = r#"
-import std::(
-  add, subtract, multiply, remainder, divide,
-  equals, ifthenelse,
-  concatenate
-)
-
-export ...$a + ...$b =0x2p36=> (add (...$a) (...$b))
-export ...$a - ...$b:1 =0x2p36=> (subtract (...$a) (...$b))
-export ...$a * ...$b =0x1p36=> (multiply (...$a) (...$b))
-export ...$a % ...$b:1 =0x1p36=> (remainder (...$a) (...$b))
-export ...$a / ...$b:1 =0x1p36=> (divide (...$a) (...$b))
-export ...$a == ...$b =0x3p36=> (equals (...$a) (...$b))
-export ...$a ++ ...$b =0x4p36=> (concatenate (...$a) (...$b))
-
-export do { ...$statement ; ...$rest:1 } =0x2p130=> statement (...$statement) do { ...$rest }
-export do { ...$return } =0x1p130=> ...$return
-
-export statement (let $name = ...$value) ...$next =0x1p230=> (
-  (\$name. ...$next) (...$value)
-)
-export statement (cps $name = ...$operation) ...$next =0x2p230=> (
-  (...$operation) \$name. ...$next
-)
-export statement (cps ...$operation) ...$next =0x1p230=> (
-  (...$operation) (...$next)
-)
-
-export if ...$cond then ...$true else ...$false:1 =0x1p84=> (
-  ifthenelse (...$cond) (...$true) (...$false)
-)
-
-export ::(,)
-"#;
-
-fn prelude_path(i: &Interner) -> Sym {
-  i.i(&[i.i("prelude")][..])
-}
-fn mainmod_path(i: &Interner) -> Sym {
-  i.i(&[i.i("main")][..])
-}
-fn entrypoint(i: &Interner) -> Sym {
-  i.i(&[i.i("main"), i.i("main")][..])
-}
-
-fn load_environment(i: &Interner) -> ProjectTree {
-  let env = from_const_tree(
-    HashMap::from([(i.i("std"), stl::mk_stl(i))]),
-    &[i.i("std")],
-    i,
-  );
-  let loader = |path: Sym| {
-    if path == prelude_path(i) {
-      Ok(Loaded::Code(Rc::new(PRELUDE_TXT.to_string())))
-    } else {
-      panic!(
-        "Prelude pointed to non-std path {}",
-        i.extern_vec(path).join("::")
-      )
-    }
-  };
-  parse_layer(&[prelude_path(i)], &loader, &env, &[], i).expect("prelude error")
-}
-
-fn load_dir(i: &Interner, dir: &Path) -> ProjectTree {
-  let environment = load_environment(i);
-  let file_cache = mk_cache(dir.to_path_buf(), i);
-  let loader = |path| file_cache.find(&path);
-  let prelude =
-    [FileEntry::Import(vec![Import { path: prelude_path(i), name: None }])];
-  parse_layer(&[mainmod_path(i)], &loader, &environment, &prelude, i)
-    .expect("Failed to load source code")
-}
-
-pub fn run_dir(dir: &Path) {
+  let dir = PathBuf::try_from(args.dir).unwrap();
   let i = Interner::new();
-  let project = load_dir(&i, dir);
-  let rules = collect_rules(&project);
-  let consts = collect_consts(&project, &i);
-  println!("Initializing rule repository with {} rules", rules.len());
-  let repo = Repo::new(rules, &i).unwrap_or_else(|(rule, error)| {
+  let main = to_sym(&args.main, &i);
+  let project = load_dir(&dir, main, &i);
+  let rules = pipeline::collect_rules(&project);
+  let consts = pipeline::collect_consts(&project, &i);
+  let repo = rule::Repo::new(rules, &i).unwrap_or_else(|(rule, error)| {
     panic!(
       "Rule error: {}
-        Offending rule: {}",
+      Offending rule: {}",
       error.bundle(&i),
       rule.bundle(&i)
     )
   });
-  println!("Repo dump: {}", repo.bundle(&i));
+  if args.dump_repo {
+    println!("Parsed rules: {}", repo.bundle(&i));
+    return;
+  } else if !args.macro_debug.is_empty() {
+    let name = to_sym(&args.macro_debug, &i);
+    let code = consts
+      .get(&name)
+      .unwrap_or_else(|| panic!("Constant {} not found", args.macro_debug));
+    return macro_debug(repo, code.clone(), &i);
+  }
   let mut exec_table = HashMap::new();
   for (name, source) in consts.iter() {
-    // let nval = entrypoint(&i); let name = &nval; let source = &consts[name];
-    let mut tree = source.clone();
     let displayname = i.extern_vec(*name).join("::");
-    let macro_timeout = 100;
-    println!("Executing macros in {displayname}...",);
-    let mut idx = 0;
-    let unmatched = loop {
-      if idx == macro_timeout {
-        panic!("Macro execution in {displayname} didn't halt")
-      }
-      match repo.step(&tree) {
-        None => break tree,
-        Some(phase) => {
-          println!("Step {idx}/{macro_timeout}: {}", phase.bundle(&i));
-          tree = phase;
-        },
-      }
-      idx += 1;
-    };
-    let runtree = ast_to_interpreted(&unmatched)
-      .unwrap_or_else(|e| panic!("Postmacro conversion error: {e}"));
+    let (unmatched, steps_left) = repo.long_step(source, args.macro_limit + 1);
+    assert!(steps_left > 0, "Macro execution in {displayname} did not halt");
+    let runtree = ast_to_interpreted(&unmatched).unwrap_or_else(|e| {
+      panic!("Postmacro conversion error in {displayname}: {e}")
+    });
     exec_table.insert(*name, runtree);
   }
-  println!("macro execution complete");
   let ctx =
     interpreter::Context { symbols: &exec_table, interner: &i, gas: None };
-  let entrypoint = exec_table.get(&entrypoint(&i)).unwrap_or_else(|| {
+  let entrypoint = exec_table.get(&main).unwrap_or_else(|| {
+    let main = args.main;
+    let symbols =
+      exec_table.keys().map(|t| i.extern_vec(*t).join("::")).join(", ");
     panic!(
-      "entrypoint not found, known keys are: {}",
-      exec_table
-        .keys()
-        .map(|t| i.r(*t).iter().map(|t| i.r(*t)).join("::"))
-        .join(", ")
+      "Entrypoint not found!
+      Entrypoint was {main}
+      known keys are {symbols}"
     )
   });
   let io_handler = orchidlang::stl::handleIO;
@@ -173,12 +169,11 @@ pub fn run_dir(dir: &Path) {
     ret.unwrap_or_else(|e| panic!("Runtime error: {}", e));
   if inert {
     println!("Settled at {}", state.expr().clause.bundle(&i));
-    println!(
-      "Remaining gas: {}",
-      gas.map(|g| g.to_string()).unwrap_or(String::from("∞"))
-    );
-  }
-  if gas == Some(0) {
-    println!("Ran out of gas!")
+    if let Some(g) = gas {
+      println!("Remaining gas: {g}")
+    }
+  } else if gas == Some(0) {
+    eprintln!("Ran out of gas!");
+    process::exit(-1);
   }
 }

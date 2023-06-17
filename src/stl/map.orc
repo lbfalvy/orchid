@@ -1,8 +1,5 @@
-import list
-import option
-import fn::*
-import std::to_string
-import std::debug
+import super::(bool::*, fn::*, known::*, list, option, proc::*)
+import std::io::panic
 
 -- utilities for using lists as pairs
 

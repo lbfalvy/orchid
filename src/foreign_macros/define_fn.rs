@@ -26,6 +26,15 @@ use crate::write_fn_step;
 /// defined in the first step and returns a [Result] of the success type or
 /// `Rc<dyn ExternError>`.
 ///
+/// To avoid typing the same expression a lot, the conversion is optional.
+/// If it is omitted, the field is initialized with a [TryInto::try_into] call
+/// from `&ExprInst` to the target type. In this case, the error is
+/// short-circuited using `?` so conversions through `FromResidual` are allowed.
+/// The optional syntax starts with `as`.
+///
+/// If all conversions are omitted, the alias definition (`expr=$ident in`) has
+/// no effect and is therefore optional.
+///
 /// Finally, the body of the function is provided as an expression which can
 /// reference all of the arguments by their names, each bound to a ref of the
 /// specified type.
@@ -45,13 +54,59 @@ use crate::write_fn_step;
 ///   }
 /// }
 /// ```
+///
+/// A simpler format is also offered for unary functions:
+///
+/// ```
+/// use orchidlang::stl::litconv::with_lit;
+/// use orchidlang::{define_fn, Literal};
+///
+/// define_fn! {
+///   /// Convert a literal to a string using Rust's conversions for floats,
+///   /// chars and uints respectively
+///   ToString = |x| with_lit(x, |l| Ok(match l {
+///     Literal::Char(c) => c.to_string(),
+///     Literal::Uint(i) => i.to_string(),
+///     Literal::Num(n) => n.to_string(),
+///     Literal::Str(s) => s.clone(),
+///   })).map(|s| Literal::Str(s).into())
+/// }
+/// ```
 #[macro_export]
 macro_rules! define_fn {
+  // Unary function entry
+  ($( #[ $attr:meta ] )* $qual:vis $name:ident = $body:expr) => {paste::paste!{
+    $crate::write_fn_step!(
+      $( #[ $attr ] )* $qual $name
+      >
+      [< Internal $name >]
+    );
+    $crate::write_fn_step!(
+      [< Internal $name >]
+      {}
+      out = expr => Ok(expr);
+      {
+        let lambda = $body;
+        lambda(out)
+      }
+    );
+  }};
+  // xname is optional only if every conversion is implicit
+  ($( #[ $attr:meta ] )* $qual:vis $name:ident {
+    $( $arg:ident: $typ:ty ),+
+  } => $body:expr) => {
+    $crate::define_fn!{expr=expr in
+      $( #[ $attr ] )* $qual $name {
+        $( $arg: $typ ),*
+      } => $body
+    }
+  };
+  // multi-parameter function entry
   (expr=$xname:ident in
     $( #[ $attr:meta ] )*
     $qual:vis $name:ident {
-      $arg0:ident: $typ0:ty as $parse0:expr
-      $(, $arg:ident: $typ:ty as $parse:expr )*
+      $arg0:ident: $typ0:ty $( as $parse0:expr )?
+      $(, $arg:ident: $typ:ty $( as $parse:expr )? )*
     } => $body:expr
   ) => {paste::paste!{
     // Generate initial state
@@ -64,8 +119,10 @@ macro_rules! define_fn {
     $crate::define_fn!(@MIDDLE $xname [< Internal $name >] ($body)
       ()
       (
-        ($arg0: $typ0 as $parse0)
-        $( ($arg: $typ as $parse) )*
+        ( $arg0: $typ0 $( as $parse0)? )
+        $(
+          ( $arg: $typ $( as $parse)? )
+        )*
       )
     );
   }};
@@ -80,10 +137,10 @@ macro_rules! define_fn {
     // later fields
     (
       // field that should be processed by this step
-      ( $arg0:ident: $typ0:ty as $parse0:expr )
+      ( $arg0:ident: $typ0:ty $( as $parse0:expr )? )
       // ensure that we have a next stage
       $(
-        ( $arg:ident: $typ:ty as $parse:expr )
+        ( $arg:ident: $typ:ty $( as $parse:expr )? )
       )+
     )
   ) => {paste::paste!{
@@ -93,7 +150,7 @@ macro_rules! define_fn {
         $( $arg_prev:ident : $typ_prev:ty ),*
       }
       [< $name $arg0:upper >]
-      where $arg0:$typ0 = $xname => $parse0;
+      where $arg0:$typ0 $( = $xname => $parse0 )? ;
     );
     $crate::define_fn!(@MIDDLE $xname [< $name $arg0:upper >] ($body)
       (
@@ -101,7 +158,9 @@ macro_rules! define_fn {
         ($arg0: $typ0)
       )
       (
-        $( ($arg: $typ as $parse) )+
+        $(
+          ( $arg: $typ $( as $parse)? )
+        )+
       )
     );
   }};
@@ -113,7 +172,7 @@ macro_rules! define_fn {
     )
     // the last one is initialized before the body runs
     (
-      ($arg0:ident: $typ0:ty as $parse0:expr)
+      ($arg0:ident: $typ0:ty $( as $parse0:expr )? )
     )
   ) => {
     $crate::write_fn_step!(
@@ -121,7 +180,7 @@ macro_rules! define_fn {
       {
         $( $arg_prev: $typ_prev ),*
       }
-      $arg0:$typ0 = $xname => $parse0;
+      $arg0:$typ0 $( = $xname => $parse0 )? ;
       $body
     );
   };

@@ -1,4 +1,6 @@
 //! Building blocks of a source file
+use std::iter;
+
 use itertools::{Either, Itertools};
 
 use crate::ast::{Constant, Rule};
@@ -157,7 +159,9 @@ pub fn absolute_path(
     if tail.is_empty() {
       Ok(new_abs.to_vec())
     } else {
-      absolute_path(new_abs, tail, i)
+      let new_rel =
+        iter::once(i.i("self")).chain(tail.iter().copied()).collect::<Vec<_>>();
+      absolute_path(new_abs, &new_rel, i)
     }
   } else if *head == i.i("self") {
     Ok(abs_location.iter().chain(tail.iter()).copied().collect())

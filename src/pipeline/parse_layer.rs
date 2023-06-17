@@ -34,13 +34,16 @@ pub fn parse_layer(
   };
   let source =
     source_loader::load_source(targets, prelude, i, loader, &|path| {
-      injected_as(path).is_some()
+      environment.0.walk(&i.r(path)[..], false).is_ok()
     })?;
   let tree = project_tree::build_tree(source, i, prelude, &injected_names)?;
   let sum = ProjectTree(Rc::new(
-    environment.0.as_ref().clone() + tree.0.as_ref().clone(),
+    environment.0.as_ref().clone().overlay(tree.0.as_ref().clone()),
   ));
-  let resolvd = import_resolution::resolve_imports(sum, i, &injected_as)?;
+  let resolvd =
+    import_resolution::resolve_imports(sum, i, &injected_as, &|path| {
+      tree.0.walk(path, false).is_ok()
+    })?;
   // Addition among modules favours the left hand side.
   Ok(resolvd)
 }

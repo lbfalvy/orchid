@@ -7,12 +7,19 @@ use std::fmt::Debug;
 use dyn_clone::DynClone;
 
 #[allow(unused)] // for the doc comments
+use crate::define_fn;
+#[allow(unused)] // for the doc comments
 use crate::foreign::{Atomic, ExternFn};
+#[allow(unused)] // for the doc comments
+use crate::write_fn_step;
 #[allow(unused)] // for the doc comments
 use crate::Primitive;
 
 /// A macro that generates implementations of [Atomic] to simplify the
 /// development of external bindings for Orchid.
+///
+/// Most use cases are fulfilled by [define_fn], pathological cases can combine
+/// [write_fn_step] with manual [Atomic] implementations.
 ///
 /// The macro depends on implementations of [`AsRef<Clause>`] and
 /// [`From<(&Self, Clause)>`] for extracting the clause to be processed and then
@@ -32,34 +39,35 @@ use crate::Primitive;
 ///
 /// _definition of the `add` function in the STL_
 /// ```
+/// use orchidlang::{Literal};
 /// use orchidlang::interpreted::ExprInst;
-/// use orchidlang::stl::Numeric;
+/// use orchidlang::stl::litconv::with_lit;
 /// use orchidlang::{atomic_impl, atomic_redirect, externfn_impl};
 ///
+/// /// Convert a literal to a string using Rust's conversions for floats, chars and
+/// /// uints respectively
 /// #[derive(Clone)]
-/// pub struct Add2;
-/// externfn_impl!(Add2, |_: &Self, x: ExprInst| Ok(Add1 { x }));
+/// struct ToString;
 ///
-/// #[derive(Debug, Clone)]
-/// pub struct Add1 {
-///   x: ExprInst,
+/// externfn_impl!{
+///   ToString, |_: &Self, expr_inst: ExprInst|{
+///     Ok(InternalToString {
+///       expr_inst
+///     })
+///   }
 /// }
-/// atomic_redirect!(Add1, x);
-/// atomic_impl!(Add1);
-/// externfn_impl!(Add1, |this: &Self, x: ExprInst| {
-///   let a: Numeric = this.x.clone().try_into()?;
-///   Ok(Add0 { a, x })
-/// });
-///
-/// #[derive(Debug, Clone)]
-/// pub struct Add0 {
-///   a: Numeric,
-///   x: ExprInst,
+/// #[derive(std::fmt::Debug,Clone)]
+/// struct InternalToString {
+///   expr_inst: ExprInst,
 /// }
-/// atomic_redirect!(Add0, x);
-/// atomic_impl!(Add0, |Self { a, x }: &Self, _| {
-///   let b: Numeric = x.clone().try_into()?;
-///   Ok((*a + b).into())
+/// atomic_redirect!(InternalToString, expr_inst);
+/// atomic_impl!(InternalToString, |Self { expr_inst }: &Self, _|{
+///   with_lit(expr_inst, |l| Ok(match l {
+///     Literal::Char(c) => c.to_string(),
+///     Literal::Uint(i) => i.to_string(),
+///     Literal::Num(n) => n.to_string(),
+///     Literal::Str(s) => s.clone(),
+///   })).map(|s| Literal::Str(s).into())
 /// });
 /// ```
 #[macro_export]
@@ -92,7 +100,11 @@ macro_rules! atomic_impl {
         // branch off or wrap up
         let clause = if inert {
           let closure = $next_phase;
-          match closure(&next_self, ctx) {
+          let res: Result<
+            $crate::interpreted::Clause,
+            std::rc::Rc<dyn $crate::foreign::ExternError>,
+          > = closure(&next_self, ctx);
+          match res {
             Ok(r) => r,
             Err(e) => return Err($crate::interpreter::RuntimeError::Extern(e)),
           }

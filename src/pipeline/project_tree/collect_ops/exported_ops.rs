@@ -1,16 +1,13 @@
-use std::println;
 use std::rc::Rc;
 
 use hashbrown::HashSet;
-use itertools::Itertools;
 use trait_set::trait_set;
 
 use crate::interner::{Interner, Sym, Tok};
 use crate::pipeline::error::{ModuleNotFound, ProjectError};
 use crate::pipeline::source_loader::LoadedSourceTable;
-use crate::pipeline::split_name::split_name;
 use crate::representations::tree::WalkErrorKind;
-use crate::utils::Cache;
+use crate::utils::{split_max_prefix, unwrap_or, Cache};
 
 pub type OpsResult = Result<Rc<HashSet<Tok<String>>>, Rc<dyn ProjectError>>;
 pub type ExportedOpsCache<'a> = Cache<'a, Sym, OpsResult>;
@@ -33,34 +30,24 @@ pub fn collect_exported_ops(
   i: &Interner,
   injected: &impl InjectedOperatorsFn,
 ) -> OpsResult {
-  if let Some(ops) = injected(path) {
-    if path == i.i(&[i.i("prelude")][..]) {
-      println!("%%% Prelude exported ops %%%");
-      println!("{}", ops.iter().map(|t| i.r(*t)).join(", "));
-    }
-    return Ok(ops);
-  }
+  let injected = injected(path).unwrap_or_else(|| Rc::new(HashSet::new()));
   let is_file = |n: &[Tok<String>]| loaded.contains_key(&i.i(n));
   let path_s = &i.r(path)[..];
-  let name_split = split_name(path_s, &is_file);
-  let (fpath_v, subpath_v) = if let Some(f) = name_split {
-    f
-  } else {
-    return Ok(Rc::new(
-      loaded
-        .keys()
-        .copied()
-        .filter_map(|modname| {
-          let modname_s = i.r(modname);
-          if path_s.len() == coprefix(path_s.iter(), modname_s.iter()) {
-            Some(modname_s[path_s.len()])
-          } else {
-            None
-          }
-        })
-        .collect::<HashSet<_>>(),
-    ));
-  };
+  let name_split = split_max_prefix(path_s, &is_file);
+  let (fpath_v, subpath_v) = unwrap_or!(name_split; return Ok(Rc::new(
+    (loaded.keys())
+      .copied()
+      .filter_map(|modname| {
+        let modname_s = i.r(modname);
+        if path_s.len() == coprefix(path_s.iter(), modname_s.iter()) {
+          Some(modname_s[path_s.len()])
+        } else {
+          None
+        }
+      })
+      .chain(injected.iter().copied())
+      .collect::<HashSet<_>>(),
+  )));
   let fpath = i.i(fpath_v);
   let preparsed = &loaded[&fpath].preparsed;
   let module = preparsed.0.walk(subpath_v, false).map_err(|walk_err| {
@@ -70,8 +57,7 @@ pub fn collect_exported_ops(
       },
       WalkErrorKind::Missing => ModuleNotFound {
         file: i.extern_vec(fpath),
-        subpath: subpath_v
-          .iter()
+        subpath: (subpath_v.iter())
           .take(walk_err.pos)
           .map(|t| i.r(*t))
           .cloned()
@@ -80,12 +66,11 @@ pub fn collect_exported_ops(
       .rc(),
     }
   })?;
-  let out: HashSet<_> =
-    module.items.iter().filter(|(_, v)| v.exported).map(|(k, _)| *k).collect();
-  if path == i.i(&[i.i("prelude")][..]) {
-    println!("%%% Prelude exported ops %%%");
-    println!("{}", out.iter().map(|t| i.r(*t)).join(", "));
-  }
+  let out = (module.items.iter())
+    .filter(|(_, v)| v.exported)
+    .map(|(k, _)| *k)
+    .chain(injected.iter().copied())
+    .collect::<HashSet<_>>();
   Ok(Rc::new(out))
 }
 

@@ -6,7 +6,6 @@ mod import_resolution;
 mod parse_layer;
 mod project_tree;
 mod source_loader;
-mod split_name;
 
 pub use parse_layer::parse_layer;
 pub use project_tree::{

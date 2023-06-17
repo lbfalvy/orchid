@@ -1,11 +1,9 @@
 use std::rc::Rc;
 
-use itertools::Itertools;
-
 use super::alias_map::AliasMap;
 use super::apply_aliases::apply_aliases;
 use super::collect_aliases::collect_aliases;
-use super::decls::InjectedAsFn;
+use super::decls::{InjectedAsFn, UpdatedFn};
 use crate::interner::Interner;
 use crate::pipeline::error::ProjectError;
 use crate::pipeline::project_tree::ProjectTree;
@@ -16,21 +14,11 @@ pub fn resolve_imports(
   project: ProjectTree,
   i: &Interner,
   injected_as: &impl InjectedAsFn,
+  updated: &impl UpdatedFn,
 ) -> Result<ProjectTree, Rc<dyn ProjectError>> {
   let mut map = AliasMap::new();
-  collect_aliases(project.0.as_ref(), &project, &mut map, i, injected_as)?;
-  println!(
-    "Aliases: {{{:?}}}",
-    map
-      .targets
-      .iter()
-      .map(|(kt, vt)| format!(
-        "{} => {}",
-        i.extern_vec(*kt).join("::"),
-        i.extern_vec(*vt).join("::")
-      ))
-      .join(", ")
-  );
-  let new_mod = apply_aliases(project.0.as_ref(), &map, i, injected_as);
+  collect_aliases(project.0.as_ref(), &project, &mut map, i, updated)?;
+  let new_mod =
+    apply_aliases(project.0.as_ref(), &map, i, injected_as, updated);
   Ok(ProjectTree(Rc::new(new_mod)))
 }

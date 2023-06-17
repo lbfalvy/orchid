@@ -1,6 +1,4 @@
-import std::(to_string, print)
-import super::list
-import fn::*
+import std::(proc::*, io::print, to_string)
 
 export main := do{
   let foo = list::new[1, 2, 3, 4, 5, 6];

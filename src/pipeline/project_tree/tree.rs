@@ -41,6 +41,7 @@ impl Add for ProjectExt {
 pub type ProjectModule = Module<Expr, ProjectExt>;
 
 /// Module corresponding to the root of a project
+#[derive(Debug, Clone)]
 pub struct ProjectTree(pub Rc<ProjectModule>);
 
 fn collect_rules_rec(bag: &mut Vec<Rule>, module: &ProjectModule) {

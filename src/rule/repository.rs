@@ -114,29 +114,25 @@ impl<M: Matcher> Repository<M> {
   /// Attempt to run each rule in priority order `limit` times. Returns
   /// the final tree and the number of iterations left to the limit.
   #[allow(unused)]
-  pub fn long_step(
-    &self,
-    code: &Expr,
-    mut limit: usize,
-  ) -> Result<(Expr, usize), RuleError> {
+  pub fn long_step(&self, code: &Expr, mut limit: usize) -> (Expr, usize) {
     if limit == 0 {
-      return Ok((code.clone(), 0));
+      return (code.clone(), 0);
     }
     if let Some(mut processed) = self.step(code) {
       limit -= 1;
       if limit == 0 {
-        return Ok((processed, 0));
+        return (processed, 0);
       }
       while let Some(out) = self.step(&processed) {
         limit -= 1;
         if limit == 0 {
-          return Ok((out, 0));
+          return (out, 0);
         }
         processed = out;
       }
-      Ok((processed, limit))
+      (processed, limit)
     } else {
-      Ok((code.clone(), limit))
+      (code.clone(), limit)
     }
   }
 }

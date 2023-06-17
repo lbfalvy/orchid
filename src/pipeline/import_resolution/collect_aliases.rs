@@ -1,12 +1,13 @@
+use core::panic;
 use std::rc::Rc;
 
 use super::alias_map::AliasMap;
-use super::decls::InjectedAsFn;
+use super::decls::UpdatedFn;
 use crate::interner::{Interner, Tok};
 use crate::pipeline::error::{NotExported, ProjectError};
 use crate::pipeline::project_tree::{split_path, ProjectModule, ProjectTree};
 use crate::representations::tree::{ModMember, WalkErrorKind};
-use crate::utils::{pushed, Substack};
+use crate::utils::{pushed, unwrap_or, Substack};
 
 /// Assert that a module identified by a path can see a given symbol
 fn assert_visible(
@@ -15,36 +16,40 @@ fn assert_visible(
   project: &ProjectTree,
   i: &Interner,
 ) -> Result<(), Rc<dyn ProjectError>> {
-  let (tgt_item, tgt_path) = if let Some(s) = target.split_last() {
-    s
-  } else {
-    return Ok(());
-  };
+  let (tgt_item, tgt_path) = unwrap_or!(target.split_last(); return Ok(()));
   let shared_len =
     source.iter().zip(tgt_path.iter()).take_while(|(a, b)| a == b).count();
-  let shared_root =
-    project.0.walk(&tgt_path[..shared_len], false).expect("checked in parsing");
-  let direct_parent =
-    shared_root.walk(&tgt_path[shared_len..], true).map_err(|e| {
-      match e.kind {
-        WalkErrorKind::Missing => panic!("checked in parsing"),
-        WalkErrorKind::Private => {
-          let full_path = &tgt_path[..shared_len + e.pos];
-          let (file, sub) = split_path(full_path, project);
-          let (ref_file, ref_sub) = split_path(source, project);
-          NotExported {
-            file: i.extern_all(file),
-            subpath: i.extern_all(sub),
-            referrer_file: i.extern_all(ref_file),
-            referrer_subpath: i.extern_all(ref_sub),
-          }
-          .rc()
-        },
-      }
+  let vis_ignored_len = usize::min(tgt_path.len(), shared_len + 1);
+  let private_root =
+    (project.0).walk(&tgt_path[..vis_ignored_len], false).unwrap_or_else(|e| {
+      let path_slc = &tgt_path[..vis_ignored_len];
+      let bad_path = i.extern_all(path_slc).join("::");
+      eprintln!(
+        "Error while walking {bad_path}; {:?} on step {}",
+        e.kind, e.pos
+      );
+      eprintln!("looking from {}", i.extern_all(source).join("::"));
+      panic!("")
+    });
+  let direct_parent = private_root
+    .walk(&tgt_path[vis_ignored_len..], true)
+    .map_err(|e| match e.kind {
+      WalkErrorKind::Missing => panic!("checked in parsing"),
+      WalkErrorKind::Private => {
+        let full_path = &tgt_path[..shared_len + e.pos];
+        let (file, sub) = split_path(full_path, project);
+        let (ref_file, ref_sub) = split_path(source, project);
+        NotExported {
+          file: i.extern_all(file),
+          subpath: i.extern_all(sub),
+          referrer_file: i.extern_all(ref_file),
+          referrer_subpath: i.extern_all(ref_sub),
+        }
+        .rc()
+      },
     })?;
   let tgt_item_exported = direct_parent.extra.exports.contains_key(tgt_item);
-  let target_prefixes_source =
-    shared_len == tgt_path.len() && source.get(shared_len) == Some(tgt_item);
+  let target_prefixes_source = shared_len == tgt_path.len();
   if !tgt_item_exported && !target_prefixes_source {
     let (file, sub) = split_path(target, project);
     let (ref_file, ref_sub) = split_path(source, project);
@@ -69,20 +74,30 @@ fn collect_aliases_rec(
   project: &ProjectTree,
   alias_map: &mut AliasMap,
   i: &Interner,
-  injected_as: &impl InjectedAsFn,
+  updated: &impl UpdatedFn,
 ) -> Result<(), Rc<dyn ProjectError>> {
   // Assume injected module has been alias-resolved
   let mod_path_v = path.iter().rev_vec_clone();
-  if injected_as(&mod_path_v).is_some() {
+  if !updated(&mod_path_v) {
     return Ok(());
   };
-  for (&name, &target_mod) in module.extra.imports_from.iter() {
-    let target_mod_v = i.r(target_mod);
+  for (&name, &target_mod_name) in module.extra.imports_from.iter() {
+    let target_mod_v = i.r(target_mod_name);
     let target_sym_v = pushed(target_mod_v, name);
     assert_visible(&mod_path_v, &target_sym_v, project, i)?;
     let sym_path_v = pushed(&mod_path_v, name);
     let sym_path = i.i(&sym_path_v);
-    let target_sym = i.i(&target_sym_v);
+    let target_mod = (project.0.walk(target_mod_v, false))
+      .expect("checked above in assert_visible");
+    let target_sym =
+      *target_mod.extra.exports.get(&name).unwrap_or_else(|| {
+        panic!(
+          "error in {}, {} has no member {}",
+          i.extern_all(&mod_path_v).join("::"),
+          i.extern_all(target_mod_v).join("::"),
+          i.r(name)
+        )
+      });
     alias_map.link(sym_path, target_sym);
   }
   for (&name, entry) in module.items.iter() {
@@ -97,7 +112,7 @@ fn collect_aliases_rec(
       project,
       alias_map,
       i,
-      injected_as,
+      updated,
     )?
   }
   Ok(())
@@ -109,14 +124,7 @@ pub fn collect_aliases(
   project: &ProjectTree,
   alias_map: &mut AliasMap,
   i: &Interner,
-  injected_as: &impl InjectedAsFn,
+  updated: &impl UpdatedFn,
 ) -> Result<(), Rc<dyn ProjectError>> {
-  collect_aliases_rec(
-    Substack::Bottom,
-    module,
-    project,
-    alias_map,
-    i,
-    injected_as,
-  )
+  collect_aliases_rec(Substack::Bottom, module, project, alias_map, i, updated)
 }

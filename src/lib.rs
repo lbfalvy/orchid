@@ -18,6 +18,7 @@ pub mod rule;
 pub mod stl;
 mod utils;
 
+pub use interner::Sym;
 pub use representations::ast_to_interpreted::ast_to_interpreted;
 pub use representations::{
   ast, interpreted, sourcefile, tree, Literal, Location, PathSet, Primitive,

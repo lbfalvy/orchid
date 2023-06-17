@@ -1,7 +1,10 @@
-//! File system implementation of the source loader callback
+//! Source loader callback definition and builtin implementations
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::{fs, io};
+
+use chumsky::text::Character;
+use rust_embed::RustEmbed;
 
 use crate::interner::{Interner, Sym};
 use crate::pipeline::error::{
@@ -86,10 +89,49 @@ pub fn load_file(root: &Path, path: &[impl AsRef<str>]) -> IOResult {
 }
 
 /// Generates a cached file loader for a directory
-pub fn mk_cache(root: PathBuf, i: &Interner) -> Cache<Sym, IOResult> {
+pub fn mk_dir_cache(root: PathBuf, i: &Interner) -> Cache<Sym, IOResult> {
   Cache::new(move |token: Sym, _this| -> IOResult {
     let path = i.r(token).iter().map(|t| i.r(*t).as_str()).collect::<Vec<_>>();
     load_file(&root, &path)
+  })
+}
+
+/// Load a file from the specified path from an embed table
+pub fn load_embed<T: 'static + RustEmbed>(path: &str, ext: &str) -> IOResult {
+  let file_path = path.to_string() + ext;
+  if let Some(file) = T::get(&file_path) {
+    let s = file.data.iter().map(|c| c.to_char()).collect::<String>();
+    Ok(Loaded::Code(Rc::new(s)))
+  } else {
+    let entries = T::iter()
+      .map(|c| c.to_string())
+      .filter_map(|path: String| {
+        let item_prefix = path.to_string() + "/";
+        path.strip_prefix(&item_prefix).map(|subpath| {
+          let item_name = subpath
+            .split_inclusive('/')
+            .next()
+            .expect("Exact match excluded earlier");
+          item_name
+            .strip_suffix('/') // subdirectory
+            .or_else(|| item_name.strip_suffix(ext)) // file
+            .expect("embed should be filtered to extension")
+            .to_string()
+        })
+      })
+      .collect::<Vec<String>>();
+    Ok(Loaded::Collection(Rc::new(entries)))
+  }
+}
+
+/// Generates a cached file loader for a [RustEmbed]
+pub fn mk_embed_cache<'a, T: 'static + RustEmbed>(
+  ext: &'a str,
+  i: &'a Interner,
+) -> Cache<'a, Sym, IOResult> {
+  Cache::new(move |token: Sym, _this| -> IOResult {
+    let path = i.extern_vec(token).join("/");
+    load_embed::<T>(&path, ext)
   })
 }
 

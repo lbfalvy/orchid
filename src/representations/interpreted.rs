@@ -219,3 +219,9 @@ impl<T: Into<Literal>> From<T> for Clause {
     Self::P(Primitive::Literal(value.into()))
   }
 }
+
+impl<T: Into<Clause>> From<T> for ExprInst {
+  fn from(value: T) -> Self {
+    value.into().wrap()
+  }
+}

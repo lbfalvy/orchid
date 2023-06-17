@@ -4,4 +4,5 @@ use crate::interner::{Sym, Tok};
 
 trait_set! {
   pub trait InjectedAsFn = Fn(&[Tok<String>]) -> Option<Sym>;
+  pub trait UpdatedFn = Fn(&[Tok<String>]) -> bool;
 }

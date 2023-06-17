@@ -56,11 +56,8 @@ fn mk_vec(pattern: &[Expr]) -> VecMatcher {
     pattern.last().map(vec_attrs).is_some(),
     "pattern must end with a vectorial"
   );
-  let (left, (key, prio, nonzero), right) = split_at_max_vec(pattern)
+  let (left, (key, _, nonzero), right) = split_at_max_vec(pattern)
     .expect("pattern must have vectorial placeholders at least at either end");
-  if prio >= 1 {
-    println!("Nondefault priority {} found", prio)
-  }
   let r_sep_size = scal_cnt(right.iter());
   let (r_sep, r_side) = right.split_at(r_sep_size);
   let l_sep_size = scal_cnt(left.iter().rev());

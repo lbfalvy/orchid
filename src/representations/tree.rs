@@ -107,23 +107,23 @@ impl<TItem: Clone, TExt: Clone> Module<TItem, TExt> {
   ) -> Result<(), E> {
     self.visit_all_imports_rec(Substack::Bottom, callback)
   }
-}
 
-impl<TItem: Clone, TExt: Clone + Add<Output = TExt>> Add
-  for Module<TItem, TExt>
-{
-  type Output = Self;
-
-  fn add(mut self, rhs: Self) -> Self::Output {
-    let Module { extra, imports, items } = rhs;
+  /// Combine two module trees; wherever they conflict, the overlay is
+  /// preferred.
+  pub fn overlay(mut self, overlay: Self) -> Self
+  where
+    TExt: Add<TExt, Output = TExt>,
+  {
+    let Module { extra, imports, items } = overlay;
+    let mut new_items = HashMap::new();
     for (key, right) in items {
       // if both contain a submodule
       if let Some(left) = self.items.remove(&key) {
         if let ModMember::Sub(rsub) = &right.member {
           if let ModMember::Sub(lsub) = &left.member {
             // merge them with rhs exportedness
-            let new_mod = lsub.as_ref().clone() + rsub.as_ref().clone();
-            self.items.insert(key, ModEntry {
+            let new_mod = lsub.as_ref().clone().overlay(rsub.as_ref().clone());
+            new_items.insert(key, ModEntry {
               exported: right.exported,
               member: ModMember::Sub(Rc::new(new_mod)),
             });
@@ -132,10 +132,14 @@ impl<TItem: Clone, TExt: Clone + Add<Output = TExt>> Add
         }
       }
       // otherwise right shadows left
-      self.items.insert(key, right);
+      new_items.insert(key, right);
     }
+    new_items.extend(self.items.into_iter());
     self.imports.extend(imports.into_iter());
-    self.extra = self.extra + extra;
-    self
+    Module {
+      items: new_items,
+      imports: self.imports,
+      extra: self.extra + extra,
+    }
   }
 }

@@ -1,13 +1,17 @@
 #[allow(unused)] // for doc
 use crate::define_fn;
 #[allow(unused)] // for doc
+use crate::foreign::Atomic;
+#[allow(unused)] // for doc
 use crate::foreign::ExternFn;
 #[allow(unused)] // for doc
 use crate::interpreted::ExprInst;
 
 /// Write one step in the state machine representing a simple n-ary non-variadic
-/// Orchid function. There are no known use cases for it that aren't expressed
-/// better with [define_fn] which generates calls to this macro.
+/// Orchid function. Most use cases are better covered by [define_fn] which
+/// generates calls to this macro. This macro can be used in combination with
+/// manual [Atomic] implementations to define a function that only behaves like
+/// a simple n-ary non-variadic function with respect to some of its arguments.
 ///
 /// There are three ways to call this macro for the initial state, internal
 /// state, and exit state. All of them are demonstrated in one example and
@@ -25,14 +29,14 @@ use crate::interpreted::ExprInst;
 /// // Middle state
 /// write_fn_step!(
 ///   CharAt1 {}
-///   CharAt0 where s = x => with_str(x, |s| Ok(s.clone()));
+///   CharAt0 where s: String = x => with_str(x, |s| Ok(s.clone()));
 /// );
 /// // Exit state
 /// write_fn_step!(
 ///   CharAt0 { s: String }
 ///   i = x => with_uint(x, Ok);
 ///   {
-///     if let Some(c) = s.chars().nth(i as usize) {
+///     if let Some(c) = s.chars().nth(*i as usize) {
 ///       Ok(Clause::P(Primitive::Literal(Literal::Char(c))))
 ///     } else {
 ///       RuntimeError::fail(
@@ -52,7 +56,7 @@ use crate::interpreted::ExprInst;
 /// struct definition. A field called `expr_inst` of type [ExprInst] is added
 /// implicitly, so the first middle state has an empty field list. The next
 /// state is also provided, alongside the name and conversion of the next
-/// parameter from a [&ExprInst] under the provided alias to a
+/// parameter from a `&ExprInst` under the provided alias to a
 /// `Result<_, Rc<dyn ExternError>>`. The success type is inferred from the
 /// type of the field at the place of its actual definition. This conversion is
 /// done in the implementation of [ExternFn] which also places the new
@@ -67,6 +71,12 @@ use crate::interpreted::ExprInst;
 /// argument names bound. The arguments here are all references to their actual
 /// types except for the last one which is converted from [ExprInst] immediately
 /// before the body is evaluated.
+///
+/// To avoid typing the same parsing process a lot, the conversion is optional.
+/// If it is omitted, the field is initialized with a [TryInto::try_into] call
+/// from `&ExprInst` to the target type. In this case, the error is
+/// short-circuited using `?` so conversions through `FromResidual` are allowed.
+/// The optional syntax starts with the `=` sign and ends before the semicolon.
 #[macro_export]
 macro_rules! write_fn_step {
   // write entry stage
@@ -87,7 +97,7 @@ macro_rules! write_fn_step {
       $( $arg:ident : $typ:ty ),*
     }
     $next:ident where
-    $added:ident $( : $added_typ:ty )? = $xname:ident => $extract:expr ;
+    $added:ident $( : $added_typ:ty )? $( = $xname:ident => $extract:expr )? ;
   ) => {
     $( #[ $attr ] )*
     #[derive(std::fmt::Debug, Clone)]
@@ -100,8 +110,8 @@ macro_rules! write_fn_step {
     $crate::externfn_impl!(
       $name,
       |this: &Self, expr_inst: $crate::interpreted::ExprInst| {
-        let $xname = &this.expr_inst;
-        let $added $( :$added_typ )? = $extract?;
+        let $added $( :$added_typ )? =
+          $crate::write_fn_step!(@CONV &this.expr_inst $(, $xname $extract )?);
         Ok($next{
           $( $arg: this.$arg.clone(), )*
           $added, expr_inst
@@ -114,23 +124,37 @@ macro_rules! write_fn_step {
     $( #[ $attr:meta ] )* $quant:vis $name:ident {
       $( $arg:ident: $typ:ty ),*
     }
-    $added:ident $(: $added_typ:ty )? = $xname:ident => $extract:expr ;
+    $added:ident $(: $added_typ:ty )? $( = $xname:ident => $extract:expr )? ;
     $process:expr
   ) => {
     $( #[ $attr ] )*
     #[derive(std::fmt::Debug, Clone)]
     $quant struct $name {
-      $( $arg: $typ, )+
+      $( $arg: $typ, )*
       expr_inst: $crate::interpreted::ExprInst,
     }
     $crate::atomic_redirect!($name, expr_inst);
     $crate::atomic_impl!(
       $name,
       |Self{ $($arg, )* expr_inst }: &Self, _| {
-        let $xname = expr_inst;
-        let $added $(: $added_typ )? = $extract?;
+        let added $(: $added_typ )? =
+          $crate::write_fn_step!(@CONV expr_inst $(, $xname $extract )?);
+        let $added = &added;
         $process
       }
     );
+  };
+  // Write conversion expression for an ExprInst
+  (@CONV $locxname:expr, $xname:ident $extract:expr) => {
+    {
+      let $xname = $locxname;
+      match $extract {
+        Err(e) => return Err(e),
+        Ok(r) => r,
+      }
+    }
+  };
+  (@CONV $locxname:expr) => {
+    ($locxname).try_into()?
   };
 }

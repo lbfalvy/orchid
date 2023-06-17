@@ -8,7 +8,7 @@ export loop $r on (..$parameters) with ...$tail =0x5p129=> Y (\$r.
 bind_names ($name ..$rest) $payload =0x1p250=> \$name. bind_names (..$rest) $payload
 bind_names () (...$payload) =0x1p250=> ...$payload
 
-export ...$prefix $ ...$suffix:1 =0x1p34=> ...$prefix (...$suffix)
+export ...$prefix $ ...$suffix:1 =0x1p38=> ...$prefix (...$suffix)
 export ...$prefix |> $fn ..$suffix:1 =0x2p32=> $fn (...$prefix) ..$suffix
 
 export (...$argv) => ...$body =0x2p129=> (bind_names (...$argv) (...$body))
