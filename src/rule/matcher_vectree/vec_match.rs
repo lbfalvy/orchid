@@ -4,13 +4,13 @@ use itertools::Itertools;
 
 use super::scal_match::scalv_match;
 use super::shared::VecMatcher;
-use crate::ast::Expr;
+use crate::rule::matcher::RuleExpr;
 use crate::rule::state::{State, StateEntry};
 use crate::utils::unwrap_or;
 
 pub fn vec_match<'a>(
   matcher: &VecMatcher,
-  seq: &'a [Expr],
+  seq: &'a [RuleExpr],
 ) -> Option<State<'a>> {
   match matcher {
     VecMatcher::Placeh { key, nonzero } => {

@@ -2,8 +2,8 @@
 //!
 //! Used by various stages of the pipeline with different parameters
 use std::ops::Add;
-use std::rc::Rc;
 
+use duplicate::duplicate_item;
 use hashbrown::HashMap;
 
 use super::sourcefile::Import;
@@ -16,7 +16,7 @@ pub enum ModMember<TItem: Clone, TExt: Clone> {
   /// Arbitrary data
   Item(TItem),
   /// A child module
-  Sub(Rc<Module<TItem, TExt>>),
+  Sub(Module<TItem, TExt>),
 }
 
 /// Data about a name in a [Module]
@@ -61,18 +61,25 @@ pub struct WalkError {
 pub type ModPath<'a> = Substack<'a, Tok<String>>;
 
 impl<TItem: Clone, TExt: Clone> Module<TItem, TExt> {
-  /// Return the module at the end of the given path.
-  pub fn walk(
-    self: &Rc<Self>,
+  /// Return the module at the end of the given path
+  #[allow(clippy::needless_arbitrary_self_type)] // duplicate
+  #[duplicate_item(
+    method      reference(type) dereference(expr) map_method;
+    [walk]      [type]          [expr]            [remove];
+    [walk_ref]  [&type]         [*expr]           [get];
+    [walk_mut]  [&mut type]     [*expr]           [get_mut];
+  )]
+  pub fn method(
+    self: reference([Self]),
     path: &[Tok<String>],
     require_exported: bool,
-  ) -> Result<Rc<Self>, WalkError> {
+  ) -> Result<reference([Self]), WalkError> {
     let mut cur = self;
     for (pos, step) in path.iter().enumerate() {
       if let Some(ModEntry { member: ModMember::Sub(next), exported }) =
-        cur.items.get(step)
+        cur.items.map_method(step)
       {
-        if require_exported && !exported {
+        if require_exported && !dereference([exported]) {
           return Err(WalkError { pos, kind: WalkErrorKind::Private });
         }
         cur = next
@@ -80,7 +87,7 @@ impl<TItem: Clone, TExt: Clone> Module<TItem, TExt> {
         return Err(WalkError { pos, kind: WalkErrorKind::Missing });
       }
     }
-    Ok(cur.clone())
+    Ok(cur)
   }
 
   fn visit_all_imports_rec<E>(
@@ -118,21 +125,16 @@ impl<TItem: Clone, TExt: Clone> Module<TItem, TExt> {
     let mut new_items = HashMap::new();
     for (key, right) in items {
       // if both contain a submodule
-      if let Some(left) = self.items.remove(&key) {
-        if let ModMember::Sub(rsub) = &right.member {
-          if let ModMember::Sub(lsub) = &left.member {
-            // merge them with rhs exportedness
-            let new_mod = lsub.as_ref().clone().overlay(rsub.as_ref().clone());
-            new_items.insert(key, ModEntry {
-              exported: right.exported,
-              member: ModMember::Sub(Rc::new(new_mod)),
-            });
-            continue;
-          }
-        }
-      }
-      // otherwise right shadows left
-      new_items.insert(key, right);
+      match (self.items.remove(&key), right) {
+        (
+          Some(ModEntry { member: ModMember::Sub(lsub), .. }),
+          ModEntry { member: ModMember::Sub(rsub), exported },
+        ) => new_items.insert(key, ModEntry {
+          exported,
+          member: ModMember::Sub(lsub.overlay(rsub)),
+        }),
+        (_, right) => new_items.insert(key, right),
+      };
     }
     new_items.extend(self.items.into_iter());
     self.imports.extend(imports.into_iter());

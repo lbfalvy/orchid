@@ -1,12 +1,12 @@
 use super::scal_match::scalv_match;
 use super::shared::AnyMatcher;
 use super::vec_match::vec_match;
-use crate::ast::Expr;
+use crate::rule::matcher::RuleExpr;
 use crate::rule::state::State;
 
 pub fn any_match<'a>(
   matcher: &AnyMatcher,
-  seq: &'a [Expr],
+  seq: &'a [RuleExpr],
 ) -> Option<State<'a>> {
   match matcher {
     AnyMatcher::Scalar(scalv) => scalv_match(scalv, seq),

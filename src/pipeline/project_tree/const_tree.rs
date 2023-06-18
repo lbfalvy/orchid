@@ -1,15 +1,14 @@
 use std::ops::Add;
-use std::rc::Rc;
 
 use hashbrown::HashMap;
 
 use super::{ProjectExt, ProjectModule, ProjectTree};
 use crate::ast::{Clause, Expr};
 use crate::foreign::{Atom, Atomic, ExternFn};
-use crate::interner::{Interner, Tok};
+use crate::interner::Tok;
 use crate::representations::location::Location;
 use crate::representations::tree::{ModEntry, ModMember, Module};
-use crate::representations::Primitive;
+use crate::representations::{Primitive, VName};
 use crate::utils::{pushed, Substack};
 
 /// A lightweight module tree that can be built declaratively by hand to
@@ -17,7 +16,7 @@ use crate::utils::{pushed, Substack};
 /// added convenience
 pub enum ConstTree {
   /// A function or constant
-  Const(Expr),
+  Const(Expr<VName>),
   /// A submodule
   Tree(HashMap<Tok<String>, ConstTree>),
 }
@@ -67,8 +66,7 @@ fn from_const_tree_rec(
   path: Substack<Tok<String>>,
   consts: HashMap<Tok<String>, ConstTree>,
   file: &[Tok<String>],
-  i: &Interner,
-) -> ProjectModule {
+) -> ProjectModule<VName> {
   let mut items = HashMap::new();
   let path_v = path.iter().rev_vec_clone();
   for (name, item) in consts {
@@ -76,17 +74,13 @@ fn from_const_tree_rec(
       exported: true,
       member: match item {
         ConstTree::Const(c) => ModMember::Item(c),
-        ConstTree::Tree(t) => ModMember::Sub(Rc::new(from_const_tree_rec(
-          path.push(name),
-          t,
-          file,
-          i,
-        ))),
+        ConstTree::Tree(t) =>
+          ModMember::Sub(from_const_tree_rec(path.push(name), t, file)),
       },
     });
   }
   let exports =
-    items.keys().map(|name| (*name, i.i(&pushed(&path_v, *name)))).collect();
+    items.keys().map(|name| (*name, pushed(&path_v, *name))).collect();
   Module {
     items,
     imports: vec![],
@@ -103,8 +97,7 @@ fn from_const_tree_rec(
 pub fn from_const_tree(
   consts: HashMap<Tok<String>, ConstTree>,
   file: &[Tok<String>],
-  i: &Interner,
-) -> ProjectTree {
-  let module = from_const_tree_rec(Substack::Bottom, consts, file, i);
-  ProjectTree(Rc::new(module))
+) -> ProjectTree<VName> {
+  let module = from_const_tree_rec(Substack::Bottom, consts, file);
+  ProjectTree(module)
 }

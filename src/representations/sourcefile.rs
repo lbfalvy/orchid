@@ -3,9 +3,11 @@ use std::iter;
 
 use itertools::{Either, Itertools};
 
+use super::namelike::VName;
 use crate::ast::{Constant, Rule};
-use crate::interner::{Interner, Sym, Tok};
+use crate::interner::{Interner, Tok};
 use crate::utils::{unwrap_or, BoxedIter};
+use crate::Sym;
 
 /// An import pointing at another module, either specifying the symbol to be
 /// imported or importing all available symbols with a globstar (*)
@@ -50,7 +52,7 @@ pub struct Namespace {
 pub enum Member {
   /// A substitution rule. Rules apply even when they're not in scope, if the
   /// absolute names are present eg. because they're produced by other rules
-  Rule(Rule),
+  Rule(Rule<VName>),
   /// A constant (or function) associated with a name
   Constant(Constant),
   /// A prefixed set of other entries

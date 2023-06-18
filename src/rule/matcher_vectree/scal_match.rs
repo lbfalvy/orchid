@@ -1,11 +1,12 @@
 use super::any_match::any_match;
 use super::shared::ScalMatcher;
-use crate::ast::{Clause, Expr};
+use crate::ast::Clause;
+use crate::rule::matcher::RuleExpr;
 use crate::rule::state::{State, StateEntry};
 
 pub fn scal_match<'a>(
   matcher: &ScalMatcher,
-  expr: &'a Expr,
+  expr: &'a RuleExpr,
 ) -> Option<State<'a>> {
   match (matcher, &expr.value) {
     (ScalMatcher::P(p1), Clause::P(p2)) if p1 == p2 => Some(State::new()),
@@ -25,7 +26,7 @@ pub fn scal_match<'a>(
 
 pub fn scalv_match<'a>(
   matchers: &[ScalMatcher],
-  seq: &'a [Expr],
+  seq: &'a [RuleExpr],
 ) -> Option<State<'a>> {
   if seq.len() != matchers.len() {
     return None;

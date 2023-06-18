@@ -1,7 +1,8 @@
 use hashbrown::HashMap;
 
-use crate::interner::{Interner, Sym};
+use crate::interner::Interner;
 use crate::representations::interpreted::ExprInst;
+use crate::Sym;
 
 /// All the data associated with an interpreter run
 #[derive(Clone)]

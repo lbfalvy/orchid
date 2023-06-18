@@ -26,5 +26,6 @@ pub use build_tree::{build_tree, split_path};
 pub use collect_ops::InjectedOperatorsFn;
 pub use const_tree::{from_const_tree, ConstTree};
 pub use tree::{
-  collect_consts, collect_rules, ProjectExt, ProjectModule, ProjectTree,
+  collect_consts, collect_rules, vname_to_sym_tree, ProjectExt, ProjectModule,
+  ProjectTree,
 };

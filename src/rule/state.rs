@@ -3,18 +3,19 @@ use std::rc::Rc;
 use hashbrown::HashMap;
 use itertools::Itertools;
 
+use super::matcher::RuleExpr;
 use crate::ast::{Clause, Expr, PHClass, Placeholder};
 use crate::interner::Tok;
 use crate::utils::unwrap_or;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum StateEntry<'a> {
-  Vec(&'a [Expr]),
-  Scalar(&'a Expr),
+  Vec(&'a [RuleExpr]),
+  Scalar(&'a RuleExpr),
 }
 pub type State<'a> = HashMap<Tok<String>, StateEntry<'a>>;
 
-pub fn apply_exprv(template: &[Expr], state: &State) -> Vec<Expr> {
+pub fn apply_exprv(template: &[RuleExpr], state: &State) -> Vec<RuleExpr> {
   template
     .iter()
     .map(|e| apply_expr(e, state))
@@ -22,7 +23,7 @@ pub fn apply_exprv(template: &[Expr], state: &State) -> Vec<Expr> {
     .collect()
 }
 
-pub fn apply_expr(template: &Expr, state: &State) -> Vec<Expr> {
+pub fn apply_expr(template: &RuleExpr, state: &State) -> Vec<RuleExpr> {
   let Expr { location, value } = template;
   match value {
     Clause::P(_) | Clause::Name(_) => vec![template.clone()],

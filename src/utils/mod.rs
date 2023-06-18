@@ -1,6 +1,7 @@
 mod cache;
 mod print_nname;
 mod pushed;
+mod rc_to_owned;
 mod replace_first;
 mod side;
 mod split_max_prefix;
@@ -11,6 +12,7 @@ mod unwrap_or;
 pub use cache::Cache;
 pub use print_nname::sym2string;
 pub use pushed::pushed;
+pub use rc_to_owned::{map_rc, rc_to_owned};
 pub use replace_first::replace_first;
 pub use side::Side;
 pub use split_max_prefix::split_max_prefix;

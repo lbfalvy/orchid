@@ -3,12 +3,12 @@ use std::rc::Rc;
 
 use super::any_match::any_match;
 use super::build::mk_any;
-use crate::ast::Expr;
-use crate::interner::{InternedDisplay, Interner, Sym, Tok};
+use crate::interner::{InternedDisplay, Interner, Tok};
 use crate::representations::Primitive;
-use crate::rule::matcher::Matcher;
+use crate::rule::matcher::{Matcher, RuleExpr};
 use crate::rule::state::State;
 use crate::utils::{sym2string, unwrap_or, Side};
+use crate::Sym;
 
 pub enum ScalMatcher {
   P(Primitive),
@@ -54,11 +54,11 @@ pub enum AnyMatcher {
   Vec { left: Vec<ScalMatcher>, mid: VecMatcher, right: Vec<ScalMatcher> },
 }
 impl Matcher for AnyMatcher {
-  fn new(pattern: Rc<Vec<Expr>>) -> Self {
+  fn new(pattern: Rc<Vec<RuleExpr>>) -> Self {
     mk_any(&pattern)
   }
 
-  fn apply<'a>(&self, source: &'a [Expr]) -> Option<State<'a>> {
+  fn apply<'a>(&self, source: &'a [RuleExpr]) -> Option<State<'a>> {
     any_match(self, source)
   }
 }
@@ -183,11 +183,11 @@ impl InternedDisplay for AnyMatcher {
 /// vectorial placeholders and handles the scalars on leaves.
 pub struct VectreeMatcher(AnyMatcher);
 impl Matcher for VectreeMatcher {
-  fn new(pattern: Rc<Vec<Expr>>) -> Self {
+  fn new(pattern: Rc<Vec<RuleExpr>>) -> Self {
     Self(AnyMatcher::new(pattern))
   }
 
-  fn apply<'a>(&self, source: &'a [Expr]) -> Option<State<'a>> {
+  fn apply<'a>(&self, source: &'a [RuleExpr]) -> Option<State<'a>> {
     self.0.apply(source)
   }
 }

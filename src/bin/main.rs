@@ -2,13 +2,15 @@ mod cli;
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::process;
+use std::{iter, process};
 
 use clap::Parser;
 use hashbrown::HashMap;
 use itertools::Itertools;
-use orchidlang::interner::{InternedDisplay, Interner, Sym};
-use orchidlang::{ast, ast_to_interpreted, interpreter, pipeline, rule, stl};
+use orchidlang::interner::{InternedDisplay, Interner};
+use orchidlang::{
+  ast, ast_to_interpreted, interpreter, pipeline, rule, stl, Stok, Sym, VName,
+};
 
 use crate::cli::cmd_prompt;
 
@@ -66,12 +68,16 @@ impl Args {
 /// Load and parse all source related to the symbol `target` or all symbols
 /// in the namespace `target` in the context of the STL. All sourcefiles must
 /// reside within `dir`.
-fn load_dir(dir: &Path, target: Sym, i: &Interner) -> pipeline::ProjectTree {
+fn load_dir(
+  dir: &Path,
+  target: &[Stok],
+  i: &Interner,
+) -> pipeline::ProjectTree<VName> {
   let file_cache = pipeline::file_loader::mk_dir_cache(dir.to_path_buf(), i);
   let library = stl::mk_stl(i, stl::StlOptions::default());
   pipeline::parse_layer(
-    &[target],
-    &|path| file_cache.find(&path),
+    iter::once(target),
+    &|path| file_cache.find(path),
     &library,
     &stl::mk_prelude(i),
     i,
@@ -79,12 +85,12 @@ fn load_dir(dir: &Path, target: Sym, i: &Interner) -> pipeline::ProjectTree {
   .expect("Failed to load source code")
 }
 
-pub fn to_sym(data: &str, i: &Interner) -> Sym {
-  i.i(&data.split("::").map(|s| i.i(s)).collect::<Vec<_>>()[..])
+pub fn to_vname(data: &str, i: &Interner) -> VName {
+  data.split("::").map(|s| i.i(s)).collect::<Vec<_>>()
 }
 
 /// A little utility to step through the resolution of a macro set
-pub fn macro_debug(repo: rule::Repo, mut code: ast::Expr, i: &Interner) {
+pub fn macro_debug(repo: rule::Repo, mut code: ast::Expr<Sym>, i: &Interner) {
   let mut idx = 0;
   println!("Macro debugger working on {}", code.bundle(i));
   loop {
@@ -119,8 +125,8 @@ pub fn main() {
   args.chk_proj().unwrap_or_else(|e| panic!("{e}"));
   let dir = PathBuf::try_from(args.dir).unwrap();
   let i = Interner::new();
-  let main = to_sym(&args.main, &i);
-  let project = load_dir(&dir, main, &i);
+  let main = to_vname(&args.main, &i);
+  let project = pipeline::vname_to_sym_tree(load_dir(&dir, &main, &i), &i);
   let rules = pipeline::collect_rules(&project);
   let consts = pipeline::collect_consts(&project, &i);
   let repo = rule::Repo::new(rules, &i).unwrap_or_else(|(rule, error)| {
@@ -135,7 +141,7 @@ pub fn main() {
     println!("Parsed rules: {}", repo.bundle(&i));
     return;
   } else if !args.macro_debug.is_empty() {
-    let name = to_sym(&args.macro_debug, &i);
+    let name = i.i(&to_vname(&args.macro_debug, &i));
     let code = consts
       .get(&name)
       .unwrap_or_else(|| panic!("Constant {} not found", args.macro_debug));
@@ -153,7 +159,7 @@ pub fn main() {
   }
   let ctx =
     interpreter::Context { symbols: &exec_table, interner: &i, gas: None };
-  let entrypoint = exec_table.get(&main).unwrap_or_else(|| {
+  let entrypoint = exec_table.get(&i.i(&main)).unwrap_or_else(|| {
     let main = args.main;
     let symbols =
       exec_table.keys().map(|t| i.extern_vec(*t).join("::")).join(", ");

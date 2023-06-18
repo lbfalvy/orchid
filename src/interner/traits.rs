@@ -54,3 +54,18 @@ impl<'a, T: InternedDisplay + ?Sized> Display for DisplayBundle<'a, T> {
     self.data.fmt_i(f, self.interner)
   }
 }
+
+/// Conversions that are possible in the presence of an interner
+///
+/// Essentially, this allows to define abstractions over interned and
+/// non-interned versions of a type and convert between them
+pub trait InternedInto<U> {
+  /// Execute the conversion
+  fn into_i(self, i: &Interner) -> U;
+}
+
+impl<T: Into<U>, U> InternedInto<U> for T {
+  fn into_i(self, _i: &Interner) -> U {
+    self.into()
+  }
+}

@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use super::location::Location;
 use super::{ast, postmacro};
-use crate::interner::Sym;
 use crate::utils::Substack;
+use crate::Sym;
 
 #[derive(Clone)]
 pub enum Error {
@@ -42,7 +42,7 @@ impl Display for Error {
 }
 
 /// Try to convert an expression from AST format to typed lambda
-pub fn expr(expr: &ast::Expr) -> Result<postmacro::Expr, Error> {
+pub fn expr(expr: &ast::Expr<Sym>) -> Result<postmacro::Expr, Error> {
   expr_rec(expr, Context::new())
 }
 
@@ -66,7 +66,7 @@ impl<'a> Context<'a> {
 
 /// Process an expression sequence
 fn exprv_rec<'a>(
-  v: &'a [ast::Expr],
+  v: &'a [ast::Expr<Sym>],
   ctx: Context<'a>,
 ) -> Result<postmacro::Expr, Error> {
   let (last, rest) = v.split_last().ok_or(Error::EmptyS)?;
@@ -81,7 +81,7 @@ fn exprv_rec<'a>(
 
 /// Process an expression
 fn expr_rec<'a>(
-  ast::Expr { value, location }: &'a ast::Expr,
+  ast::Expr { value, location }: &'a ast::Expr<Sym>,
   ctx: Context<'a>,
 ) -> Result<postmacro::Expr, Error> {
   if let ast::Clause::S(paren, body) = value {
@@ -98,7 +98,7 @@ fn expr_rec<'a>(
 
 /// Process a clause
 fn clause_rec<'a>(
-  cls: &'a ast::Clause,
+  cls: &'a ast::Clause<Sym>,
   ctx: Context<'a>,
 ) -> Result<postmacro::Clause, Error> {
   match cls {

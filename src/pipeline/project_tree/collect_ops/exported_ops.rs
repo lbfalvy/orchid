@@ -3,11 +3,12 @@ use std::rc::Rc;
 use hashbrown::HashSet;
 use trait_set::trait_set;
 
-use crate::interner::{Interner, Sym, Tok};
+use crate::interner::{Interner, Tok};
 use crate::pipeline::error::{ModuleNotFound, ProjectError};
 use crate::pipeline::source_loader::LoadedSourceTable;
 use crate::representations::tree::WalkErrorKind;
 use crate::utils::{split_max_prefix, unwrap_or, Cache};
+use crate::Sym;
 
 pub type OpsResult = Result<Rc<HashSet<Tok<String>>>, Rc<dyn ProjectError>>;
 pub type ExportedOpsCache<'a> = Cache<'a, Sym, OpsResult>;
@@ -31,16 +32,13 @@ pub fn collect_exported_ops(
   injected: &impl InjectedOperatorsFn,
 ) -> OpsResult {
   let injected = injected(path).unwrap_or_else(|| Rc::new(HashSet::new()));
-  let is_file = |n: &[Tok<String>]| loaded.contains_key(&i.i(n));
   let path_s = &i.r(path)[..];
-  let name_split = split_max_prefix(path_s, &is_file);
-  let (fpath_v, subpath_v) = unwrap_or!(name_split; return Ok(Rc::new(
+  let name_split = split_max_prefix(path_s, &|n| loaded.contains_key(n));
+  let (fpath, subpath) = unwrap_or!(name_split; return Ok(Rc::new(
     (loaded.keys())
-      .copied()
       .filter_map(|modname| {
-        let modname_s = i.r(modname);
-        if path_s.len() == coprefix(path_s.iter(), modname_s.iter()) {
-          Some(modname_s[path_s.len()])
+        if path_s.len() == coprefix(path_s.iter(), modname.iter()) {
+          Some(modname[path_s.len()])
         } else {
           None
         }
@@ -48,24 +46,24 @@ pub fn collect_exported_ops(
       .chain(injected.iter().copied())
       .collect::<HashSet<_>>(),
   )));
-  let fpath = i.i(fpath_v);
-  let preparsed = &loaded[&fpath].preparsed;
-  let module = preparsed.0.walk(subpath_v, false).map_err(|walk_err| {
-    match walk_err.kind {
-      WalkErrorKind::Private => {
-        unreachable!("visibility is not being checked here")
+  let preparsed = &loaded[fpath].preparsed;
+  let module =
+    preparsed.0.walk_ref(subpath, false).map_err(
+      |walk_err| match walk_err.kind {
+        WalkErrorKind::Private => {
+          unreachable!("visibility is not being checked here")
+        },
+        WalkErrorKind::Missing => ModuleNotFound {
+          file: i.extern_all(fpath),
+          subpath: (subpath.iter())
+            .take(walk_err.pos)
+            .map(|t| i.r(*t))
+            .cloned()
+            .collect(),
+        }
+        .rc(),
       },
-      WalkErrorKind::Missing => ModuleNotFound {
-        file: i.extern_vec(fpath),
-        subpath: (subpath_v.iter())
-          .take(walk_err.pos)
-          .map(|t| i.r(*t))
-          .cloned()
-          .collect(),
-      }
-      .rc(),
-    }
-  })?;
+    )?;
   let out = (module.items.iter())
     .filter(|(_, v)| v.exported)
     .map(|(k, _)| *k)

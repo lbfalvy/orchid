@@ -18,7 +18,10 @@ pub mod rule;
 pub mod stl;
 mod utils;
 
-pub use interner::Sym;
+use interner::Tok;
+pub use representations::{NameLike, Sym, VName};
+/// Element of VName and a common occurrence in the API
+pub type Stok = Tok<String>;
 pub use representations::ast_to_interpreted::ast_to_interpreted;
 pub use representations::{
   ast, interpreted, sourcefile, tree, Literal, Location, PathSet, Primitive,

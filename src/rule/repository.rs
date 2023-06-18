@@ -5,19 +5,20 @@ use std::rc::Rc;
 use hashbrown::HashSet;
 use ordered_float::NotNan;
 
-use super::matcher::Matcher;
+use super::matcher::{Matcher, RuleExpr};
 use super::prepare_rule::prepare_rule;
 use super::state::apply_exprv;
 use super::{update_first_seq, RuleError, VectreeMatcher};
-use crate::ast::{Expr, Rule};
-use crate::interner::{InternedDisplay, Interner, Sym};
+use crate::ast::Rule;
+use crate::interner::{InternedDisplay, Interner};
 use crate::utils::Substack;
+use crate::Sym;
 
 #[derive(Debug)]
 pub struct CachedRule<M: Matcher> {
   matcher: M,
-  pattern: Rc<Vec<Expr>>,
-  template: Rc<Vec<Expr>>,
+  pattern: Vec<RuleExpr>,
+  template: Vec<RuleExpr>,
 }
 
 impl<M: InternedDisplay + Matcher> InternedDisplay for CachedRule<M> {
@@ -48,9 +49,9 @@ pub struct Repository<M: Matcher> {
 impl<M: Matcher> Repository<M> {
   /// Build a new repository to hold the given set of rules
   pub fn new(
-    mut rules: Vec<Rule>,
+    mut rules: Vec<Rule<Sym>>,
     i: &Interner,
-  ) -> Result<Self, (Rule, RuleError)> {
+  ) -> Result<Self, (Rule<Sym>, RuleError)> {
     rules.sort_by_key(|r| -r.prio);
     let cache = rules
       .into_iter()
@@ -60,10 +61,10 @@ impl<M: Matcher> Repository<M> {
         let mut glossary = HashSet::new();
         for e in rule.pattern.iter() {
           e.visit_names(Substack::Bottom, &mut |op| {
-            glossary.insert(op);
+            glossary.insert(*op);
           })
         }
-        let matcher = M::new(rule.pattern.clone());
+        let matcher = M::new(Rc::new(rule.pattern.clone()));
         let prep = CachedRule {
           matcher,
           pattern: rule.pattern,
@@ -76,10 +77,10 @@ impl<M: Matcher> Repository<M> {
   }
 
   /// Attempt to run each rule in priority order once
-  pub fn step(&self, code: &Expr) -> Option<Expr> {
+  pub fn step(&self, code: &RuleExpr) -> Option<RuleExpr> {
     let mut glossary = HashSet::new();
     code.visit_names(Substack::Bottom, &mut |op| {
-      glossary.insert(op);
+      glossary.insert(*op);
     });
     for (rule, deps, _) in self.cache.iter() {
       if !deps.is_subset(&glossary) {
@@ -100,7 +101,7 @@ impl<M: Matcher> Repository<M> {
   /// Keep running the matching rule with the highest priority until no
   /// rules match. WARNING: this function might not terminate
   #[allow(unused)]
-  pub fn pass(&self, code: &Expr) -> Option<Expr> {
+  pub fn pass(&self, code: &RuleExpr) -> Option<RuleExpr> {
     if let Some(mut processed) = self.step(code) {
       while let Some(out) = self.step(&processed) {
         processed = out
@@ -114,7 +115,11 @@ impl<M: Matcher> Repository<M> {
   /// Attempt to run each rule in priority order `limit` times. Returns
   /// the final tree and the number of iterations left to the limit.
   #[allow(unused)]
-  pub fn long_step(&self, code: &Expr, mut limit: usize) -> (Expr, usize) {
+  pub fn long_step(
+    &self,
+    code: &RuleExpr,
+    mut limit: usize,
+  ) -> (RuleExpr, usize) {
     if limit == 0 {
       return (code.clone(), 0);
     }

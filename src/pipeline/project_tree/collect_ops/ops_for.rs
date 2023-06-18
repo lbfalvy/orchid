@@ -19,7 +19,7 @@ fn tree_all_ops(
   ops.extend(module.items.keys().copied());
   for ent in module.items.values() {
     if let ModMember::Sub(m) = &ent.member {
-      tree_all_ops(m.as_ref(), ops);
+      tree_all_ops(m, ops);
     }
   }
 }
@@ -31,9 +31,9 @@ pub fn collect_ops_for(
   ops_cache: &ExportedOpsCache,
   i: &Interner,
 ) -> OpsResult {
-  let tree = &loaded[&i.i(file)].preparsed.0;
+  let tree = &loaded[file].preparsed.0;
   let mut ret = HashSet::new();
-  tree_all_ops(tree.as_ref(), &mut ret);
+  tree_all_ops(tree, &mut ret);
   tree.visit_all_imports(&mut |modpath, _module, import| {
     if let Some(n) = import.name {
       ret.insert(n);

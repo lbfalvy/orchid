@@ -1,24 +1,24 @@
-use std::rc::Rc;
-
 use hashbrown::HashMap;
 use itertools::Itertools;
 
+use super::matcher::RuleExpr;
 use super::vec_attrs::vec_attrs;
 use super::RuleError;
 use crate::ast::{Clause, Expr, PHClass, Placeholder, Rule};
 use crate::interner::{Interner, Tok};
 use crate::representations::location::Location;
+use crate::Sym;
 
 /// Ensure that the rule's source begins and ends with a vectorial without
 /// changing its meaning
-fn pad(mut rule: Rule, i: &Interner) -> Rule {
+fn pad(mut rule: Rule<Sym>, i: &Interner) -> Rule<Sym> {
   let class: PHClass = PHClass::Vec { nonzero: false, prio: 0 };
-  let empty: &[Expr] = &[];
-  let prefix: &[Expr] = &[Expr {
+  let empty: &[Expr<Sym>] = &[];
+  let prefix: &[Expr<Sym>] = &[Expr {
     location: Location::Unknown,
     value: Clause::Placeh(Placeholder { name: i.i("::prefix"), class }),
   }];
-  let suffix: &[Expr] = &[Expr {
+  let suffix: &[Expr<Sym>] = &[Expr {
     location: Location::Unknown,
     value: Clause::Placeh(Placeholder { name: i.i("::suffix"), class }),
   }];
@@ -28,22 +28,14 @@ fn pad(mut rule: Rule, i: &Interner) -> Rule {
   let suffix_explicit = vec_attrs(rule_tail).is_some();
   let prefix_v = if prefix_explicit { empty } else { prefix };
   let suffix_v = if suffix_explicit { empty } else { suffix };
-  rule.pattern = Rc::new(
-    prefix_v
-      .iter()
-      .chain(rule.pattern.iter())
-      .chain(suffix_v.iter())
-      .cloned()
-      .collect(),
-  );
-  rule.template = Rc::new(
-    prefix_v
-      .iter()
-      .chain(rule.template.iter())
-      .chain(suffix_v.iter())
-      .cloned()
-      .collect(),
-  );
+  rule.pattern = (prefix_v.iter().cloned())
+    .chain(rule.pattern.into_iter())
+    .chain(suffix_v.iter().cloned())
+    .collect();
+  rule.template = (prefix_v.iter().cloned())
+    .chain(rule.template.into_iter())
+    .chain(suffix_v.iter().cloned())
+    .collect();
   rule
 }
 
@@ -62,7 +54,7 @@ impl From<PHClass> for PHType {
 }
 
 fn check_rec_expr(
-  expr: &Expr,
+  expr: &RuleExpr,
   types: &mut HashMap<Tok<String>, PHType>,
   in_template: bool,
 ) -> Result<(), RuleError> {
@@ -95,7 +87,7 @@ fn check_rec_expr(
 }
 
 fn check_rec_exprv(
-  exprv: &[Expr],
+  exprv: &[RuleExpr],
   types: &mut HashMap<Tok<String>, PHType>,
   in_template: bool,
 ) -> Result<(), RuleError> {
@@ -115,7 +107,10 @@ fn check_rec_exprv(
   }
 }
 
-pub fn prepare_rule(rule: Rule, i: &Interner) -> Result<Rule, RuleError> {
+pub fn prepare_rule(
+  rule: Rule<Sym>,
+  i: &Interner,
+) -> Result<Rule<Sym>, RuleError> {
   // Dimension check
   let mut types = HashMap::new();
   check_rec_exprv(&rule.pattern, &mut types, false)?;

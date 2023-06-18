@@ -1,6 +1,7 @@
 use itertools::Itertools;
 
-use crate::interner::{Interner, Sym};
+use crate::interner::Interner;
+use crate::Sym;
 
 /// Print symbols to :: delimited strings
 pub fn sym2string(t: Sym, i: &Interner) -> String {

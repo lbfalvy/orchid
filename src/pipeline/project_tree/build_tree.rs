@@ -12,8 +12,9 @@ use crate::pipeline::error::ProjectError;
 use crate::pipeline::source_loader::{LoadedSource, LoadedSourceTable};
 use crate::representations::sourcefile::{absolute_path, FileEntry, Member};
 use crate::representations::tree::{ModEntry, ModMember, Module};
+use crate::representations::{NameLike, VName};
 use crate::utils::iter::{box_empty, box_once};
-use crate::utils::{pushed, Substack};
+use crate::utils::{pushed, unwrap_or, Substack};
 
 #[derive(Debug)]
 struct ParsedSource<'a> {
@@ -24,7 +25,7 @@ struct ParsedSource<'a> {
 
 pub fn split_path<'a>(
   path: &'a [Tok<String>],
-  proj: &'a ProjectTree,
+  proj: &'a ProjectTree<impl NameLike>,
 ) -> (&'a [Tok<String>], &'a [Tok<String>]) {
   let (end, body) = if let Some(s) = path.split_last() {
     s
@@ -32,9 +33,9 @@ pub fn split_path<'a>(
     return (&[], &[]);
   };
   let mut module =
-    proj.0.walk(body, false).expect("invalid path cannot be split");
+    proj.0.walk_ref(body, false).expect("invalid path cannot be split");
   if let ModMember::Sub(m) = &module.items[end].member {
-    module = m.clone();
+    module = m;
   }
   let file =
     module.extra.file.as_ref().map(|s| &path[..s.len()]).unwrap_or(path);
@@ -52,7 +53,7 @@ fn source_to_module(
   // context
   i: &Interner,
   filepath_len: usize,
-) -> Rc<Module<Expr, ProjectExt>> {
+) -> Module<Expr<VName>, ProjectExt<VName>> {
   let path_v = path.iter().rev_vec_clone();
   let imports = data
     .iter()
@@ -70,13 +71,13 @@ fn source_to_module(
       let mut abs_path =
         absolute_path(&path_v, &imp_path_v, i).expect("tested in preparsing");
       let name = abs_path.pop().expect("importing the global context");
-      (name, i.i(&abs_path))
+      (name, abs_path)
     })
     .collect::<HashMap<_, _>>();
   let exports = data
     .iter()
     .flat_map(|ent| {
-      let mk_ent = |name| (name, i.i(&pushed(&path_v, name)));
+      let mk_ent = |name| (name, pushed(&path_v, name));
       match ent {
         FileEntry::Export(names) => Box::new(names.iter().copied().map(mk_ent)),
         FileEntry::Exported(mem) => match mem {
@@ -86,8 +87,8 @@ fn source_to_module(
             let mut names = Vec::new();
             for e in rule.pattern.iter() {
               e.visit_names(Substack::Bottom, &mut |n| {
-                if let Some([name]) = i.r(n).strip_prefix(&path_v[..]) {
-                  names.push((*name, n))
+                if let Some([name]) = n.strip_prefix(&path_v[..]) {
+                  names.push((*name, n.clone()))
                 }
               })
             }
@@ -109,58 +110,37 @@ fn source_to_module(
     .collect::<Vec<_>>();
   let items = data
     .into_iter()
-    .filter_map(|ent| match ent {
-      FileEntry::Exported(Member::Namespace(ns)) => {
-        let prep_member = &preparsed.items[&ns.name].member;
-        let new_prep = if let ModMember::Sub(s) = prep_member {
-          s.as_ref()
-        } else {
-          panic!("preparsed missing a submodule")
-        };
-        let module = source_to_module(
-          path.push(ns.name),
-          new_prep,
-          ns.body,
-          i,
-          filepath_len,
-        );
-        let member = ModMember::Sub(module);
-        Some((ns.name, ModEntry { exported: true, member }))
-      },
-      FileEntry::Internal(Member::Namespace(ns)) => {
-        let prep_member = &preparsed.items[&ns.name].member;
-        let new_prep = if let ModMember::Sub(s) = prep_member {
-          s.as_ref()
-        } else {
-          panic!("preparsed missing a submodule")
-        };
-        let module = source_to_module(
-          path.push(ns.name),
-          new_prep,
-          ns.body,
-          i,
-          filepath_len,
-        );
-        let member = ModMember::Sub(module);
-        Some((ns.name, ModEntry { exported: false, member }))
-      },
-      FileEntry::Exported(Member::Constant(Constant { name, value })) => {
-        let member = ModMember::Item(value);
-        Some((name, ModEntry { exported: true, member }))
-      },
-      FileEntry::Internal(Member::Constant(Constant { name, value })) => {
-        let member = ModMember::Item(value);
-        Some((name, ModEntry { exported: false, member }))
-      },
-      _ => None,
+    .filter_map(|ent| {
+      let member_to_item = |exported, member| match member {
+        Member::Namespace(ns) => {
+          let new_prep = unwrap_or!(
+            &preparsed.items[&ns.name].member => ModMember::Sub;
+            panic!("preparsed missing a submodule")
+          );
+          let module = source_to_module(
+            path.push(ns.name),
+            new_prep,
+            ns.body,
+            i,
+            filepath_len,
+          );
+          let member = ModMember::Sub(module);
+          Some((ns.name, ModEntry { exported, member }))
+        },
+        Member::Constant(Constant { name, value }) => {
+          let member = ModMember::Item(value);
+          Some((name, ModEntry { exported, member }))
+        },
+        _ => None,
+      };
+      match ent {
+        FileEntry::Exported(member) => member_to_item(true, member),
+        FileEntry::Internal(member) => member_to_item(false, member),
+        _ => None,
+      }
     })
     .collect::<HashMap<_, _>>();
-  // println!(
-  //   "Constructing file-module {} with members ({})",
-  //   i.extern_all(&path_v[..]).join("::"),
-  //   exports.keys().map(|t| i.r(*t)).join(", ")
-  // );
-  Rc::new(Module {
+  Module {
     imports,
     items,
     extra: ProjectExt {
@@ -169,14 +149,14 @@ fn source_to_module(
       rules,
       file: Some(path_v[..filepath_len].to_vec()),
     },
-  })
+  }
 }
 
 fn files_to_module(
   path: Substack<Tok<String>>,
   files: Vec<ParsedSource>,
   i: &Interner,
-) -> Rc<Module<Expr, ProjectExt>> {
+) -> Module<Expr<VName>, ProjectExt<VName>> {
   let lvl = path.len();
   debug_assert!(
     files.iter().map(|f| f.path.len()).max().unwrap() >= lvl,
@@ -186,7 +166,7 @@ fn files_to_module(
   if files.len() == 1 && files[0].path.len() == lvl {
     return source_to_module(
       path,
-      files[0].loaded.preparsed.0.as_ref(),
+      &files[0].loaded.preparsed.0,
       files[0].parsed.clone(),
       i,
       path.len(),
@@ -204,12 +184,9 @@ fn files_to_module(
       (namespace, ModEntry { exported: true, member })
     })
     .collect::<HashMap<_, _>>();
-  let exports: HashMap<_, _> = items
-    .keys()
-    .copied()
-    .map(|name| (name, i.i(&pushed(&path_v, name))))
-    .collect();
-  Rc::new(Module {
+  let exports: HashMap<_, _> =
+    items.keys().copied().map(|name| (name, pushed(&path_v, name))).collect();
+  Module {
     items,
     imports: vec![],
     extra: ProjectExt {
@@ -218,7 +195,7 @@ fn files_to_module(
       rules: vec![],
       file: None,
     },
-  })
+  }
 }
 
 pub fn build_tree(
@@ -226,17 +203,13 @@ pub fn build_tree(
   i: &Interner,
   prelude: &[FileEntry],
   injected: &impl InjectedOperatorsFn,
-) -> Result<ProjectTree, Rc<dyn ProjectError>> {
+) -> Result<ProjectTree<VName>, Rc<dyn ProjectError>> {
   assert!(!files.is_empty(), "A tree requires at least one module");
   let ops_cache = collect_ops::mk_cache(&files, i, injected);
   let mut entries = files
     .iter()
     .map(|(path, loaded)| {
-      Ok((
-        i.r(*path),
-        loaded,
-        parse_file(*path, &files, &ops_cache, i, prelude)?,
-      ))
+      Ok((path, loaded, parse_file(path, &files, &ops_cache, i, prelude)?))
     })
     .collect::<Result<Vec<_>, Rc<dyn ProjectError>>>()?;
   // sort by similarity, then longest-first

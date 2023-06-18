@@ -1,16 +1,18 @@
 use itertools::Itertools;
 
 use super::shared::{AnyMatcher, ScalMatcher, VecMatcher};
-use crate::ast::{Clause, Expr, PHClass, Placeholder};
+use crate::ast::{Clause, PHClass, Placeholder};
 use crate::interner::Tok;
+use crate::rule::matcher::RuleExpr;
 use crate::rule::vec_attrs::vec_attrs;
 use crate::utils::Side;
 
-pub type MaxVecSplit<'a> = (&'a [Expr], (Tok<String>, u64, bool), &'a [Expr]);
+pub type MaxVecSplit<'a> =
+  (&'a [RuleExpr], (Tok<String>, u64, bool), &'a [RuleExpr]);
 
 /// Derive the details of the central vectorial and the two sides from a
 /// slice of Expr's
-fn split_at_max_vec(pattern: &[Expr]) -> Option<MaxVecSplit> {
+fn split_at_max_vec(pattern: &[RuleExpr]) -> Option<MaxVecSplit> {
   let rngidx = pattern.iter().position_max_by_key(|expr| {
     vec_attrs(expr).map(|attrs| attrs.1 as i64).unwrap_or(-1)
   })?;
@@ -21,11 +23,11 @@ fn split_at_max_vec(pattern: &[Expr]) -> Option<MaxVecSplit> {
   vec_attrs(placeh).map(|attrs| (left, attrs, right))
 }
 
-fn scal_cnt<'a>(iter: impl Iterator<Item = &'a Expr>) -> usize {
+fn scal_cnt<'a>(iter: impl Iterator<Item = &'a RuleExpr>) -> usize {
   iter.take_while(|expr| vec_attrs(expr).is_none()).count()
 }
 
-pub fn mk_any(pattern: &[Expr]) -> AnyMatcher {
+pub fn mk_any(pattern: &[RuleExpr]) -> AnyMatcher {
   let left_split = scal_cnt(pattern.iter());
   if pattern.len() <= left_split {
     return AnyMatcher::Scalar(mk_scalv(pattern));
@@ -41,12 +43,12 @@ pub fn mk_any(pattern: &[Expr]) -> AnyMatcher {
 }
 
 /// Pattern MUST NOT contain vectorial placeholders
-fn mk_scalv(pattern: &[Expr]) -> Vec<ScalMatcher> {
+fn mk_scalv(pattern: &[RuleExpr]) -> Vec<ScalMatcher> {
   pattern.iter().map(mk_scalar).collect()
 }
 
 /// Pattern MUST start and end with a vectorial placeholder
-fn mk_vec(pattern: &[Expr]) -> VecMatcher {
+fn mk_vec(pattern: &[RuleExpr]) -> VecMatcher {
   debug_assert!(!pattern.is_empty(), "pattern cannot be empty");
   debug_assert!(
     pattern.first().map(vec_attrs).is_some(),
@@ -97,7 +99,7 @@ fn mk_vec(pattern: &[Expr]) -> VecMatcher {
 }
 
 /// Pattern MUST NOT be a vectorial placeholder
-fn mk_scalar(pattern: &Expr) -> ScalMatcher {
+fn mk_scalar(pattern: &RuleExpr) -> ScalMatcher {
   match &pattern.value {
     Clause::P(p) => ScalMatcher::P(p.clone()),
     Clause::Name(n) => ScalMatcher::Name(*n),

@@ -6,9 +6,10 @@ use super::conv::conv;
 use super::io::io;
 use super::num::num;
 use super::str::str;
-use crate::interner::{Interner, Sym};
+use crate::interner::Interner;
 use crate::pipeline::file_loader::mk_embed_cache;
 use crate::pipeline::{from_const_tree, parse_layer, ProjectTree};
+use crate::representations::VName;
 use crate::sourcefile::{FileEntry, Import};
 
 /// Feature flags for the STL.
@@ -29,29 +30,28 @@ struct StlEmbed;
 
 /// Build the standard library used by the interpreter by combining the other
 /// libraries
-pub fn mk_stl(i: &Interner, options: StlOptions) -> ProjectTree {
+pub fn mk_stl(i: &Interner, options: StlOptions) -> ProjectTree<VName> {
   let const_tree = from_const_tree(
     HashMap::from([(
       i.i("std"),
       io(i, options.impure) + conv(i) + bool(i) + str(i) + num(i),
     )]),
     &[i.i("std")],
-    i,
   );
   let ld_cache = mk_embed_cache::<StlEmbed>(".orc", i);
+  let targets = StlEmbed::iter()
+    .map(|path| {
+      path
+        .strip_suffix(".orc")
+        .expect("the embed is filtered for suffix")
+        .split('/')
+        .map(|segment| i.i(segment))
+        .collect::<Vec<_>>()
+    })
+    .collect::<Vec<_>>();
   parse_layer(
-    &StlEmbed::iter()
-      .map(|path| -> Sym {
-        let segtoks = path
-          .strip_suffix(".orc")
-          .expect("the embed is filtered for suffix")
-          .split('/')
-          .map(|segment| i.i(segment))
-          .collect::<Vec<_>>();
-        i.i(&segtoks[..])
-      })
-      .collect::<Vec<_>>()[..],
-    &|p| ld_cache.find(&p),
+    targets.iter().map(|v| &v[..]),
+    &|p| ld_cache.find(p),
     &const_tree,
     &[],
     i,

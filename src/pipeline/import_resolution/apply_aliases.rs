@@ -1,24 +1,22 @@
-use std::rc::Rc;
-
 use hashbrown::HashMap;
 
 use super::alias_map::AliasMap;
 use super::decls::{InjectedAsFn, UpdatedFn};
 use crate::ast::{Expr, Rule};
-use crate::interner::{Interner, Sym, Tok};
+use crate::interner::Tok;
 use crate::pipeline::{ProjectExt, ProjectModule};
 use crate::representations::tree::{ModEntry, ModMember};
+use crate::representations::VName;
 use crate::utils::Substack;
 
 fn resolve_rec(
-  token: Sym,
+  namespace: &[Tok<String>],
   alias_map: &AliasMap,
-  i: &Interner,
 ) -> Option<Vec<Tok<String>>> {
-  if let Some(alias) = alias_map.resolve(token) {
-    Some(i.r(alias).clone())
-  } else if let Some((foot, body)) = i.r(token).split_last() {
-    let mut new_beginning = resolve_rec(i.i(body), alias_map, i)?;
+  if let Some(alias) = alias_map.resolve(namespace) {
+    Some(alias.clone())
+  } else if let Some((foot, body)) = namespace.split_last() {
+    let mut new_beginning = resolve_rec(body, alias_map)?;
     new_beginning.push(*foot);
     Some(new_beginning)
   } else {
@@ -27,25 +25,23 @@ fn resolve_rec(
 }
 
 fn resolve(
-  token: Sym,
+  namespace: &[Tok<String>],
   alias_map: &AliasMap,
   injected_as: &impl InjectedAsFn,
-  i: &Interner,
-) -> Option<Sym> {
-  injected_as(&i.r(token)[..]).or_else(|| {
-    let next_v = resolve_rec(token, alias_map, i)?;
-    Some(injected_as(&next_v).unwrap_or_else(|| i.i(&next_v)))
+) -> Option<Vec<Tok<String>>> {
+  injected_as(namespace).or_else(|| {
+    let next_v = resolve_rec(namespace, alias_map)?;
+    Some(injected_as(&next_v).unwrap_or(next_v))
   })
 }
 
 fn process_expr(
-  expr: &Expr,
+  expr: &Expr<VName>,
   alias_map: &AliasMap,
   injected_as: &impl InjectedAsFn,
-  i: &Interner,
-) -> Expr {
+) -> Expr<VName> {
   expr
-    .map_names(&|n| resolve(n, alias_map, injected_as, i))
+    .map_names(&|n| resolve(n, alias_map, injected_as))
     .unwrap_or_else(|| expr.clone())
 }
 
@@ -53,32 +49,23 @@ fn process_expr(
 /// Replace all aliases with the name they're originally defined as
 fn apply_aliases_rec(
   path: Substack<Tok<String>>,
-  module: &ProjectModule,
+  module: &ProjectModule<VName>,
   alias_map: &AliasMap,
-  i: &Interner,
   injected_as: &impl InjectedAsFn,
   updated: &impl UpdatedFn,
-) -> ProjectModule {
+) -> ProjectModule<VName> {
   let items = (module.items.iter())
     .map(|(name, ent)| {
       let ModEntry { exported, member } = ent;
       let member = match member {
         ModMember::Item(expr) =>
-          ModMember::Item(process_expr(expr, alias_map, injected_as, i)),
+          ModMember::Item(process_expr(expr, alias_map, injected_as)),
         ModMember::Sub(module) => {
           let subpath = path.push(*name);
           let new_mod = if !updated(&subpath.iter().rev_vec_clone()) {
             module.clone()
           } else {
-            let module = module.as_ref();
-            Rc::new(apply_aliases_rec(
-              subpath,
-              module,
-              alias_map,
-              i,
-              injected_as,
-              updated,
-            ))
+            apply_aliases_rec(subpath, module, alias_map, injected_as, updated)
           };
           ModMember::Sub(new_mod)
         },
@@ -91,16 +78,12 @@ fn apply_aliases_rec(
       let Rule { pattern, prio, template } = rule;
       Rule {
         prio: *prio,
-        pattern: Rc::new(
-          (pattern.iter())
-            .map(|expr| process_expr(expr, alias_map, injected_as, i))
-            .collect::<Vec<_>>(),
-        ),
-        template: Rc::new(
-          (template.iter())
-            .map(|expr| process_expr(expr, alias_map, injected_as, i))
-            .collect::<Vec<_>>(),
-        ),
+        pattern: (pattern.iter())
+          .map(|expr| process_expr(expr, alias_map, injected_as))
+          .collect::<Vec<_>>(),
+        template: (template.iter())
+          .map(|expr| process_expr(expr, alias_map, injected_as))
+          .collect::<Vec<_>>(),
       }
     })
     .collect::<Vec<_>>();
@@ -111,7 +94,7 @@ fn apply_aliases_rec(
       rules,
       exports: (module.extra.exports.iter())
         .map(|(k, v)| {
-          (*k, resolve(*v, alias_map, injected_as, i).unwrap_or(*v))
+          (*k, resolve(v, alias_map, injected_as).unwrap_or(v.clone()))
         })
         .collect(),
       file: module.extra.file.clone(),
@@ -121,18 +104,10 @@ fn apply_aliases_rec(
 }
 
 pub fn apply_aliases(
-  module: &ProjectModule,
+  module: &ProjectModule<VName>,
   alias_map: &AliasMap,
-  i: &Interner,
   injected_as: &impl InjectedAsFn,
   updated: &impl UpdatedFn,
-) -> ProjectModule {
-  apply_aliases_rec(
-    Substack::Bottom,
-    module,
-    alias_map,
-    i,
-    injected_as,
-    updated,
-  )
+) -> ProjectModule<VName> {
+  apply_aliases_rec(Substack::Bottom, module, alias_map, injected_as, updated)
 }

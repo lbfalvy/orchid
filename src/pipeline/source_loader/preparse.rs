@@ -15,7 +15,7 @@ use crate::representations::sourcefile::{
 use crate::representations::tree::{ModEntry, ModMember, Module};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Preparsed(pub Rc<Module<(), ()>>);
+pub struct Preparsed(pub Module<(), ()>);
 
 /// Add an internal flat name if it does not exist yet
 fn add_intern<K: Eq + Hash>(map: &mut HashMap<K, ModEntry<(), ()>>, k: K) {
@@ -33,22 +33,18 @@ fn add_export<K: Eq + Hash>(map: &mut HashMap<K, ModEntry<(), ()>>, k: K) {
 }
 
 /// Convert source lines into a module
-fn to_module(
-  src: &[FileEntry],
-  prelude: &[FileEntry],
-  i: &Interner,
-) -> Rc<Module<(), ()>> {
+fn to_module(src: &[FileEntry], prelude: &[FileEntry]) -> Module<(), ()> {
   let all_src = || src.iter().chain(prelude.iter());
   let imports = imports(all_src()).cloned().collect::<Vec<_>>();
   let mut items = all_src()
     .filter_map(|ent| match ent {
       FileEntry::Internal(Member::Namespace(ns)) => {
-        let member = ModMember::Sub(to_module(&ns.body, prelude, i));
+        let member = ModMember::Sub(to_module(&ns.body, prelude));
         let entry = ModEntry { exported: false, member };
         Some((ns.name, entry))
       },
       FileEntry::Exported(Member::Namespace(ns)) => {
-        let member = ModMember::Sub(to_module(&ns.body, prelude, i));
+        let member = ModMember::Sub(to_module(&ns.body, prelude));
         let entry = ModEntry { exported: true, member };
         Some((ns.name, entry))
       },
@@ -70,20 +66,20 @@ fn to_module(
       FileEntry::Exported(Member::Constant(Constant { name, .. })) =>
         add_export(&mut items, *name),
       FileEntry::Internal(Member::Rule(rule)) => {
-        let names = rule.collect_single_names(i);
+        let names = rule.collect_single_names();
         for name in names {
           add_intern(&mut items, name)
         }
       },
       FileEntry::Exported(Member::Rule(rule)) => {
-        let names = rule.collect_single_names(i);
+        let names = rule.collect_single_names();
         for name in names {
           add_export(&mut items, name)
         }
       },
     }
   }
-  Rc::new(Module { imports, items, extra: () })
+  Module { imports, items, extra: () }
 }
 
 /// Preparse the module. At this stage, only the imports and
@@ -112,5 +108,5 @@ pub fn preparse(
       }
       .rc()
     })?;
-  Ok(Preparsed(to_module(&normalized, prelude, i)))
+  Ok(Preparsed(to_module(&normalized, prelude)))
 }

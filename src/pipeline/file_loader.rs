@@ -6,12 +6,11 @@ use std::{fs, io};
 use chumsky::text::Character;
 use rust_embed::RustEmbed;
 
-use crate::interner::{Interner, Sym};
-use crate::pipeline::error::{
-  ErrorPosition, ProjectError, UnexpectedDirectory,
-};
+use crate::interner::Interner;
+use crate::pipeline::error::{ErrorPosition, ProjectError};
 use crate::utils::iter::box_once;
 use crate::utils::{BoxedIter, Cache};
+use crate::{Stok, VName};
 
 /// All the data available about a failed source load call
 #[derive(Debug)]
@@ -89,9 +88,9 @@ pub fn load_file(root: &Path, path: &[impl AsRef<str>]) -> IOResult {
 }
 
 /// Generates a cached file loader for a directory
-pub fn mk_dir_cache(root: PathBuf, i: &Interner) -> Cache<Sym, IOResult> {
-  Cache::new(move |token: Sym, _this| -> IOResult {
-    let path = i.r(token).iter().map(|t| i.r(*t).as_str()).collect::<Vec<_>>();
+pub fn mk_dir_cache(root: PathBuf, i: &Interner) -> Cache<VName, IOResult> {
+  Cache::new(move |vname: VName, _this| -> IOResult {
+    let path = vname.iter().map(|t| i.r(*t).as_str()).collect::<Vec<_>>();
     load_file(&root, &path)
   })
 }
@@ -128,28 +127,9 @@ pub fn load_embed<T: 'static + RustEmbed>(path: &str, ext: &str) -> IOResult {
 pub fn mk_embed_cache<'a, T: 'static + RustEmbed>(
   ext: &'a str,
   i: &'a Interner,
-) -> Cache<'a, Sym, IOResult> {
-  Cache::new(move |token: Sym, _this| -> IOResult {
-    let path = i.extern_vec(token).join("/");
+) -> Cache<'a, Vec<Stok>, IOResult> {
+  Cache::new(move |vname: VName, _this| -> IOResult {
+    let path = i.extern_all(&vname).join("/");
     load_embed::<T>(&path, ext)
   })
-}
-
-/// Loads the string contents of a file at the given location.
-/// If the path points to a directory, raises an error.
-pub fn load_text(
-  path: Sym,
-  load_file: &impl Fn(Sym) -> IOResult,
-  i: &Interner,
-) -> Result<Rc<String>, Rc<dyn ProjectError>> {
-  if let Loaded::Code(s) = load_file(path)? {
-    Ok(s)
-  } else {
-    Err(
-      UnexpectedDirectory {
-        path: i.r(path).iter().map(|t| i.r(*t)).cloned().collect(),
-      }
-      .rc(),
-    )
-  }
 }

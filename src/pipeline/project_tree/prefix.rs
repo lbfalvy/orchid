@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use super::collect_ops::ExportedOpsCache;
 use crate::ast::{Constant, Rule};
 use crate::interner::{Interner, Tok};
@@ -16,14 +14,10 @@ fn member_rec(
   ops_cache: &ExportedOpsCache,
   i: &Interner,
 ) -> Member {
-  // let except = |op| imported.contains(&op);
-  let except = |_| false;
-  let prefix_v = path
-    .iter()
+  let prefix = (path.iter())
     .copied()
     .chain(mod_stack.iter().rev_vec_clone().into_iter())
     .collect::<Vec<_>>();
-  let prefix = i.i(&prefix_v);
   match data {
     Member::Namespace(Namespace { name, body }) => {
       let new_body = entv_rec(mod_stack.push(name), body, path, ops_cache, i);
@@ -31,16 +25,16 @@ fn member_rec(
     },
     Member::Constant(constant) => Member::Constant(Constant {
       name: constant.name,
-      value: constant.value.prefix(prefix, i, &except),
+      value: constant.value.prefix(&prefix, &|_| false),
     }),
     Member::Rule(rule) => Member::Rule(Rule {
       prio: rule.prio,
-      pattern: Rc::new(
-        rule.pattern.iter().map(|e| e.prefix(prefix, i, &except)).collect(),
-      ),
-      template: Rc::new(
-        rule.template.iter().map(|e| e.prefix(prefix, i, &except)).collect(),
-      ),
+      pattern: (rule.pattern.into_iter())
+        .map(|e| e.prefix(&prefix, &|_| false))
+        .collect(),
+      template: (rule.template.into_iter())
+        .map(|e| e.prefix(&prefix, &|_| false))
+        .collect(),
     }),
   }
 }

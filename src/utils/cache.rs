@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::hash::Hash;
 
@@ -23,19 +24,23 @@ impl<'a, I: Eq + Hash + Clone, O: Clone> Cache<'a, I, O> {
   }
 
   /// Produce and cache a result by cloning I if necessary
-  pub fn find(&self, i: &I) -> O {
+  pub fn find<Q: ?Sized>(&self, q: &Q) -> O
+  where
+    Q: Eq + Hash + ToOwned<Owned = I>,
+    I: Borrow<Q>,
+  {
     let closure = &self.closure;
-    if let Some(v) = self.store.borrow().get(i) {
+    if let Some(v) = self.store.borrow().get(q) {
       return v.clone();
     }
     // In the moment of invocation the refcell is on immutable
     // this is important for recursive calculations
-    let result = closure(i.clone(), self);
+    let result = closure(q.to_owned(), self);
     let mut store = self.store.borrow_mut();
     store
       .raw_entry_mut()
-      .from_key(i)
-      .or_insert_with(|| (i.clone(), result))
+      .from_key(q)
+      .or_insert_with(|| (q.to_owned(), result))
       .1
       .clone()
   }

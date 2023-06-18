@@ -11,8 +11,9 @@ use super::location::Location;
 use super::path_set::PathSet;
 use super::primitive::Primitive;
 use super::Literal;
-use crate::interner::{InternedDisplay, Sym};
+use crate::interner::InternedDisplay;
 use crate::utils::sym2string;
+use crate::Sym;
 
 // TODO: implement Debug, Eq and Hash with cycle detection
 

@@ -9,6 +9,6 @@ mod source_loader;
 
 pub use parse_layer::parse_layer;
 pub use project_tree::{
-  collect_consts, collect_rules, from_const_tree, ConstTree, ProjectExt,
-  ProjectModule, ProjectTree,
+  collect_consts, collect_rules, from_const_tree, vname_to_sym_tree, ConstTree,
+  ProjectExt, ProjectModule, ProjectTree,
 };

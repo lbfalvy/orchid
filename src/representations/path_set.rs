@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::ops::Add;
 use std::rc::Rc;
 
-use crate::utils::Side;
+use crate::utils::{rc_to_owned, Side};
 
 /// A branching path selecting some placeholders (but at least one) in a Lambda
 /// expression
@@ -41,8 +41,7 @@ impl Add<Side> for PathSet {
   type Output = Self;
   fn add(self, rhs: Side) -> Self::Output {
     let PathSet { steps, next } = self;
-    let mut new_steps =
-      Rc::try_unwrap(steps).unwrap_or_else(|rc| rc.as_ref().clone());
+    let mut new_steps = rc_to_owned(steps);
     new_steps.insert(0, rhs);
     Self { steps: Rc::new(new_steps), next }
   }

@@ -1,9 +1,7 @@
-//! Datastructures representing syntax as written
+//! Datastructures representing the units of macro execution
 //!
-//! These structures are produced by the parser, processed by the macro
-//! executor, and then converted to other usable formats. This module is public
-//! in order to allow users to define injected libraries programmatically,
-//! although going through the parser is usually preferable.
+//! These structures are produced by the pipeline, processed by the macro
+//! executor, and then converted to other usable formats.
 
 use std::hash::Hash;
 use std::rc::Rc;
@@ -12,55 +10,62 @@ use itertools::Itertools;
 use ordered_float::NotNan;
 
 use super::location::Location;
+use super::namelike::{NameLike, VName};
 use super::primitive::Primitive;
-use crate::interner::{InternedDisplay, Interner, Sym, Tok};
-use crate::utils::Substack;
+use crate::interner::{InternedDisplay, Interner, Tok};
+use crate::utils::{map_rc, Substack};
 
 /// A [Clause] with associated metadata
 #[derive(Clone, Debug, PartialEq)]
-pub struct Expr {
+pub struct Expr<N: NameLike> {
   /// The actual value
-  pub value: Clause,
+  pub value: Clause<N>,
   /// Information about the code that produced this value
   pub location: Location,
 }
 
-impl Expr {
+impl<N: NameLike> Expr<N> {
   /// Obtain the contained clause
-  pub fn into_clause(self) -> Clause {
+  pub fn into_clause(self) -> Clause<N> {
     self.value
   }
 
   /// Call the function on every name in this expression
-  pub fn visit_names(&self, binds: Substack<Sym>, cb: &mut impl FnMut(Sym)) {
+  pub fn visit_names(&self, binds: Substack<&N>, cb: &mut impl FnMut(&N)) {
     let Expr { value, .. } = self;
     value.visit_names(binds, cb);
   }
 
   /// Process all names with the given mapper.
   /// Return a new object if anything was processed
-  pub fn map_names(&self, pred: &impl Fn(Sym) -> Option<Sym>) -> Option<Self> {
+  pub fn map_names(&self, pred: &impl Fn(&N) -> Option<N>) -> Option<Self> {
     Some(Self {
       value: self.value.map_names(pred)?,
       location: self.location.clone(),
     })
   }
 
+  /// Transform from one name system to another
+  pub fn transform_names<O: NameLike>(self, pred: &impl Fn(N) -> O) -> Expr<O> {
+    Expr { value: self.value.transform_names(pred), location: self.location }
+  }
+}
+
+impl Expr<VName> {
   /// Add the specified prefix to every Name
   pub fn prefix(
     &self,
-    prefix: Sym,
-    i: &Interner,
+    prefix: &[Tok<String>],
     except: &impl Fn(Tok<String>) -> bool,
   ) -> Self {
     Self {
-      value: self.value.prefix(prefix, i, except),
+      value: self.value.prefix(prefix, except),
       location: self.location.clone(),
     }
   }
 }
 
-impl InternedDisplay for Expr {
+impl<N: NameLike> InternedDisplay for Expr<N> {
   fn fmt_i(
     &self,
     f: &mut std::fmt::Formatter<'_>,
@@ -116,23 +121,23 @@ impl InternedDisplay for Placeholder {
 
 /// An S-expression as read from a source file
 #[derive(Debug, PartialEq, Clone)]
-pub enum Clause {
+pub enum Clause<N: NameLike> {
   /// A primitive
   P(Primitive),
   /// A c-style name or an operator, eg. `+`, `i`, `foo::bar`
-  Name(Sym),
-  /// A parenthesized exmrc_empty_slice()pression
+  Name(N),
+  /// A parenthesized expression
   /// eg. `(print out "hello")`, `[1, 2, 3]`, `{Some(t) => t}`
-  S(char, Rc<Vec<Expr>>),
+  S(char, Rc<Vec<Expr<N>>>),
   /// A function expression, eg. `\x. x + 1`
-  Lambda(Rc<Expr>, Rc<Vec<Expr>>),
+  Lambda(Rc<Expr<N>>, Rc<Vec<Expr<N>>>),
   /// A placeholder for macros, eg. `$name`, `...$body`, `...$lhs:1`
   Placeh(Placeholder),
 }
 
-impl Clause {
+impl<N: NameLike> Clause<N> {
   /// Extract the expressions from an auto, lambda or S
-  pub fn body(&self) -> Option<Rc<Vec<Expr>>> {
+  pub fn body(&self) -> Option<Rc<Vec<Expr<N>>>> {
     match self {
       Self::Lambda(_, body) | Self::S(_, body) => Some(body.clone()),
       _ => None,
@@ -140,7 +145,7 @@ impl Clause {
   }
 
   /// Convert with identical meaning
-  pub fn into_expr(self) -> Expr {
+  pub fn into_expr(self) -> Expr<N> {
     if let Self::S('(', body) = &self {
       if body.len() == 1 {
         body[0].clone()
@@ -153,7 +158,7 @@ impl Clause {
   }
 
   /// Convert with identical meaning
-  pub fn from_exprs(exprs: &[Expr]) -> Option<Clause> {
+  pub fn from_exprs(exprs: &[Expr<N>]) -> Option<Self> {
     if exprs.is_empty() {
       None
     } else if exprs.len() == 1 {
@@ -163,7 +168,7 @@ impl Clause {
     }
   }
   /// Convert with identical meaning
-  pub fn from_exprv(exprv: &Rc<Vec<Expr>>) -> Option<Clause> {
+  pub fn from_exprv(exprv: &Rc<Vec<Expr<N>>>) -> Option<Clause<N>> {
     if exprv.len() < 2 {
       Self::from_exprs(exprv)
     } else {
@@ -175,12 +180,12 @@ impl Clause {
   /// It also finds a lot of things that aren't names, such as all
   /// bound parameters. Generally speaking, this is not a very
   /// sophisticated search.
-  pub fn visit_names(&self, binds: Substack<Sym>, cb: &mut impl FnMut(Sym)) {
+  pub fn visit_names(&self, binds: Substack<&N>, cb: &mut impl FnMut(&N)) {
     match self {
       Clause::Lambda(arg, body) => {
         arg.visit_names(binds, cb);
         let new_binds =
-          if let Clause::Name(n) = arg.value { binds.push(n) } else { binds };
+          if let Clause::Name(n) = &arg.value { binds.push(n) } else { binds };
         for x in body.iter() {
           x.visit_names(new_binds, cb)
         }
@@ -190,8 +195,8 @@ impl Clause {
           x.visit_names(binds, cb)
         },
       Clause::Name(name) =>
-        if binds.iter().all(|x| x != name) {
-          cb(*name)
+        if binds.iter().all(|x| x != &name) {
+          cb(name)
         },
       _ => (),
     }
@@ -199,10 +204,10 @@ impl Clause {
 
   /// Process all names with the given mapper.
   /// Return a new object if anything was processed
-  pub fn map_names(&self, pred: &impl Fn(Sym) -> Option<Sym>) -> Option<Self> {
+  pub fn map_names(&self, pred: &impl Fn(&N) -> Option<N>) -> Option<Self> {
     match self {
       Clause::P(_) | Clause::Placeh(_) => None,
-      Clause::Name(name) => pred(*name).map(Clause::Name),
+      Clause::Name(name) => pred(name).map(Clause::Name),
       Clause::S(c, body) => {
         let mut any_some = false;
         let new_body = body
@@ -238,29 +243,49 @@ impl Clause {
     }
   }
 
+  /// Transform from one name representation to another
+  pub fn transform_names<O: NameLike>(
+    self,
+    pred: &impl Fn(N) -> O,
+  ) -> Clause<O> {
+    match self {
+      Self::Name(n) => Clause::Name(pred(n)),
+      Self::Placeh(p) => Clause::Placeh(p),
+      Self::P(p) => Clause::P(p),
+      Self::Lambda(n, b) => Clause::Lambda(
+        map_rc(n, |n| n.transform_names(pred)),
+        map_rc(b, |b| b.into_iter().map(|e| e.transform_names(pred)).collect()),
+      ),
+      Self::S(c, b) => Clause::S(
+        c,
+        map_rc(b, |b| b.into_iter().map(|e| e.transform_names(pred)).collect()),
+      ),
+    }
+  }
+}
+
+impl Clause<VName> {
   /// Add the specified prefix to every Name
   pub fn prefix(
     &self,
-    prefix: Sym,
-    i: &Interner,
+    prefix: &[Tok<String>],
     except: &impl Fn(Tok<String>) -> bool,
   ) -> Self {
     self
       .map_names(&|name| {
-        let old = i.r(name);
-        if except(old[0]) {
+        if except(name[0]) {
           return None;
         }
-        let mut new = i.r(prefix).clone();
-        new.extend_from_slice(old);
-        Some(i.i(&new))
+        let mut new = prefix.to_vec();
+        new.extend_from_slice(name);
+        Some(new)
       })
       .unwrap_or_else(|| self.clone())
   }
 }
 
-fn fmt_expr_seq<'a>(
-  it: &mut impl Iterator<Item = &'a Expr>,
+fn fmt_expr_seq<'a, N: NameLike>(
+  it: &mut impl Iterator<Item = &'a Expr<N>>,
   f: &mut std::fmt::Formatter<'_>,
   i: &Interner,
 ) -> std::fmt::Result {
@@ -273,19 +298,7 @@ fn fmt_expr_seq<'a>(
   Ok(())
 }
 
-pub(crate) fn fmt_name(
-  name: Sym,
-  f: &mut std::fmt::Formatter,
-  i: &Interner,
-) -> std::fmt::Result {
-  let strings = i.r(name).iter().map(|t| i.r(*t).as_str());
-  for el in itertools::intersperse(strings, "::") {
-    write!(f, "{}", el)?
-  }
-  Ok(())
-}
-
-impl InternedDisplay for Clause {
+impl<N: NameLike> InternedDisplay for Clause<N> {
   fn fmt_i(
     &self,
     f: &mut std::fmt::Formatter<'_>,
@@ -293,7 +306,7 @@ impl InternedDisplay for Clause {
   ) -> std::fmt::Result {
     match self {
       Self::P(p) => write!(f, "{:?}", p),
-      Self::Name(name) => fmt_name(*name, f, i),
+      Self::Name(name) => write!(f, "{}", name.to_strv(i).join("::")),
       Self::S(del, items) => {
         f.write_str(&del.to_string())?;
         fmt_expr_seq(&mut items.iter(), f, i)?;
@@ -317,54 +330,47 @@ impl InternedDisplay for Clause {
 
 /// A substitution rule as read from the source
 #[derive(Debug, Clone, PartialEq)]
-pub struct Rule {
+pub struct Rule<N: NameLike> {
   /// Tree fragment in the source code that activates this rule
-  pub pattern: Rc<Vec<Expr>>,
+  pub pattern: Vec<Expr<N>>,
   /// Influences the order in which rules are checked
   pub prio: NotNan<f64>,
   /// Tree fragment generated by this rule
-  pub template: Rc<Vec<Expr>>,
+  pub template: Vec<Expr<N>>,
 }
 
-impl Rule {
-  /// Return a list of all names that don't contain a namespace separator `::`.
-  /// These are exported when the rule is exported
-  pub fn collect_single_names(&self, i: &Interner) -> Vec<Tok<String>> {
-    let mut names = Vec::new();
-    for e in self.pattern.iter() {
-      e.visit_names(Substack::Bottom, &mut |tok| {
-        let ns_name = i.r(tok);
-        let (name, excess) =
-          ns_name.split_first().expect("Namespaced name must not be empty");
-        if !excess.is_empty() {
-          return;
-        }
-        names.push(*name)
-      });
-    }
-    names
-  }
-
+impl Rule<VName> {
   /// Namespace all tokens in the rule
   pub fn prefix(
     &self,
-    prefix: Sym,
-    i: &Interner,
+    prefix: &[Tok<String>],
     except: &impl Fn(Tok<String>) -> bool,
   ) -> Self {
     Self {
       prio: self.prio,
-      pattern: Rc::new(
-        self.pattern.iter().map(|e| e.prefix(prefix, i, except)).collect(),
-      ),
-      template: Rc::new(
-        self.template.iter().map(|e| e.prefix(prefix, i, except)).collect(),
-      ),
+      pattern: self.pattern.iter().map(|e| e.prefix(prefix, except)).collect(),
+      template: (self.template.iter())
+        .map(|e| e.prefix(prefix, except))
+        .collect(),
     }
+  }
+
+  /// Return a list of all names that don't contain a namespace separator `::`.
+  /// These are exported when the rule is exported
+  pub fn collect_single_names(&self) -> Vec<Tok<String>> {
+    let mut names = Vec::new();
+    for e in self.pattern.iter() {
+      e.visit_names(Substack::Bottom, &mut |ns_name| {
+        if ns_name.len() == 1 {
+          names.push(ns_name[0])
+        }
+      });
+    }
+    names
   }
 }
 
-impl InternedDisplay for Rule {
+impl<N: NameLike> InternedDisplay for Rule<N> {
   fn fmt_i(
     &self,
     f: &mut std::fmt::Formatter<'_>,
@@ -389,7 +395,7 @@ pub struct Constant {
   /// Used to reference the constant
   pub name: Tok<String>,
   /// The constant value inserted where the name is found
-  pub value: Expr,
+  pub value: Expr<VName>,
 }
 
 impl InternedDisplay for Constant {

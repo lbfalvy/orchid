@@ -15,20 +15,17 @@ use super::Entry;
 use crate::ast::{Clause, Constant, Expr, Rule};
 use crate::representations::location::Location;
 use crate::representations::sourcefile::{FileEntry, Member, Namespace};
+use crate::representations::VName;
 
 fn rule_parser<'a>(
   ctx: impl Context + 'a,
-) -> impl SimpleParser<Entry, Rule> + 'a {
+) -> impl SimpleParser<Entry, Rule<VName>> + 'a {
   xpr_parser(ctx.clone())
     .repeated()
     .at_least(1)
     .then(filter_map_lex(enum_filter!(Lexeme::Rule)))
     .then(xpr_parser(ctx).repeated().at_least(1))
-    .map(|((p, (prio, _)), t)| Rule {
-      pattern: Rc::new(p),
-      prio,
-      template: Rc::new(t),
-    })
+    .map(|((p, (prio, _)), t)| Rule { pattern: p, prio, template: t })
     .labelled("Rule")
 }
 

@@ -6,7 +6,7 @@ use crate::representations::sourcefile::{
 };
 use crate::representations::tree::{ModMember, Module};
 use crate::utils::iter::box_once;
-use crate::utils::{BoxedIter, Substack};
+use crate::utils::{unwrap_or, BoxedIter, Substack};
 
 fn member_rec(
   // level
@@ -21,20 +21,12 @@ fn member_rec(
 ) -> Member {
   match member {
     Member::Namespace(Namespace { name, body }) => {
-      let prepmember = &preparsed.items[&name].member;
-      let subprep = if let ModMember::Sub(m) = prepmember {
-        m.clone()
-      } else {
+      let subprep = unwrap_or!(
+        &preparsed.items[&name].member => ModMember::Sub;
         unreachable!("This name must point to a namespace")
-      };
-      let new_body = entv_rec(
-        mod_stack.push(name),
-        subprep.as_ref(),
-        body,
-        path,
-        ops_cache,
-        i,
       );
+      let new_body =
+        entv_rec(mod_stack.push(name), subprep, body, path, ops_cache, i);
       Member::Namespace(Namespace { name, body: new_body })
     },
     any => any,

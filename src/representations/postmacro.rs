@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use super::location::Location;
 use super::primitive::Primitive;
-use crate::interner::Sym;
 use crate::utils::string_from_charset;
+use crate::Sym;
 
 /// Indicates whether either side needs to be wrapped. Syntax whose end is
 /// ambiguous on that side must use parentheses, or forward the flag

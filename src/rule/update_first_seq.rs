@@ -1,15 +1,17 @@
 use std::rc::Rc;
 
+use super::matcher::RuleExpr;
 use crate::ast::{Clause, Expr};
 use crate::utils::replace_first;
+use crate::Sym;
 
 /// Traverse the tree, calling pred on every sibling list until it returns
 /// some vec then replace the sibling list with that vec and return true
 /// return false if pred never returned some
-pub fn exprv<F: FnMut(Rc<Vec<Expr>>) -> Option<Rc<Vec<Expr>>>>(
-  input: Rc<Vec<Expr>>,
+pub fn exprv<F: FnMut(Rc<Vec<RuleExpr>>) -> Option<Rc<Vec<RuleExpr>>>>(
+  input: Rc<Vec<RuleExpr>>,
   pred: &mut F,
-) -> Option<Rc<Vec<Expr>>> {
+) -> Option<Rc<Vec<RuleExpr>>> {
   if let Some(v) = pred(input.clone()) {
     return Some(v);
   }
@@ -17,18 +19,18 @@ pub fn exprv<F: FnMut(Rc<Vec<Expr>>) -> Option<Rc<Vec<Expr>>>>(
     .map(|i| Rc::new(i.collect()))
 }
 
-pub fn expr<F: FnMut(Rc<Vec<Expr>>) -> Option<Rc<Vec<Expr>>>>(
-  input: &Expr,
+pub fn expr<F: FnMut(Rc<Vec<RuleExpr>>) -> Option<Rc<Vec<RuleExpr>>>>(
+  input: &RuleExpr,
   pred: &mut F,
-) -> Option<Expr> {
+) -> Option<RuleExpr> {
   clause(&input.value, pred)
     .map(|value| Expr { value, location: input.location.clone() })
 }
 
-pub fn clause<F: FnMut(Rc<Vec<Expr>>) -> Option<Rc<Vec<Expr>>>>(
-  c: &Clause,
+pub fn clause<F: FnMut(Rc<Vec<RuleExpr>>) -> Option<Rc<Vec<RuleExpr>>>>(
+  c: &Clause<Sym>,
   pred: &mut F,
-) -> Option<Clause> {
+) -> Option<Clause<Sym>> {
   match c {
     Clause::P(_) | Clause::Placeh { .. } | Clause::Name { .. } => None,
     Clause::Lambda(arg, body) =>

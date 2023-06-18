@@ -7,21 +7,23 @@ use crate::interner::{Interner, Tok};
 use crate::pipeline::error::{NotExported, ProjectError};
 use crate::pipeline::project_tree::{split_path, ProjectModule, ProjectTree};
 use crate::representations::tree::{ModMember, WalkErrorKind};
+use crate::representations::VName;
 use crate::utils::{pushed, unwrap_or, Substack};
 
 /// Assert that a module identified by a path can see a given symbol
 fn assert_visible(
   source: &[Tok<String>], // must point to a file or submodule
   target: &[Tok<String>], // may point to a symbol or module of any kind
-  project: &ProjectTree,
+  project: &ProjectTree<VName>,
   i: &Interner,
 ) -> Result<(), Rc<dyn ProjectError>> {
   let (tgt_item, tgt_path) = unwrap_or!(target.split_last(); return Ok(()));
   let shared_len =
     source.iter().zip(tgt_path.iter()).take_while(|(a, b)| a == b).count();
   let vis_ignored_len = usize::min(tgt_path.len(), shared_len + 1);
-  let private_root =
-    (project.0).walk(&tgt_path[..vis_ignored_len], false).unwrap_or_else(|e| {
+  let private_root = (project.0)
+    .walk_ref(&tgt_path[..vis_ignored_len], false)
+    .unwrap_or_else(|e| {
       let path_slc = &tgt_path[..vis_ignored_len];
       let bad_path = i.extern_all(path_slc).join("::");
       eprintln!(
@@ -32,7 +34,7 @@ fn assert_visible(
       panic!("")
     });
   let direct_parent = private_root
-    .walk(&tgt_path[vis_ignored_len..], true)
+    .walk_ref(&tgt_path[vis_ignored_len..], true)
     .map_err(|e| match e.kind {
       WalkErrorKind::Missing => panic!("checked in parsing"),
       WalkErrorKind::Private => {
@@ -70,8 +72,8 @@ fn assert_visible(
 /// Populate target and alias maps from the module tree recursively
 fn collect_aliases_rec(
   path: Substack<Tok<String>>,
-  module: &ProjectModule,
-  project: &ProjectTree,
+  module: &ProjectModule<VName>,
+  project: &ProjectTree<VName>,
   alias_map: &mut AliasMap,
   i: &Interner,
   updated: &impl UpdatedFn,
@@ -81,31 +83,29 @@ fn collect_aliases_rec(
   if !updated(&mod_path_v) {
     return Ok(());
   };
-  for (&name, &target_mod_name) in module.extra.imports_from.iter() {
-    let target_mod_v = i.r(target_mod_name);
-    let target_sym_v = pushed(target_mod_v, name);
+  for (&name, target_mod_name) in module.extra.imports_from.iter() {
+    let target_sym_v = pushed(target_mod_name, name);
     assert_visible(&mod_path_v, &target_sym_v, project, i)?;
     let sym_path_v = pushed(&mod_path_v, name);
-    let sym_path = i.i(&sym_path_v);
-    let target_mod = (project.0.walk(target_mod_v, false))
+    let target_mod = (project.0.walk_ref(target_mod_name, false))
       .expect("checked above in assert_visible");
-    let target_sym =
-      *target_mod.extra.exports.get(&name).unwrap_or_else(|| {
+    let target_sym = target_mod
+      .extra
+      .exports
+      .get(&name)
+      .unwrap_or_else(|| {
         panic!(
           "error in {}, {} has no member {}",
           i.extern_all(&mod_path_v).join("::"),
-          i.extern_all(target_mod_v).join("::"),
+          i.extern_all(target_mod_name).join("::"),
           i.r(name)
         )
-      });
-    alias_map.link(sym_path, target_sym);
+      })
+      .clone();
+    alias_map.link(sym_path_v, target_sym);
   }
   for (&name, entry) in module.items.iter() {
-    let submodule = if let ModMember::Sub(s) = &entry.member {
-      s.as_ref()
-    } else {
-      continue;
-    };
+    let submodule = unwrap_or!(&entry.member => ModMember::Sub; continue);
     collect_aliases_rec(
       path.push(name),
       submodule,
@@ -120,8 +120,8 @@ fn collect_aliases_rec(
 
 /// Populate target and alias maps from the module tree
 pub fn collect_aliases(
-  module: &ProjectModule,
-  project: &ProjectTree,
+  module: &ProjectModule<VName>,
+  project: &ProjectTree<VName>,
   alias_map: &mut AliasMap,
   i: &Interner,
   updated: &impl UpdatedFn,
