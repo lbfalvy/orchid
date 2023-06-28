@@ -1,4 +1,4 @@
-import super::(bool::*, fn::*, known::*, list, option, proc::*)
+import super::(bool::*, fn::*, known::*, list, option, loop::*, proc::*)
 import std::io::panic
 
 -- utilities for using lists as pairs
@@ -26,19 +26,20 @@ export add := \m.\k.\v. (
 -- queries
 
 -- return the last occurrence of a key if exists
-export get := \m.\k. (
-  loop r on (m) with
-    list::pop m option::none \head.\tail. 
-      if fst head == k
-      then option::some $ snd head
-      else r tail
+export get := \m.\key. (
+  loop_over (m) {
+    cps record, m = list::pop m option::none;
+    cps if fst record == key
+      then const $ option::some $ snd record
+      else identity;
+  }
 )
 
 -- commands
 
 -- remove one occurrence of a key
 export del := \m.\k. (
-  loop r on (m) with
+  recursive r (m)
     list::pop m list::end \head.\tail.
       if fst head == k then tail
       else list::cons head $ r tail
@@ -46,10 +47,7 @@ export del := \m.\k. (
 
 -- remove all occurrences of a key
 export delall := \m.\k. (
-  loop r on (m) with
-    list::pop m list::end \head.\tail.
-      if (fst head) == k then r tail
-      else list::cons head $ r tail
+  list::filter m \record. fst record != k
 )
 
 -- replace at most one occurrence of a key
@@ -60,12 +58,11 @@ export set := \m.\k.\v. (
 )
 
 -- ensure that there's only one instance of each key in the map
-export normalize := \m. do{
-  let normal = empty
-  loop r on (m normal) with
+export normalize := \m. (
+  recursive r (m, normal=empty) with
     list::pop m normal \head.\tail.
       r tail $ set normal (fst head) (snd head)
-}
+)
 
 new[...$tail:2, ...$key = ...$value:1] =0x2p84=> (
   set new[...$tail] (...$key) (...$value)

@@ -4,12 +4,10 @@ use ordered_float::NotNan;
 
 use super::litconv::with_lit;
 use super::{ArithmeticError, AssertionError};
-use crate::define_fn;
 use crate::foreign::ExternError;
-use crate::interner::Interner;
-use crate::pipeline::ConstTree;
 use crate::representations::interpreted::{Clause, ExprInst};
 use crate::representations::{Literal, Primitive};
+use crate::{define_fn, ConstTree, Interner};
 
 // region:  Numeric, type to handle floats and uints together
 

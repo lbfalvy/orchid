@@ -4,7 +4,7 @@ use super::alias_map::AliasMap;
 use super::decls::{InjectedAsFn, UpdatedFn};
 use crate::ast::{Expr, Rule};
 use crate::interner::Tok;
-use crate::pipeline::{ProjectExt, ProjectModule};
+use crate::representations::project::{ProjectExt, ProjectModule};
 use crate::representations::tree::{ModEntry, ModMember};
 use crate::representations::VName;
 use crate::utils::Substack;

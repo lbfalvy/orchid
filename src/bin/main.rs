@@ -7,9 +7,11 @@ use std::{iter, process};
 use clap::Parser;
 use hashbrown::HashMap;
 use itertools::Itertools;
-use orchidlang::interner::{InternedDisplay, Interner};
+use orchidlang::interner::InternedDisplay;
 use orchidlang::{
-  ast, ast_to_interpreted, interpreter, pipeline, rule, stl, Stok, Sym, VName,
+  ast, ast_to_interpreted, collect_consts, collect_rules, interpreter,
+  pipeline, rule, stl, vname_to_sym_tree, Interner, ProjectTree, Stok, Sym,
+  VName,
 };
 
 use crate::cli::cmd_prompt;
@@ -68,11 +70,7 @@ impl Args {
 /// Load and parse all source related to the symbol `target` or all symbols
 /// in the namespace `target` in the context of the STL. All sourcefiles must
 /// reside within `dir`.
-fn load_dir(
-  dir: &Path,
-  target: &[Stok],
-  i: &Interner,
-) -> pipeline::ProjectTree<VName> {
+fn load_dir(dir: &Path, target: &[Stok], i: &Interner) -> ProjectTree<VName> {
   let file_cache = pipeline::file_loader::mk_dir_cache(dir.to_path_buf(), i);
   let library = stl::mk_stl(i, stl::StlOptions::default());
   pipeline::parse_layer(
@@ -126,9 +124,9 @@ pub fn main() {
   let dir = PathBuf::try_from(args.dir).unwrap();
   let i = Interner::new();
   let main = to_vname(&args.main, &i);
-  let project = pipeline::vname_to_sym_tree(load_dir(&dir, &main, &i), &i);
-  let rules = pipeline::collect_rules(&project);
-  let consts = pipeline::collect_consts(&project, &i);
+  let project = vname_to_sym_tree(load_dir(&dir, &main, &i), &i);
+  let rules = collect_rules(&project);
+  let consts = collect_consts(&project, &i);
   let repo = rule::Repo::new(rules, &i).unwrap_or_else(|(rule, error)| {
     panic!(
       "Rule error: {}

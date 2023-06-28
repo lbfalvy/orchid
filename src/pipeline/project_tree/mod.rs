@@ -16,16 +16,9 @@
 mod add_prelude;
 mod build_tree;
 mod collect_ops;
-mod const_tree;
 mod normalize_imports;
 mod parse_file;
 mod prefix;
-mod tree;
 
 pub use build_tree::{build_tree, split_path};
 pub use collect_ops::InjectedOperatorsFn;
-pub use const_tree::{from_const_tree, ConstTree};
-pub use tree::{
-  collect_consts, collect_rules, vname_to_sym_tree, ProjectExt, ProjectModule,
-  ProjectTree,
-};

@@ -8,9 +8,10 @@ use super::num::num;
 use super::str::str;
 use crate::interner::Interner;
 use crate::pipeline::file_loader::mk_embed_cache;
-use crate::pipeline::{from_const_tree, parse_layer, ProjectTree};
+use crate::pipeline::parse_layer;
 use crate::representations::VName;
 use crate::sourcefile::{FileEntry, Import};
+use crate::{from_const_tree, ProjectTree};
 
 /// Feature flags for the STL.
 #[derive(Default)]

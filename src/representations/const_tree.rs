@@ -2,11 +2,11 @@ use std::ops::Add;
 
 use hashbrown::HashMap;
 
-use super::{ProjectExt, ProjectModule, ProjectTree};
 use crate::ast::{Clause, Expr};
 use crate::foreign::{Atom, Atomic, ExternFn};
 use crate::interner::Tok;
 use crate::representations::location::Location;
+use crate::representations::project::{ProjectExt, ProjectModule, ProjectTree};
 use crate::representations::tree::{ModEntry, ModMember, Module};
 use crate::representations::{Primitive, VName};
 use crate::utils::{pushed, Substack};

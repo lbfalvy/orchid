@@ -18,12 +18,18 @@ pub mod rule;
 pub mod stl;
 mod utils;
 
-use interner::Tok;
+pub use interner::{Interner, Tok};
+pub use pipeline::file_loader::{mk_dir_cache, mk_embed_cache};
+pub use pipeline::parse_layer;
 pub use representations::{NameLike, Sym, VName};
 /// Element of VName and a common occurrence in the API
 pub type Stok = Tok<String>;
 pub use representations::ast_to_interpreted::ast_to_interpreted;
+pub use representations::project::{
+  collect_consts, collect_rules, vname_to_sym_tree, ProjectTree,
+};
 pub use representations::{
-  ast, interpreted, sourcefile, tree, Literal, Location, PathSet, Primitive,
+  ast, from_const_tree, interpreted, sourcefile, tree, ConstTree, Literal,
+  Location, PathSet, Primitive,
 };
 pub use utils::{Side, Substack};

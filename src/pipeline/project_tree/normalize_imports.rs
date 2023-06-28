@@ -33,6 +33,12 @@ fn member_rec(
   }
 }
 
+/// Normalize imports in the FileEntry list recursively
+///
+/// # Panics
+///
+/// - if a path contains too many "super" prefixes
+/// - if the exported operators in a module cannot be determined
 fn entv_rec(
   // level
   mod_stack: Substack<Tok<String>>,
@@ -54,11 +60,9 @@ fn entv_rec(
             if let Import { name: None, path } = import {
               let p = import_abs_path(mod_path, mod_stack, &i.r(path)[..], i)
                 .expect("Should have emerged in preparsing");
-              let names = ops_cache
-                .find(&i.i(&p))
+              let names = (ops_cache.find(&i.i(&p)))
                 .expect("Should have emerged in second parsing");
-              let imports = names
-                .iter()
+              let imports = (names.iter())
                 .map(move |&n| Import { name: Some(n), path })
                 .collect::<Vec<_>>();
               Box::new(imports.into_iter()) as BoxedIter<Import>

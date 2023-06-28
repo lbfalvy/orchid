@@ -73,6 +73,7 @@ fn load_abs_path_rec(
       Ok(Loaded::Code(_)) =>
         unreachable!("split_name returned None but the path is a file"),
       Err(e) => {
+        // todo: if this can actually be produced, return Err(ImportAll) instead
         let parent = abs_path.split_last().expect("import path nonzero").1;
         // exit without error if it was injected, or raise any IO error that was
         // previously swallowed

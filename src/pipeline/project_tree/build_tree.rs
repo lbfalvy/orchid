@@ -3,13 +3,14 @@ use std::rc::Rc;
 use hashbrown::HashMap;
 use itertools::Itertools;
 
+use super::collect_ops;
 use super::collect_ops::InjectedOperatorsFn;
 use super::parse_file::parse_file;
-use super::{collect_ops, ProjectExt, ProjectTree};
 use crate::ast::{Constant, Expr};
 use crate::interner::{Interner, Tok};
-use crate::pipeline::error::ProjectError;
+use crate::pipeline::error::{ProjectError, TooManySupers};
 use crate::pipeline::source_loader::{LoadedSource, LoadedSourceTable};
+use crate::representations::project::{ProjectExt, ProjectTree};
 use crate::representations::sourcefile::{absolute_path, FileEntry, Member};
 use crate::representations::tree::{ModEntry, ModMember, Module};
 use crate::representations::{NameLike, VName};
@@ -23,17 +24,20 @@ struct ParsedSource<'a> {
   parsed: Vec<FileEntry>,
 }
 
+/// Split a path into file- and subpath in knowledge
+///
+/// # Panics
+///
+/// if the path is invalid
 pub fn split_path<'a>(
   path: &'a [Tok<String>],
   proj: &'a ProjectTree<impl NameLike>,
 ) -> (&'a [Tok<String>], &'a [Tok<String>]) {
-  let (end, body) = if let Some(s) = path.split_last() {
-    s
-  } else {
-    return (&[], &[]);
-  };
-  let mut module =
-    proj.0.walk_ref(body, false).expect("invalid path cannot be split");
+  let (end, body) = unwrap_or!(path.split_last(); {
+    return (&[], &[])
+  });
+  let mut module = (proj.0.walk_ref(body, false))
+    .expect("invalid path can't have been split above");
   if let ModMember::Sub(m) = &module.items[end].member {
     module = m;
   }
@@ -44,6 +48,12 @@ pub fn split_path<'a>(
 }
 
 /// Convert normalized, prefixed source into a module
+///
+/// # Panics
+///
+/// - if there are imports with too many "super" prefixes (this is normally
+///   detected in preparsing)
+/// - if the preparsed tree is missing a module that exists in the source
 fn source_to_module(
   // level
   path: Substack<Tok<String>>,
@@ -53,29 +63,33 @@ fn source_to_module(
   // context
   i: &Interner,
   filepath_len: usize,
-) -> Module<Expr<VName>, ProjectExt<VName>> {
+) -> Result<Module<Expr<VName>, ProjectExt<VName>>, Rc<dyn ProjectError>> {
   let path_v = path.iter().rev_vec_clone();
-  let imports = data
-    .iter()
+  let imports = (data.iter())
     .filter_map(|ent| {
       if let FileEntry::Import(impv) = ent { Some(impv.iter()) } else { None }
     })
     .flatten()
     .cloned()
     .collect::<Vec<_>>();
-  let imports_from = imports
-    .iter()
-    .map(|imp| {
+  let imports_from = (imports.iter())
+    .map(|imp| -> Result<_, Rc<dyn ProjectError>> {
       let mut imp_path_v = i.r(imp.path).clone();
-      imp_path_v.push(imp.name.expect("imports normalized"));
-      let mut abs_path =
-        absolute_path(&path_v, &imp_path_v, i).expect("tested in preparsing");
-      let name = abs_path.pop().expect("importing the global context");
-      (name, abs_path)
+      imp_path_v.push(imp.name.expect("glob imports had just been resolved"));
+      let mut abs_path = absolute_path(&path_v, &imp_path_v, i)
+        .expect("should have failed in preparsing");
+      let name = abs_path.pop().ok_or_else(|| {
+        TooManySupers {
+          offender_file: i.extern_all(&path_v[..filepath_len]),
+          offender_mod: i.extern_all(&path_v[filepath_len..]),
+          path: i.extern_all(&imp_path_v),
+        }
+        .rc()
+      })?;
+      Ok((name, abs_path))
     })
-    .collect::<HashMap<_, _>>();
-  let exports = data
-    .iter()
+    .collect::<Result<HashMap<_, _>, _>>()?;
+  let exports = (data.iter())
     .flat_map(|ent| {
       let mk_ent = |name| (name, pushed(&path_v, name));
       match ent {
@@ -99,8 +113,7 @@ fn source_to_module(
       }
     })
     .collect::<HashMap<_, _>>();
-  let rules = data
-    .iter()
+  let rules = (data.iter())
     .filter_map(|ent| match ent {
       FileEntry::Exported(Member::Rule(rule)) => Some(rule),
       FileEntry::Internal(Member::Rule(rule)) => Some(rule),
@@ -108,28 +121,30 @@ fn source_to_module(
     })
     .cloned()
     .collect::<Vec<_>>();
-  let items = data
-    .into_iter()
+  let items = (data.into_iter())
     .filter_map(|ent| {
       let member_to_item = |exported, member| match member {
         Member::Namespace(ns) => {
           let new_prep = unwrap_or!(
             &preparsed.items[&ns.name].member => ModMember::Sub;
-            panic!("preparsed missing a submodule")
+            panic!("Preparsed should include entries for all submodules")
           );
-          let module = source_to_module(
+          let module = match source_to_module(
             path.push(ns.name),
             new_prep,
             ns.body,
             i,
             filepath_len,
-          );
+          ) {
+            Err(e) => return Some(Err(e)),
+            Ok(t) => t,
+          };
           let member = ModMember::Sub(module);
-          Some((ns.name, ModEntry { exported, member }))
+          Some(Ok((ns.name, ModEntry { exported, member })))
         },
         Member::Constant(Constant { name, value }) => {
           let member = ModMember::Item(value);
-          Some((name, ModEntry { exported, member }))
+          Some(Ok((name, ModEntry { exported, member })))
         },
         _ => None,
       };
@@ -139,8 +154,8 @@ fn source_to_module(
         _ => None,
       }
     })
-    .collect::<HashMap<_, _>>();
-  Module {
+    .collect::<Result<HashMap<_, _>, _>>()?;
+  Ok(Module {
     imports,
     items,
     extra: ProjectExt {
@@ -149,14 +164,14 @@ fn source_to_module(
       rules,
       file: Some(path_v[..filepath_len].to_vec()),
     },
-  }
+  })
 }
 
 fn files_to_module(
   path: Substack<Tok<String>>,
   files: Vec<ParsedSource>,
   i: &Interner,
-) -> Module<Expr<VName>, ProjectExt<VName>> {
+) -> Result<Module<Expr<VName>, ProjectExt<VName>>, Rc<dyn ProjectError>> {
   let lvl = path.len();
   debug_assert!(
     files.iter().map(|f| f.path.len()).max().unwrap() >= lvl,
@@ -172,21 +187,20 @@ fn files_to_module(
       path.len(),
     );
   }
-  let items = files
-    .into_iter()
+  let items = (files.into_iter())
     .group_by(|f| f.path[lvl])
     .into_iter()
-    .map(|(namespace, files)| {
+    .map(|(namespace, files)| -> Result<_, Rc<dyn ProjectError>> {
       let subpath = path.push(namespace);
       let files_v = files.collect::<Vec<_>>();
-      let module = files_to_module(subpath, files_v, i);
+      let module = files_to_module(subpath, files_v, i)?;
       let member = ModMember::Sub(module);
-      (namespace, ModEntry { exported: true, member })
+      Ok((namespace, ModEntry { exported: true, member }))
     })
-    .collect::<HashMap<_, _>>();
+    .collect::<Result<HashMap<_, _>, _>>()?;
   let exports: HashMap<_, _> =
     items.keys().copied().map(|name| (name, pushed(&path_v, name))).collect();
-  Module {
+  Ok(Module {
     items,
     imports: vec![],
     extra: ProjectExt {
@@ -195,7 +209,7 @@ fn files_to_module(
       rules: vec![],
       file: None,
     },
-  }
+  })
 }
 
 pub fn build_tree(
@@ -222,5 +236,5 @@ pub fn build_tree(
       path: path.clone(),
     })
     .collect::<Vec<_>>();
-  Ok(ProjectTree(files_to_module(Substack::Bottom, files, i)))
+  Ok(ProjectTree(files_to_module(Substack::Bottom, files, i)?))
 }

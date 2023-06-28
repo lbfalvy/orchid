@@ -24,7 +24,12 @@ fn tree_all_ops(
   }
 }
 
-/// Collect all names imported in this file
+/// Collect all names visible in this file
+///
+/// # Panics
+///
+/// if any import contains too many Super calls. This should be caught during
+/// preparsing
 pub fn collect_ops_for(
   file: &[Tok<String>],
   loaded: &LoadedSourceTable,

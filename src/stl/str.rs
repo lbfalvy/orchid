@@ -1,8 +1,7 @@
 use super::litconv::{with_str, with_uint};
 use super::RuntimeError;
 use crate::interner::Interner;
-use crate::pipeline::ConstTree;
-use crate::{define_fn, Literal};
+use crate::{define_fn, ConstTree, Literal};
 
 define_fn! {expr=x in
   /// Append a string to another

@@ -6,8 +6,7 @@ use super::{ArithmeticError, AssertionError};
 use crate::foreign::ExternError;
 use crate::interner::Interner;
 use crate::parse::{float_parser, int_parser};
-use crate::pipeline::ConstTree;
-use crate::{define_fn, Literal};
+use crate::{define_fn, ConstTree, Literal};
 
 define_fn! {
   /// parse a number. Accepts the same syntax Orchid does.

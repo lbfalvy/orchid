@@ -10,6 +10,14 @@ use crate::pipeline::error::ProjectError;
 use crate::pipeline::source_loader::LoadedSourceTable;
 use crate::representations::sourcefile::{normalize_namespaces, FileEntry};
 
+/// Parses a file with the correct operator set
+///
+/// # Panics
+///
+/// - on syntax error
+/// - if namespaces are exported inconsistently
+///
+/// These are both checked in the preparsing stage
 pub fn parse_file(
   path: &[Tok<String>],
   loaded: &LoadedSourceTable,

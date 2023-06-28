@@ -6,7 +6,8 @@ export main := do{
   let sum = bar
     |> list::skip 2
     |> list::take 3
-    |> list::reduce 0 (a b) => a + b;
+    |> list::reduce (\a.\b. a + b)
+    |> option::unwrap;
   cps print $ to_string sum ++ "\n";
   0
 }

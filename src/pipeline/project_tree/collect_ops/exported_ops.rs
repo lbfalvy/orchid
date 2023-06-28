@@ -4,7 +4,7 @@ use hashbrown::HashSet;
 use trait_set::trait_set;
 
 use crate::interner::{Interner, Tok};
-use crate::pipeline::error::{ModuleNotFound, ProjectError};
+use crate::pipeline::error::{NotFound, ProjectError};
 use crate::pipeline::source_loader::LoadedSourceTable;
 use crate::representations::tree::WalkErrorKind;
 use crate::utils::{split_max_prefix, unwrap_or, Cache};
@@ -53,7 +53,7 @@ pub fn collect_exported_ops(
         WalkErrorKind::Private => {
           unreachable!("visibility is not being checked here")
         },
-        WalkErrorKind::Missing => ModuleNotFound {
+        WalkErrorKind::Missing => NotFound {
           file: i.extern_all(fpath),
           subpath: (subpath.iter())
             .take(walk_err.pos)

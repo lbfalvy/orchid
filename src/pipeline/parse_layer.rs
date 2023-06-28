@@ -2,10 +2,11 @@ use std::rc::Rc;
 
 use super::error::ProjectError;
 use super::file_loader::IOResult;
-use super::{import_resolution, project_tree, source_loader, ProjectTree};
+use super::{import_resolution, project_tree, source_loader};
 use crate::interner::{Interner, Tok};
 use crate::representations::sourcefile::FileEntry;
 use crate::representations::VName;
+use crate::ProjectTree;
 
 /// Using an IO callback, produce a project tree that includes the given
 /// target symbols or files if they're defined.

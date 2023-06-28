@@ -3,13 +3,15 @@ export ::(+, -, *, /, %)
 import std::str::*
 export ::(++)
 import std::bool::*
-export ::(==, if, then, else)
+export ::(==, if, then, else, true, false)
 import std::fn::*
-export ::(loop, on, with, $, |>, =>)
+export ::($, |>, =>, identity, pass, pass2, const)
 import std::list
 import std::map
 import std::option
 export ::(list, map, option)
+import std::loop::*
+export ::(loop_over, recursive)
 
 import std::known::*
 export ::(,)

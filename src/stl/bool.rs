@@ -2,12 +2,11 @@ use std::rc::Rc;
 
 use crate::foreign::Atom;
 use crate::interner::Interner;
-use crate::pipeline::ConstTree;
 use crate::representations::interpreted::{Clause, ExprInst};
 use crate::representations::Primitive;
 use crate::stl::litconv::with_lit;
 use crate::stl::AssertionError;
-use crate::{atomic_inert, define_fn, Literal, PathSet};
+use crate::{atomic_inert, define_fn, ConstTree, Literal, PathSet};
 
 /// Booleans exposed to Orchid
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

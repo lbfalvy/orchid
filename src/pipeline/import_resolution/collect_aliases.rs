@@ -1,11 +1,11 @@
-use core::panic;
 use std::rc::Rc;
 
 use super::alias_map::AliasMap;
 use super::decls::UpdatedFn;
 use crate::interner::{Interner, Tok};
-use crate::pipeline::error::{NotExported, ProjectError};
-use crate::pipeline::project_tree::{split_path, ProjectModule, ProjectTree};
+use crate::pipeline::error::{NotExported, NotFound, ProjectError};
+use crate::pipeline::project_tree::split_path;
+use crate::representations::project::{ProjectModule, ProjectTree};
 use crate::representations::tree::{ModMember, WalkErrorKind};
 use crate::representations::VName;
 use crate::utils::{pushed, unwrap_or, Substack};
@@ -23,20 +23,29 @@ fn assert_visible(
   let vis_ignored_len = usize::min(tgt_path.len(), shared_len + 1);
   let private_root = (project.0)
     .walk_ref(&tgt_path[..vis_ignored_len], false)
-    .unwrap_or_else(|e| {
-      let path_slc = &tgt_path[..vis_ignored_len];
-      let bad_path = i.extern_all(path_slc).join("::");
-      eprintln!(
-        "Error while walking {bad_path}; {:?} on step {}",
-        e.kind, e.pos
-      );
-      eprintln!("looking from {}", i.extern_all(source).join("::"));
-      panic!("")
-    });
+    .map_err(|e| match e.kind {
+      WalkErrorKind::Private =>
+        unreachable!("visibility is not being checked here"),
+      WalkErrorKind::Missing => NotFound::from_walk_error(
+        &[],
+        &tgt_path[..vis_ignored_len],
+        &project.0,
+        e,
+        i,
+      )
+      .rc(),
+    })?;
   let direct_parent = private_root
     .walk_ref(&tgt_path[vis_ignored_len..], true)
     .map_err(|e| match e.kind {
-      WalkErrorKind::Missing => panic!("checked in parsing"),
+      WalkErrorKind::Missing => NotFound::from_walk_error(
+        &tgt_path[..vis_ignored_len],
+        &tgt_path[vis_ignored_len..],
+        &project.0,
+        e,
+        i,
+      )
+      .rc(),
       WalkErrorKind::Private => {
         let full_path = &tgt_path[..shared_len + e.pos];
         let (file, sub) = split_path(full_path, project);
@@ -93,14 +102,15 @@ fn collect_aliases_rec(
       .extra
       .exports
       .get(&name)
-      .unwrap_or_else(|| {
-        panic!(
-          "error in {}, {} has no member {}",
-          i.extern_all(&mod_path_v).join("::"),
-          i.extern_all(target_mod_name).join("::"),
-          i.r(name)
-        )
-      })
+      .ok_or_else(|| {
+        let file_len =
+          target_mod.extra.file.as_ref().unwrap_or(target_mod_name).len();
+        NotFound {
+          file: i.extern_all(&target_mod_name[..file_len]),
+          subpath: i.extern_all(&target_sym_v[file_len..]),
+        }
+        .rc()
+      })?
       .clone();
     alias_map.link(sym_path_v, target_sym);
   }

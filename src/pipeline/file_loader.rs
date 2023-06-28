@@ -96,6 +96,10 @@ pub fn mk_dir_cache(root: PathBuf, i: &Interner) -> Cache<VName, IOResult> {
 }
 
 /// Load a file from the specified path from an embed table
+///
+/// # Panics
+///
+/// if the `RustEmbed` includes files that do not end in `ext`
 pub fn load_embed<T: 'static + RustEmbed>(path: &str, ext: &str) -> IOResult {
   let file_path = path.to_string() + ext;
   if let Some(file) = T::get(&file_path) {

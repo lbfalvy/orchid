@@ -6,7 +6,7 @@ use super::collect_aliases::collect_aliases;
 use super::decls::{InjectedAsFn, UpdatedFn};
 use crate::interner::Interner;
 use crate::pipeline::error::ProjectError;
-use crate::pipeline::project_tree::ProjectTree;
+use crate::representations::project::ProjectTree;
 use crate::representations::VName;
 
 /// Follow import chains to locate the original name of all tokens, then

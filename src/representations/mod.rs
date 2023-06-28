@@ -1,6 +1,7 @@
 pub mod ast;
 pub mod ast_to_interpreted;
 pub mod ast_to_postmacro;
+mod const_tree;
 pub mod interpreted;
 pub mod literal;
 pub mod location;
@@ -9,9 +10,11 @@ pub mod path_set;
 pub mod postmacro;
 pub mod postmacro_to_interpreted;
 pub mod primitive;
+pub mod project;
 pub mod sourcefile;
 pub mod tree;
 
+pub use const_tree::{from_const_tree, ConstTree};
 pub use literal::Literal;
 pub use location::Location;
 pub use namelike::{NameLike, Sym, VName};

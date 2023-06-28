@@ -1,5 +1,5 @@
 use crate::interner::Interner;
-use crate::pipeline::ConstTree;
+use crate::ConstTree;
 
 mod command;
 mod inspect;
