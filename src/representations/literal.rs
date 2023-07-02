@@ -10,8 +10,6 @@ pub enum Literal {
   Num(NotNan<f64>),
   /// An unsigned integer; a size, index or pointer
   Uint(u64),
-  /// A single utf-8 codepoint
-  Char(char),
   /// A utf-8 character sequence
   Str(String),
 }
@@ -21,7 +19,6 @@ impl Debug for Literal {
     match self {
       Self::Num(arg0) => write!(f, "{:?}", arg0),
       Self::Uint(arg0) => write!(f, "{:?}", arg0),
-      Self::Char(arg0) => write!(f, "{:?}", arg0),
       Self::Str(arg0) => write!(f, "{:?}", arg0),
     }
   }
@@ -35,11 +32,6 @@ impl From<NotNan<f64>> for Literal {
 impl From<u64> for Literal {
   fn from(value: u64) -> Self {
     Self::Uint(value)
-  }
-}
-impl From<char> for Literal {
-  fn from(value: char) -> Self {
-    Self::Char(value)
   }
 }
 impl From<String> for Literal {

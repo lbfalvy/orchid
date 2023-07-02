@@ -27,7 +27,7 @@ fn op_parser<'a>(
 pub static NOT_NAME_CHAR: &[char] = &[
   ':', // used for namespacing and type annotations
   '\\', '@', // parametric expression starters
-  '"', '\'', // parsed as primitives and therefore would never match
+  '"', // parsed as primitive and therefore would never match
   '(', ')', '[', ']', '{', '}', // must be strictly balanced
   '.', // Argument-body separator in parametrics
   ',', // used in imports

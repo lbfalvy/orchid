@@ -65,7 +65,6 @@ use crate::write_fn_step;
 ///   /// Convert a literal to a string using Rust's conversions for floats,
 ///   /// chars and uints respectively
 ///   ToString = |x| with_lit(x, |l| Ok(match l {
-///     Literal::Char(c) => c.to_string(),
 ///     Literal::Uint(i) => i.to_string(),
 ///     Literal::Num(n) => n.to_string(),
 ///     Literal::Str(s) => s.clone(),
@@ -147,12 +146,12 @@ macro_rules! define_fn {
     $crate::write_fn_step!(
       $name
       {
-        $( $arg_prev:ident : $typ_prev:ty ),*
+        $( $arg_prev : $typ_prev ),*
       }
-      [< $name $arg0:upper >]
+      [< $name $arg0:camel >]
       where $arg0:$typ0 $( = $xname => $parse0 )? ;
     );
-    $crate::define_fn!(@MIDDLE $xname [< $name $arg0:upper >] ($body)
+    $crate::define_fn!(@MIDDLE $xname [< $name $arg0:camel >] ($body)
       (
         $( ($arg_prev: $typ_prev) )*
         ($arg0: $typ0)

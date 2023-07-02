@@ -4,11 +4,13 @@ mod assertion_error;
 mod bool;
 mod conv;
 mod io;
-pub mod litconv;
+pub mod inspect;
 mod mk_stl;
 mod num;
 mod runtime_error;
 mod str;
+pub mod codegen;
+mod bin;
 
 pub use arithmetic_error::ArithmeticError;
 pub use assertion_error::AssertionError;

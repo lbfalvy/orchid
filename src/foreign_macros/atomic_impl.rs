@@ -63,7 +63,6 @@ use crate::Primitive;
 /// atomic_redirect!(InternalToString, expr_inst);
 /// atomic_impl!(InternalToString, |Self { expr_inst }: &Self, _|{
 ///   with_lit(expr_inst, |l| Ok(match l {
-///     Literal::Char(c) => c.to_string(),
 ///     Literal::Uint(i) => i.to_string(),
 ///     Literal::Num(n) => n.to_string(),
 ///     Literal::Str(s) => s.clone(),

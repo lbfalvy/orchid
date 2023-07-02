@@ -33,3 +33,5 @@ trait-set = "0.3"
 paste = "1.0"
 rust-embed = { version = "6.6", features = ["include-exclude"] }
 duplicate = "1.0.0"
+take_mut = "0.2.2"
+unicode-segmentation = "1.10.1"

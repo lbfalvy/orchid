@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use super::super::litconv::with_str;
+use super::super::inspect::with_str;
 use super::command::IO;
 use crate::foreign::{Atomic, AtomicResult, AtomicReturn};
 use crate::interpreter::Context;

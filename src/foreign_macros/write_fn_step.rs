@@ -18,7 +18,10 @@ use crate::interpreted::ExprInst;
 /// discussed below. The newly bound names (here `s` and `i` before `=`) can
 /// also receive type annotations.
 ///
-/// ```
+/// ```no_run
+/// // FIXME this is a very old example that wouldn't compile now
+/// use unicode_segmentation::UnicodeSegmentation;
+/// 
 /// use orchidlang::{write_fn_step, Literal, Primitive};
 /// use orchidlang::interpreted::Clause;
 /// use orchidlang::stl::litconv::{with_str, with_uint};
@@ -36,8 +39,8 @@ use crate::interpreted::ExprInst;
 ///   CharAt0 { s: String }
 ///   i = x => with_uint(x, Ok);
 ///   {
-///     if let Some(c) = s.chars().nth(*i as usize) {
-///       Ok(Clause::P(Primitive::Literal(Literal::Char(c))))
+///     if let Some(c) = s.graphemes(true).nth(*i as usize) {
+///       Ok(Literal::Char(c.to_string()).into())
 ///     } else {
 ///       RuntimeError::fail(
 ///         "Character index out of bounds".to_string(),

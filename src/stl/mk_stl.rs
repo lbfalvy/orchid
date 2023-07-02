@@ -1,6 +1,7 @@
 use hashbrown::HashMap;
 use rust_embed::RustEmbed;
 
+use super::bin::bin;
 use super::bool::bool;
 use super::conv::conv;
 use super::io::io;
@@ -35,7 +36,7 @@ pub fn mk_stl(i: &Interner, options: StlOptions) -> ProjectTree<VName> {
   let const_tree = from_const_tree(
     HashMap::from([(
       i.i("std"),
-      io(i, options.impure) + conv(i) + bool(i) + str(i) + num(i),
+      io(i, options.impure) + conv(i) + bool(i) + str(i) + num(i) + bin(i),
     )]),
     &[i.i("std")],
   );

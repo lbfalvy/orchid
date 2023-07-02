@@ -8,6 +8,7 @@ mod split_max_prefix;
 mod string_from_charset;
 mod substack;
 mod unwrap_or;
+mod iter_find;
 
 pub use cache::Cache;
 pub use print_nname::sym2string;
@@ -21,3 +22,4 @@ pub(crate) use unwrap_or::unwrap_or;
 pub mod iter;
 pub use iter::BoxedIter;
 pub use string_from_charset::string_from_charset;
+pub use iter_find::iter_find;

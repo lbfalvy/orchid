@@ -34,17 +34,12 @@ fn text_parser(delim: char) -> impl SimpleParser<char, char> {
   filter(move |&c| c != '\\' && c != delim).or(escape)
 }
 
-/// Parse a character literal between single quotes
-pub fn char_parser() -> impl SimpleParser<char, char> {
-  just('\'').ignore_then(text_parser('\'')).then_ignore(just('\''))
-}
-
 /// Parse a string between double quotes
 pub fn str_parser() -> impl SimpleParser<char, String> {
   just('"')
     .ignore_then(
       text_parser('"').map(Some)
-    .or(just("\\\n").map(|_| None)) // Newlines preceded by backslashes are ignored.
+    .or(just("\\\n").then(just(' ').or(just('\t')).repeated()).map(|_| None)) // Newlines preceded by backslashes are ignored along with all following indentation.
     .repeated(),
     )
     .then_ignore(just('"'))

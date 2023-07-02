@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use super::super::litconv::with_str;
+use super::super::inspect::with_str;
 use crate::define_fn;
 use crate::foreign::ExternError;
 

@@ -1,12 +1,12 @@
 use std::rc::Rc;
 
-use crate::foreign::Atom;
+use crate::foreign::ExternError;
 use crate::interner::Interner;
 use crate::representations::interpreted::{Clause, ExprInst};
-use crate::representations::Primitive;
-use crate::stl::litconv::with_lit;
 use crate::stl::AssertionError;
 use crate::{atomic_inert, define_fn, ConstTree, Literal, PathSet};
+
+use super::inspect::with_atom;
 
 /// Booleans exposed to Orchid
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -20,32 +20,21 @@ impl From<bool> for Boolean {
 }
 
 impl TryFrom<&ExprInst> for Boolean {
-  type Error = ();
+  type Error = Rc<dyn ExternError>;
 
   fn try_from(value: &ExprInst) -> Result<Self, Self::Error> {
-    let expr = value.expr();
-    if let Clause::P(Primitive::Atom(Atom(a))) = &expr.clause {
-      if let Some(b) = a.as_any().downcast_ref::<Boolean>() {
-        return Ok(*b);
-      }
-    }
-    Err(())
+    with_atom(value, "a boolean", |b| Ok(*b))
   }
 }
 
 define_fn! {expr=x in
   /// Compares the inner values if
   ///
-  /// - both values are char,
   /// - both are string,
   /// - both are either uint or num
-  Equals {
-    a: Literal as with_lit(x, |l| Ok(l.clone())),
-    b: Literal as with_lit(x, |l| Ok(l.clone()))
-  } => Ok(Boolean::from(match (a, b) {
-    (Literal::Char(c1), Literal::Char(c2)) => c1 == c2,
-    (Literal::Num(n1), Literal::Num(n2)) => n1 == n2,
+  Equals { a: Literal, b: Literal } => Ok(Boolean::from(match (a, b) {
     (Literal::Str(s1), Literal::Str(s2)) => s1 == s2,
+    (Literal::Num(n1), Literal::Num(n2)) => n1 == n2,
     (Literal::Uint(i1), Literal::Uint(i2)) => i1 == i2,
     (Literal::Num(n1), Literal::Uint(u1)) => *n1 == (*u1 as f64),
     (Literal::Uint(u1), Literal::Num(n1)) => *n1 == (*u1 as f64),

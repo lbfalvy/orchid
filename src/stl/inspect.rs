@@ -3,9 +3,11 @@
 use std::rc::Rc;
 
 use super::assertion_error::AssertionError;
-use crate::foreign::ExternError;
+use crate::foreign::{ExternError, Atomic};
+use crate::interpreted::Clause;
 use crate::representations::interpreted::ExprInst;
 use crate::representations::Literal;
+use crate::Primitive;
 
 /// Tries to cast the [ExprInst] as a [Literal], calls the provided function on
 /// it if successful. Returns a generic [AssertionError] if not.
@@ -44,4 +46,49 @@ pub fn with_uint<T>(
       AssertionError::fail(x.clone(), "an uint")?
     }
   })
+}
+
+/// Tries to cast the [ExprInst] into the specified atom type. Throws an
+/// assertion error if unsuccessful, or calls the provided function on the
+/// extracted atomic type.
+pub fn with_atom<T: Atomic, U>(
+  x: &ExprInst,
+  inexact_typename: &'static str,
+  predicate: impl FnOnce(&T) -> Result<U, Rc<dyn ExternError>>,
+) -> Result<U, Rc<dyn ExternError>> {
+  x.inspect(|c| {
+    if let Clause::P(Primitive::Atom(a)) = c {
+      a.try_cast()
+        .map(predicate)
+        .unwrap_or_else(|| AssertionError::fail(x.clone(), inexact_typename))
+    } else {
+      AssertionError::fail(x.clone(), "an atom")
+    }
+  })
+}
+
+// ######## Automatically ########
+
+impl TryFrom<&ExprInst> for Literal {
+  type Error = Rc<dyn ExternError>;
+
+  fn try_from(value: &ExprInst) -> Result<Self, Self::Error> {
+    with_lit(value, |l| Ok(l.clone()))
+  }
+}
+
+impl TryFrom<&ExprInst> for String {
+  type Error = Rc<dyn ExternError>;
+
+  fn try_from(value: &ExprInst) -> Result<Self, Self::Error> {
+    with_str(value, |s| Ok(s.clone()))
+  }
+}
+
+impl TryFrom<&ExprInst> for u64 {
+  type Error = Rc<dyn ExternError>;
+
+  fn try_from(value: &ExprInst) -> Result<Self, Self::Error> {
+    with_uint(value, Ok)
+  }
 }

@@ -161,7 +161,6 @@ pub fn literal_parser() -> impl SimpleParser<char, Literal> {
     // all ints are valid floats so it takes precedence
     number::int_parser().map(Literal::Uint),
     number::float_parser().map(Literal::Num),
-    string::char_parser().map(Literal::Char),
     string::str_parser().map(Literal::Str),
   ))
 }

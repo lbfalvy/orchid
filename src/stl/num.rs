@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use ordered_float::NotNan;
 
-use super::litconv::with_lit;
+use super::inspect::with_lit;
 use super::{ArithmeticError, AssertionError};
 use crate::foreign::ExternError;
 use crate::representations::interpreted::{Clause, ExprInst};
