@@ -14,6 +14,7 @@ use crate::utils::{pushed, Substack};
 /// A lightweight module tree that can be built declaratively by hand to
 /// describe libraries of external functions in Rust. It implements [Add] for
 /// added convenience
+#[derive(Clone, Debug)]
 pub enum ConstTree {
   /// A function or constant
   Const(Expr<VName>),
@@ -39,6 +40,29 @@ impl ConstTree {
   /// Describe a module
   pub fn tree(arr: impl IntoIterator<Item = (Tok<String>, Self)>) -> Self {
     Self::Tree(arr.into_iter().collect())
+  }
+  /// Namespace the tree with the list of names
+  pub fn namespace(
+    pref: impl IntoIterator<Item = Tok<String>>,
+    data: Self,
+  ) -> Self {
+    let mut iter = pref.into_iter();
+    if let Some(ns) = iter.next() {
+      Self::tree([(ns, Self::namespace(iter, data))])
+    } else {
+      data
+    }
+  }
+  /// Unwrap the table of subtrees from a tree
+  ///
+  /// # Panics
+  ///
+  /// If this is a leaf node aka. constant and not a namespace
+  pub fn unwrap_tree(self) -> HashMap<Tok<String>, Self> {
+    match self {
+      Self::Tree(map) => map,
+      _ => panic!("Attempted to unwrap leaf as tree"),
+    }
   }
 }
 impl Add for ConstTree {

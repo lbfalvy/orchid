@@ -27,23 +27,3 @@ macro_rules! box_chain {
 }
 
 pub(crate) use box_chain;
-
-/// Flatten an iterator of iterators into a boxed iterator of the inner
-/// nested values
-pub fn box_flatten<
-  'a,
-  T: 'a,
-  I: 'a + Iterator<Item = J>,
-  J: 'a + Iterator<Item = T>,
->(
-  i: I,
-) -> BoxedIter<'a, T> {
-  Box::new(i.flatten())
-}
-
-/// Convert an iterator into a `Box<dyn Iterator>`
-pub fn into_boxed_iter<'a, T: 'a + IntoIterator>(
-  t: T,
-) -> BoxedIter<'a, <T as IntoIterator>::Item> {
-  Box::new(t.into_iter())
-}

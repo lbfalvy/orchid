@@ -3,9 +3,9 @@ use std::rc::Rc;
 use hashbrown::HashSet;
 
 use super::exported_ops::{ExportedOpsCache, OpsResult};
+use crate::error::ProjectResult;
 use crate::interner::{Interner, Tok};
 use crate::parse::is_op;
-use crate::pipeline::error::ProjectError;
 use crate::pipeline::import_abs_path::import_abs_path;
 use crate::pipeline::source_loader::LoadedSourceTable;
 use crate::representations::tree::{ModMember, Module};
@@ -39,16 +39,17 @@ pub fn collect_ops_for(
   let tree = &loaded[file].preparsed.0;
   let mut ret = HashSet::new();
   tree_all_ops(tree, &mut ret);
-  tree.visit_all_imports(&mut |modpath, _module, import| {
+  tree.visit_all_imports(&mut |modpath, _m, import| -> ProjectResult<()> {
     if let Some(n) = import.name {
       ret.insert(n);
     } else {
-      let path = import_abs_path(file, modpath, &i.r(import.path)[..], i)
-        .expect("This error should have been caught during loading");
+      let path = i.expect(
+        import_abs_path(file, modpath, &i.r(import.path)[..], i),
+        "This error should have been caught during loading",
+      );
       ret.extend(ops_cache.find(&i.i(&path))?.iter().copied());
     }
-    Ok::<_, Rc<dyn ProjectError>>(())
+    Ok(())
   })?;
-  ret.drain_filter(|t| !is_op(i.r(*t)));
-  Ok(Rc::new(ret))
+  Ok(Rc::new(ret.into_iter().filter(|t| is_op(i.r(*t))).collect()))
 }

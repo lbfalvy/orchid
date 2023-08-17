@@ -40,7 +40,7 @@ impl Import {
 
 /// A namespace block
 #[derive(Debug, Clone)]
-pub struct Namespace {
+pub struct ModuleBlock {
   /// Name prefixed to all names in the block
   pub name: Tok<String>,
   /// Prefixed entries
@@ -56,7 +56,7 @@ pub enum Member {
   /// A constant (or function) associated with a name
   Constant(Constant),
   /// A prefixed set of other entries
-  Namespace(Namespace),
+  Module(ModuleBlock),
 }
 
 /// Anything we might encounter in a file
@@ -94,8 +94,8 @@ pub fn normalize_namespaces(
 ) -> Result<Vec<FileEntry>, Vec<Tok<String>>> {
   let (mut namespaces, mut rest) = src
     .partition_map::<Vec<_>, Vec<_>, _, _, _>(|ent| match ent {
-      FileEntry::Exported(Member::Namespace(ns)) => Either::Left((true, ns)),
-      FileEntry::Internal(Member::Namespace(ns)) => Either::Left((false, ns)),
+      FileEntry::Exported(Member::Module(ns)) => Either::Left((true, ns)),
+      FileEntry::Internal(Member::Module(ns)) => Either::Left((false, ns)),
       other => Either::Right(other),
     });
   // Combine namespace blocks with the same name
@@ -123,7 +123,7 @@ pub fn normalize_namespaces(
         e.push(name);
         e
       })?;
-      let member = Member::Namespace(Namespace { name, body });
+      let member = Member::Module(ModuleBlock { name, body });
       match (any_exported, any_internal) {
         (true, true) => Err(vec![name]),
         (true, false) => Ok(FileEntry::Exported(member)),

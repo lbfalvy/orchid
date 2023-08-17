@@ -1,5 +1,5 @@
 use crate::interner::Tok;
-use crate::representations::sourcefile::{FileEntry, Member, Namespace};
+use crate::representations::sourcefile::{FileEntry, Member, ModuleBlock};
 
 fn member_rec(
   // object
@@ -9,9 +9,9 @@ fn member_rec(
   prelude: &[FileEntry],
 ) -> Member {
   match member {
-    Member::Namespace(Namespace { name, body }) => {
+    Member::Module(ModuleBlock { name, body }) => {
       let new_body = entv_rec(body, path, prelude);
-      Member::Namespace(Namespace { name, body: new_body })
+      Member::Module(ModuleBlock { name, body: new_body })
     },
     any => any,
   }

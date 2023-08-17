@@ -1,19 +1,18 @@
-use std::rc::Rc;
-
 use hashbrown::HashMap;
 use itertools::Itertools;
 
 use super::collect_ops;
 use super::collect_ops::InjectedOperatorsFn;
 use super::parse_file::parse_file;
-use crate::ast::{Constant, Expr};
+use crate::ast::{Clause, Constant, Expr};
+use crate::error::{ProjectError, ProjectResult, TooManySupers};
 use crate::interner::{Interner, Tok};
-use crate::pipeline::error::{ProjectError, TooManySupers};
 use crate::pipeline::source_loader::{LoadedSource, LoadedSourceTable};
 use crate::representations::project::{ProjectExt, ProjectTree};
 use crate::representations::sourcefile::{absolute_path, FileEntry, Member};
 use crate::representations::tree::{ModEntry, ModMember, Module};
 use crate::representations::{NameLike, VName};
+use crate::tree::{WalkError, WalkErrorKind};
 use crate::utils::iter::{box_empty, box_once};
 use crate::utils::{pushed, unwrap_or, Substack};
 
@@ -26,25 +25,27 @@ struct ParsedSource<'a> {
 
 /// Split a path into file- and subpath in knowledge
 ///
-/// # Panics
+/// # Errors
 ///
 /// if the path is invalid
+#[allow(clippy::type_complexity)] // bit too sensitive here IMO
 pub fn split_path<'a>(
   path: &'a [Tok<String>],
   proj: &'a ProjectTree<impl NameLike>,
-) -> (&'a [Tok<String>], &'a [Tok<String>]) {
+) -> Result<(&'a [Tok<String>], &'a [Tok<String>]), WalkError> {
   let (end, body) = unwrap_or!(path.split_last(); {
-    return (&[], &[])
+    return Ok((&[], &[]))
   });
-  let mut module = (proj.0.walk_ref(body, false))
-    .expect("invalid path can't have been split above");
-  if let ModMember::Sub(m) = &module.items[end].member {
+  let mut module = (proj.0.walk_ref(body, false))?;
+  let entry = (module.items.get(end))
+    .ok_or(WalkError { pos: path.len() - 1, kind: WalkErrorKind::Missing })?;
+  if let ModMember::Sub(m) = &entry.member {
     module = m;
   }
   let file =
     module.extra.file.as_ref().map(|s| &path[..s.len()]).unwrap_or(path);
   let subpath = &path[file.len()..];
-  (file, subpath)
+  Ok((file, subpath))
 }
 
 /// Convert normalized, prefixed source into a module
@@ -63,7 +64,7 @@ fn source_to_module(
   // context
   i: &Interner,
   filepath_len: usize,
-) -> Result<Module<Expr<VName>, ProjectExt<VName>>, Rc<dyn ProjectError>> {
+) -> ProjectResult<Module<Expr<VName>, ProjectExt<VName>>> {
   let path_v = path.iter().rev_vec_clone();
   let imports = (data.iter())
     .filter_map(|ent| {
@@ -73,16 +74,16 @@ fn source_to_module(
     .cloned()
     .collect::<Vec<_>>();
   let imports_from = (imports.iter())
-    .map(|imp| -> Result<_, Rc<dyn ProjectError>> {
+    .map(|imp| -> ProjectResult<_> {
       let mut imp_path_v = i.r(imp.path).clone();
       imp_path_v.push(imp.name.expect("glob imports had just been resolved"));
       let mut abs_path = absolute_path(&path_v, &imp_path_v, i)
         .expect("should have failed in preparsing");
       let name = abs_path.pop().ok_or_else(|| {
         TooManySupers {
-          offender_file: i.extern_all(&path_v[..filepath_len]),
-          offender_mod: i.extern_all(&path_v[filepath_len..]),
-          path: i.extern_all(&imp_path_v),
+          offender_file: path_v[..filepath_len].to_vec(),
+          offender_mod: path_v[filepath_len..].to_vec(),
+          path: imp_path_v,
         }
         .rc()
       })?;
@@ -96,15 +97,18 @@ fn source_to_module(
         FileEntry::Export(names) => Box::new(names.iter().copied().map(mk_ent)),
         FileEntry::Exported(mem) => match mem {
           Member::Constant(constant) => box_once(mk_ent(constant.name)),
-          Member::Namespace(ns) => box_once(mk_ent(ns.name)),
+          Member::Module(ns) => box_once(mk_ent(ns.name)),
           Member::Rule(rule) => {
             let mut names = Vec::new();
             for e in rule.pattern.iter() {
-              e.visit_names(Substack::Bottom, &mut |n| {
-                if let Some([name]) = n.strip_prefix(&path_v[..]) {
-                  names.push((*name, n.clone()))
+              e.search_all(&mut |e| {
+                if let Clause::Name(n) = &e.value {
+                  if let Some([name]) = n.strip_prefix(&path_v[..]) {
+                    names.push((*name, n.clone()))
+                  }
                 }
-              })
+                None::<()>
+              });
             }
             Box::new(names.into_iter())
           },
@@ -124,7 +128,7 @@ fn source_to_module(
   let items = (data.into_iter())
     .filter_map(|ent| {
       let member_to_item = |exported, member| match member {
-        Member::Namespace(ns) => {
+        Member::Module(ns) => {
           let new_prep = unwrap_or!(
             &preparsed.items[&ns.name].member => ModMember::Sub;
             panic!("Preparsed should include entries for all submodules")
@@ -171,7 +175,7 @@ fn files_to_module(
   path: Substack<Tok<String>>,
   files: Vec<ParsedSource>,
   i: &Interner,
-) -> Result<Module<Expr<VName>, ProjectExt<VName>>, Rc<dyn ProjectError>> {
+) -> ProjectResult<Module<Expr<VName>, ProjectExt<VName>>> {
   let lvl = path.len();
   debug_assert!(
     files.iter().map(|f| f.path.len()).max().unwrap() >= lvl,
@@ -190,7 +194,7 @@ fn files_to_module(
   let items = (files.into_iter())
     .group_by(|f| f.path[lvl])
     .into_iter()
-    .map(|(namespace, files)| -> Result<_, Rc<dyn ProjectError>> {
+    .map(|(namespace, files)| -> ProjectResult<_> {
       let subpath = path.push(namespace);
       let files_v = files.collect::<Vec<_>>();
       let module = files_to_module(subpath, files_v, i)?;
@@ -217,7 +221,7 @@ pub fn build_tree(
   i: &Interner,
   prelude: &[FileEntry],
   injected: &impl InjectedOperatorsFn,
-) -> Result<ProjectTree<VName>, Rc<dyn ProjectError>> {
+) -> ProjectResult<ProjectTree<VName>> {
   assert!(!files.is_empty(), "A tree requires at least one module");
   let ops_cache = collect_ops::mk_cache(&files, i, injected);
   let mut entries = files
@@ -225,7 +229,7 @@ pub fn build_tree(
     .map(|(path, loaded)| {
       Ok((path, loaded, parse_file(path, &files, &ops_cache, i, prelude)?))
     })
-    .collect::<Result<Vec<_>, Rc<dyn ProjectError>>>()?;
+    .collect::<ProjectResult<Vec<_>>>()?;
   // sort by similarity, then longest-first
   entries.sort_unstable_by(|a, b| a.0.cmp(b.0).reverse());
   let files = entries

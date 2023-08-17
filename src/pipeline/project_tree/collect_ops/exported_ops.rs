@@ -3,14 +3,14 @@ use std::rc::Rc;
 use hashbrown::HashSet;
 use trait_set::trait_set;
 
+use crate::error::{NotFound, ProjectError, ProjectResult};
 use crate::interner::{Interner, Tok};
-use crate::pipeline::error::{NotFound, ProjectError};
 use crate::pipeline::source_loader::LoadedSourceTable;
 use crate::representations::tree::WalkErrorKind;
 use crate::utils::{split_max_prefix, unwrap_or, Cache};
 use crate::Sym;
 
-pub type OpsResult = Result<Rc<HashSet<Tok<String>>>, Rc<dyn ProjectError>>;
+pub type OpsResult = ProjectResult<Rc<HashSet<Tok<String>>>>;
 pub type ExportedOpsCache<'a> = Cache<'a, Sym, OpsResult>;
 
 trait_set! {
@@ -54,12 +54,9 @@ pub fn collect_exported_ops(
           unreachable!("visibility is not being checked here")
         },
         WalkErrorKind::Missing => NotFound {
-          file: i.extern_all(fpath),
-          subpath: (subpath.iter())
-            .take(walk_err.pos)
-            .map(|t| i.r(*t))
-            .cloned()
-            .collect(),
+          source: None,
+          file: fpath.to_vec(),
+          subpath: subpath[..walk_err.pos].to_vec(),
         }
         .rc(),
       },

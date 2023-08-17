@@ -68,7 +68,7 @@ fn check_rec_expr(
         if !in_template {
           Err(RuleError::Multiple(*name))
         } else if known != typ {
-          Err(RuleError::TypeMismatch(*name))
+          Err(RuleError::ArityMismatch(*name))
         } else {
           Ok(())
         }
@@ -79,7 +79,7 @@ fn check_rec_expr(
       }
     },
     Clause::Lambda(arg, body) => {
-      check_rec_expr(arg.as_ref(), types, in_template)?;
+      check_rec_exprv(arg, types, in_template)?;
       check_rec_exprv(body, types, in_template)
     },
     Clause::S(_, body) => check_rec_exprv(body, types, in_template),

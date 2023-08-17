@@ -1,5 +1,4 @@
 //! Loading Orchid modules from source
-pub mod error;
 pub mod file_loader;
 mod import_abs_path;
 mod import_resolution;

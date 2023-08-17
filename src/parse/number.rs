@@ -123,3 +123,9 @@ pub fn float_parser() -> impl SimpleParser<char, NotNan<f64>> {
   ))
   .labelled("float")
 }
+
+pub fn print_nat16(num: NotNan<f64>) -> String {
+  let exp = num.log(16.0).floor();
+  let man = num / 16_f64.powf(exp);
+  format!("{man}p{exp:.0}")
+}

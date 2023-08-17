@@ -1,27 +1,53 @@
 use std::fmt;
 use std::ops::Range;
+use std::rc::Rc;
 
 use chumsky::prelude::*;
 use chumsky::text::keyword;
-use chumsky::{Parser, Span};
+use chumsky::Parser;
 use ordered_float::NotNan;
 
 use super::context::Context;
 use super::decls::SimpleParser;
+use super::number::print_nat16;
 use super::{comment, name, number, placeholder, string};
 use crate::ast::{PHClass, Placeholder};
 use crate::interner::{InternedDisplay, Interner, Tok};
 use crate::representations::Literal;
+use crate::Location;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Entry {
   pub lexeme: Lexeme,
-  pub range: Range<usize>,
+  pub location: Location,
 }
 impl Entry {
+  /// Checks if the lexeme is a comment or line break
   pub fn is_filler(&self) -> bool {
-    matches!(self.lexeme, Lexeme::Comment(_))
-      || matches!(self.lexeme, Lexeme::BR)
+    matches!(self.lexeme, Lexeme::Comment(_) | Lexeme::BR)
+  }
+
+  pub fn is_keyword(&self) -> bool {
+    matches!(
+      self.lexeme,
+      Lexeme::Const
+        | Lexeme::Export
+        | Lexeme::Import
+        | Lexeme::Macro
+        | Lexeme::Module
+    )
+  }
+
+  pub fn location(&self) -> Location {
+    self.location.clone()
+  }
+
+  pub fn range(&self) -> Range<usize> {
+    self.location.range().expect("An Entry can only have a known location")
+  }
+
+  pub fn file(&self) -> Rc<Vec<String>> {
+    self.location.file().expect("An Entry can only have a range location")
   }
 }
 
@@ -35,27 +61,33 @@ impl InternedDisplay for Entry {
   }
 }
 
-impl From<Entry> for (Lexeme, Range<usize>) {
-  fn from(ent: Entry) -> Self {
-    (ent.lexeme, ent.range)
-  }
-}
+// impl From<Entry> for (Lexeme, Range<usize>) {
+//   fn from(ent: Entry) -> Self {
+//     (ent.lexeme.clone(), ent.range())
+//   }
+// }
 
-impl Span for Entry {
-  type Context = Lexeme;
-  type Offset = usize;
+// impl Span for Entry {
+//   type Context = (Lexeme, Rc<Vec<String>>);
+//   type Offset = usize;
 
-  fn context(&self) -> Self::Context {
-    self.lexeme.clone()
-  }
-  fn start(&self) -> Self::Offset {
-    self.range.start()
-  }
-  fn end(&self) -> Self::Offset {
-    self.range.end()
-  }
-  fn new(context: Self::Context, range: Range<Self::Offset>) -> Self {
-    Self { lexeme: context, range }
+//   fn context(&self) -> Self::Context {
+//     (self.lexeme.clone(), self.file())
+//   }
+//   fn start(&self) -> Self::Offset {
+//     self.range().start()
+//   }
+//   fn end(&self) -> Self::Offset {
+//     self.range().end()
+//   }
+//   fn new((lexeme, file): Self::Context, range: Range<Self::Offset>) -> Self {
+//     Self { lexeme, location: Location::Range { file, range } }
+//   }
+// }
+
+impl AsRef<Location> for Entry {
+  fn as_ref(&self) -> &Location {
+    &self.location
   }
 }
 
@@ -63,9 +95,9 @@ impl Span for Entry {
 pub enum Lexeme {
   Literal(Literal),
   Name(Tok<String>),
-  Rule(NotNan<f64>),
+  Arrow(NotNan<f64>),
   /// Walrus operator (formerly shorthand macro)
-  Const,
+  Walrus,
   /// Line break
   BR,
   /// Namespace separator
@@ -77,12 +109,15 @@ pub enum Lexeme {
   /// Backslash
   BS,
   At,
+  Dot,
   Type, // type operator
   Comment(String),
   Export,
   Import,
-  Namespace,
-  PH(Placeholder),
+  Module,
+  Macro,
+  Const,
+  Placeh(Placeholder),
 }
 
 impl InternedDisplay for Lexeme {
@@ -94,8 +129,8 @@ impl InternedDisplay for Lexeme {
     match self {
       Self::Literal(l) => write!(f, "{:?}", l),
       Self::Name(token) => write!(f, "{}", i.r(*token)),
-      Self::Const => write!(f, ":="),
-      Self::Rule(prio) => write!(f, "={}=>", prio),
+      Self::Walrus => write!(f, ":="),
+      Self::Arrow(prio) => write!(f, "={}=>", print_nat16(*prio)),
       Self::NS => write!(f, "::"),
       Self::LP(l) => write!(f, "{}", l),
       Self::RP(l) => match l {
@@ -107,12 +142,15 @@ impl InternedDisplay for Lexeme {
       Self::BR => writeln!(f),
       Self::BS => write!(f, "\\"),
       Self::At => write!(f, "@"),
+      Self::Dot => write!(f, "."),
       Self::Type => write!(f, ":"),
       Self::Comment(text) => write!(f, "--[{}]--", text),
       Self::Export => write!(f, "export"),
       Self::Import => write!(f, "import"),
-      Self::Namespace => write!(f, "namespace"),
-      Self::PH(Placeholder { name, class }) => match *class {
+      Self::Module => write!(f, "module"),
+      Self::Const => write!(f, "const"),
+      Self::Macro => write!(f, "macro"),
+      Self::Placeh(Placeholder { name, class }) => match *class {
         PHClass::Scalar => write!(f, "${}", i.r(*name)),
         PHClass::Vec { nonzero, prio } => {
           if nonzero { write!(f, "...") } else { write!(f, "..") }?;
@@ -129,7 +167,9 @@ impl InternedDisplay for Lexeme {
 
 impl Lexeme {
   pub fn rule(prio: impl Into<f64>) -> Self {
-    Lexeme::Rule(NotNan::new(prio.into()).expect("Rule priority cannot be NaN"))
+    Lexeme::Arrow(
+      NotNan::new(prio.into()).expect("Rule priority cannot be NaN"),
+    )
   }
 
   pub fn parser<E: chumsky::Error<Entry>>(
@@ -179,38 +219,37 @@ pub fn lexer<'a>(
     .collect::<Vec<_>>();
   choice((
     keyword("export").to(Lexeme::Export),
-    keyword("module").to(Lexeme::Namespace),
+    keyword("module").to(Lexeme::Module),
     keyword("import").to(Lexeme::Import),
+    keyword("macro").to(Lexeme::Macro),
+    keyword("const").to(Lexeme::Const),
     paren_parser('(', ')'),
     paren_parser('[', ']'),
     paren_parser('{', '}'),
-    just(":=").to(Lexeme::Const),
+    just(":=").to(Lexeme::Walrus),
     just("=")
       .ignore_then(number::float_parser())
       .then_ignore(just("=>"))
       .map(Lexeme::rule),
     comment::comment_parser().map(Lexeme::Comment),
+    placeholder::placeholder_parser(ctx.clone()).map(Lexeme::Placeh),
     just("::").to(Lexeme::NS),
     just('\\').to(Lexeme::BS),
     just('@').to(Lexeme::At),
     just(':').to(Lexeme::Type),
     just('\n').to(Lexeme::BR),
-    placeholder::placeholder_parser(ctx.clone()).map(Lexeme::PH),
+    just('.').to(Lexeme::Dot),
     literal_parser().map(Lexeme::Literal),
-    name::name_parser(&all_ops)
-      .map(move |n| Lexeme::Name(ctx.interner().i(&n))),
+    name::name_parser(&all_ops).map({
+      let ctx = ctx.clone();
+      move |n| Lexeme::Name(ctx.interner().i(&n))
+    }),
   ))
-  .map_with_span(|lexeme, range| Entry { lexeme, range })
+  .map_with_span(move |lexeme, range| Entry {
+    lexeme,
+    location: Location::Range { range, file: ctx.file() },
+  })
   .padded_by(one_of(" \t").repeated())
   .repeated()
   .then_ignore(end())
-}
-
-pub fn filter_map_lex<'a, O, M: ToString>(
-  f: impl Fn(Lexeme) -> Result<O, M> + Clone + 'a,
-) -> impl SimpleParser<Entry, (O, Range<usize>)> + Clone + 'a {
-  filter_map(move |s: Range<usize>, e: Entry| {
-    let out = f(e.lexeme).map_err(|msg| Simple::custom(s.clone(), msg))?;
-    Ok((out, s))
-  })
 }

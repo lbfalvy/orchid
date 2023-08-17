@@ -8,6 +8,7 @@ use hashbrown::HashMap;
 
 use super::monotype::TypedInterner;
 use super::token::Tok;
+use super::InternedDisplay;
 
 /// A collection of interners based on their type. Allows to intern any object
 /// that implements [ToOwned]. Objects of the same type are stored together in a
@@ -58,6 +59,29 @@ impl Interner {
     s: &[Tok<T>],
   ) -> Vec<T> {
     s.iter().map(|t| self.r(*t)).cloned().collect()
+  }
+
+  /// A variant of `unwrap` using [InternedDisplay] to circumvent `unwrap`'s
+  /// dependencyon [Debug]. For clarity, [expect] should be preferred.
+  pub fn unwrap<T, E: InternedDisplay>(&self, result: Result<T, E>) -> T {
+    result.unwrap_or_else(|e| {
+      println!("Unwrapped Error: {}", e.bundle(self));
+      panic!("Unwrapped an error");
+    })
+  }
+
+  /// A variant of `expect` using  [InternedDisplay] to circumvent `expect`'s
+  /// depeendency on [Debug].
+  pub fn expect<T, E: InternedDisplay>(
+    &self,
+    result: Result<T, E>,
+    msg: &str,
+  ) -> T {
+    result.unwrap_or_else(|e| {
+      println!("Expectation failed: {msg}");
+      println!("Error: {}", e.bundle(self));
+      panic!("Expected an error");
+    })
   }
 }
 

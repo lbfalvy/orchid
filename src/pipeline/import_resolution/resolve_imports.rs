@@ -1,11 +1,8 @@
-use std::rc::Rc;
-
 use super::alias_map::AliasMap;
 use super::apply_aliases::apply_aliases;
 use super::collect_aliases::collect_aliases;
 use super::decls::{InjectedAsFn, UpdatedFn};
-use crate::interner::Interner;
-use crate::pipeline::error::ProjectError;
+use crate::error::ProjectResult;
 use crate::representations::project::ProjectTree;
 use crate::representations::VName;
 
@@ -13,12 +10,11 @@ use crate::representations::VName;
 /// replace these aliases with the original names throughout the tree
 pub fn resolve_imports(
   project: ProjectTree<VName>,
-  i: &Interner,
   injected_as: &impl InjectedAsFn,
   updated: &impl UpdatedFn,
-) -> Result<ProjectTree<VName>, Rc<dyn ProjectError>> {
+) -> ProjectResult<ProjectTree<VName>> {
   let mut map = AliasMap::new();
-  collect_aliases(&project.0, &project, &mut map, i, updated)?;
+  collect_aliases(&project.0, &project, &mut map, updated)?;
   let new_mod = apply_aliases(&project.0, &map, injected_as, updated);
   Ok(ProjectTree(new_mod))
 }

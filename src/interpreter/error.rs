@@ -1,8 +1,9 @@
-use std::fmt::Display;
 use std::rc::Rc;
 
 use crate::foreign::ExternError;
+use crate::interner::InternedDisplay;
 use crate::representations::interpreted::ExprInst;
+use crate::{Location, Sym};
 
 /// Problems in the process of execution
 #[derive(Clone, Debug)]
@@ -11,6 +12,8 @@ pub enum RuntimeError {
   Extern(Rc<dyn ExternError>),
   /// Primitive applied as function
   NonFunctionApplication(ExprInst),
+  /// Symbol not in context
+  MissingSymbol(Sym, Location),
 }
 
 impl From<Rc<dyn ExternError>> for RuntimeError {
@@ -19,12 +22,23 @@ impl From<Rc<dyn ExternError>> for RuntimeError {
   }
 }
 
-impl Display for RuntimeError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl InternedDisplay for RuntimeError {
+  fn fmt_i(
+    &self,
+    f: &mut std::fmt::Formatter<'_>,
+    i: &crate::Interner,
+  ) -> std::fmt::Result {
     match self {
       Self::Extern(e) => write!(f, "Error in external function: {e}"),
-      Self::NonFunctionApplication(loc) => {
-        write!(f, "Primitive applied as function at {loc:?}")
+      Self::NonFunctionApplication(expr) => {
+        write!(f, "Primitive applied as function at {}", expr.expr().location)
+      },
+      Self::MissingSymbol(sym, loc) => {
+        write!(
+          f,
+          "{}, called at {loc} is not loaded",
+          i.extern_vec(*sym).join("::")
+        )
       },
     }
   }

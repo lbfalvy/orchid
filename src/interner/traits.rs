@@ -1,5 +1,6 @@
-use core::fmt::Formatter;
-use std::fmt::Display;
+use core::fmt::{self, Display, Formatter};
+use core::ops::Deref;
+use std::rc::Rc;
 
 use crate::interner::Interner;
 
@@ -29,16 +30,13 @@ pub trait InternedDisplay {
   }
 }
 
-impl<T> InternedDisplay for T
+// Special loophole for Rc<dyn ProjectError>
+impl<T: ?Sized> InternedDisplay for Rc<T>
 where
-  T: Display,
+  T: InternedDisplay,
 {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    _i: &Interner,
-  ) -> std::fmt::Result {
-    <Self as Display>::fmt(self, f)
+  fn fmt_i(&self, f: &mut Formatter<'_>, i: &Interner) -> fmt::Result {
+    self.deref().fmt_i(f, i)
   }
 }
 

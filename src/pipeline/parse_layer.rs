@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
-use super::error::ProjectError;
 use super::file_loader::IOResult;
 use super::{import_resolution, project_tree, source_loader};
+use crate::error::ProjectResult;
 use crate::interner::{Interner, Tok};
 use crate::representations::sourcefile::FileEntry;
 use crate::representations::VName;
@@ -22,7 +22,7 @@ pub fn parse_layer<'a>(
   environment: &'a ProjectTree<VName>,
   prelude: &[FileEntry],
   i: &Interner,
-) -> Result<ProjectTree<VName>, Rc<dyn ProjectError>> {
+) -> ProjectResult<ProjectTree<VName>> {
   // A path is injected if it is walkable in the injected tree
   let injected_as = |path: &[Tok<String>]| {
     let (item, modpath) = path.split_last()?;
@@ -40,7 +40,7 @@ pub fn parse_layer<'a>(
   let tree = project_tree::build_tree(source, i, prelude, &injected_names)?;
   let sum = ProjectTree(environment.0.clone().overlay(tree.0.clone()));
   let resolvd =
-    import_resolution::resolve_imports(sum, i, &injected_as, &|path| {
+    import_resolution::resolve_imports(sum, &injected_as, &|path| {
       tree.0.walk_ref(path, false).is_ok()
     })?;
   // Addition among modules favours the left hand side.

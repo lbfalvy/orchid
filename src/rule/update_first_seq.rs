@@ -34,8 +34,8 @@ pub fn clause<F: FnMut(Rc<Vec<RuleExpr>>) -> Option<Rc<Vec<RuleExpr>>>>(
   match c {
     Clause::P(_) | Clause::Placeh { .. } | Clause::Name { .. } => None,
     Clause::Lambda(arg, body) =>
-      if let Some(arg) = expr(arg.as_ref(), pred) {
-        Some(Clause::Lambda(Rc::new(arg), body.clone()))
+      if let Some(arg) = exprv(arg.clone(), pred) {
+        Some(Clause::Lambda(arg, body.clone()))
       } else {
         exprv(body.clone(), pred).map(|body| Clause::Lambda(arg.clone(), body))
       },

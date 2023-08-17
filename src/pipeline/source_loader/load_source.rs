@@ -1,10 +1,11 @@
 use std::iter;
-use std::rc::Rc;
 
 use super::loaded_source::{LoadedSource, LoadedSourceTable};
 use super::preparse::preparse;
+use crate::error::{
+  NoTargets, ProjectError, ProjectResult, UnexpectedDirectory,
+};
 use crate::interner::{Interner, Tok};
-use crate::pipeline::error::{ProjectError, UnexpectedDirectory};
 use crate::pipeline::file_loader::{IOResult, Loaded};
 use crate::pipeline::import_abs_path::import_abs_path;
 use crate::representations::sourcefile::FileEntry;
@@ -19,7 +20,7 @@ fn load_abs_path_rec(
   i: &Interner,
   get_source: &impl Fn(&[Tok<String>]) -> IOResult,
   is_injected_module: &impl Fn(&[Tok<String>]) -> bool,
-) -> Result<(), Rc<dyn ProjectError>> {
+) -> ProjectResult<()> {
   // # Termination
   //
   // Every recursion of this function either
@@ -40,7 +41,7 @@ fn load_abs_path_rec(
   if let Some((filename, _)) = name_split {
     // if the filename is valid, load, preparse and record this file
     let text = unwrap_or!(get_source(filename)? => Loaded::Code; {
-      return Err(UnexpectedDirectory { path: i.extern_all(filename) }.rc())
+      return Err(UnexpectedDirectory { path: filename.to_vec() }.rc())
     });
     let preparsed = preparse(
       filename.iter().map(|t| i.r(*t)).cloned().collect(),
@@ -56,6 +57,9 @@ fn load_abs_path_rec(
     preparsed.0.visit_all_imports(&mut |modpath, _module, import| {
       let abs_pathv =
         import_abs_path(filename, modpath, &import.nonglob_path(i), i)?;
+      if abs_path.starts_with(&abs_pathv) {
+        return Ok(());
+      }
       // recurse on imported module
       load_abs_path_rec(
         &abs_pathv,
@@ -111,9 +115,11 @@ pub fn load_source<'a>(
   i: &Interner,
   get_source: &impl Fn(&[Tok<String>]) -> IOResult,
   is_injected_module: &impl Fn(&[Tok<String>]) -> bool,
-) -> Result<LoadedSourceTable, Rc<dyn ProjectError>> {
+) -> ProjectResult<LoadedSourceTable> {
   let mut table = LoadedSourceTable::new();
+  let mut any_target = false;
   for target in targets {
+    any_target |= true;
     load_abs_path_rec(
       target,
       &mut table,
@@ -123,5 +129,5 @@ pub fn load_source<'a>(
       is_injected_module,
     )?
   }
-  Ok(table)
+  if any_target { Ok(table) } else { Err(NoTargets.rc()) }
 }

@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use crate::interner::{Interner, Tok};
 
 /// A mutable representation of a namespaced identifier.
@@ -16,7 +18,7 @@ pub type Sym = Tok<Vec<Tok<String>>>;
 
 /// An abstraction over tokenized vs non-tokenized names so that they can be
 /// handled together in datastructures
-pub trait NameLike: 'static + Clone + Eq {
+pub trait NameLike: 'static + Clone + Eq + Hash {
   /// Fully resolve the name for printing
   fn to_strv(&self, i: &Interner) -> Vec<String>;
 }

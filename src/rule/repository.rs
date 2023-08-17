@@ -3,6 +3,7 @@ use std::format;
 use std::rc::Rc;
 
 use hashbrown::HashSet;
+use itertools::Itertools;
 use ordered_float::NotNan;
 
 use super::matcher::{Matcher, RuleExpr};
@@ -11,7 +12,6 @@ use super::state::apply_exprv;
 use super::{update_first_seq, RuleError, VectreeMatcher};
 use crate::ast::Rule;
 use crate::interner::{InternedDisplay, Interner};
-use crate::utils::Substack;
 use crate::Sym;
 
 #[derive(Debug)]
@@ -60,9 +60,7 @@ impl<M: Matcher> Repository<M> {
         let rule = prepare_rule(r.clone(), i).map_err(|e| (r, e))?;
         let mut glossary = HashSet::new();
         for e in rule.pattern.iter() {
-          e.visit_names(Substack::Bottom, &mut |op| {
-            glossary.insert(*op);
-          })
+          glossary.extend(e.value.collect_names().into_iter());
         }
         let matcher = M::new(Rc::new(rule.pattern.clone()));
         let prep = CachedRule {
@@ -78,10 +76,7 @@ impl<M: Matcher> Repository<M> {
 
   /// Attempt to run each rule in priority order once
   pub fn step(&self, code: &RuleExpr) -> Option<RuleExpr> {
-    let mut glossary = HashSet::new();
-    code.visit_names(Substack::Bottom, &mut |op| {
-      glossary.insert(*op);
-    });
+    let glossary = code.value.collect_names();
     for (rule, deps, _) in self.cache.iter() {
       if !deps.is_subset(&glossary) {
         continue;
@@ -164,8 +159,13 @@ impl<M: InternedDisplay + Matcher> InternedDisplay for Repository<M> {
     i: &Interner,
   ) -> std::fmt::Result {
     writeln!(f, "Repository[")?;
-    for (item, _, p) in self.cache.iter() {
-      write!(f, "\t{}", fmt_hex(f64::from(*p)))?;
+    for (item, deps, p) in self.cache.iter() {
+      write!(
+        f,
+        "  priority: {}\tdependencies: [{}]\n    ",
+        fmt_hex(f64::from(*p)),
+        deps.iter().map(|t| i.extern_vec(*t).join("::")).join(", ")
+      )?;
       item.fmt_i(f, i)?;
       writeln!(f)?;
     }

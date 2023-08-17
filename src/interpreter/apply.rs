@@ -15,7 +15,7 @@ fn map_at<E>(
   mapper: &mut impl FnMut(&Clause) -> Result<Clause, E>,
 ) -> Result<ExprInst, E> {
   source
-    .try_update(|value| {
+    .try_update(|value, _loc| {
       // Pass right through lambdas
       if let Clause::Lambda { args, body } = value {
         return Ok((
@@ -87,7 +87,7 @@ pub fn apply(
   x: ExprInst,
   ctx: Context,
 ) -> Result<Return, RuntimeError> {
-  let (state, (gas, inert)) = f.try_update(|clause| match clause {
+  let (state, (gas, inert)) = f.try_update(|clause, loc| match clause {
     // apply an ExternFn or an internal function
     Clause::P(Primitive::ExternFn(f)) => {
       let clause =
@@ -104,17 +104,12 @@ pub fn apply(
     } else {
       (body.expr().clause.clone(), (ctx.gas, false))
     }),
-    Clause::Constant(name) => {
-      let symval = if let Some(sym) = ctx.symbols.get(name) {
-        sym.clone()
+    Clause::Constant(name) =>
+      if let Some(sym) = ctx.symbols.get(name) {
+        Ok((Clause::Apply { f: sym.clone(), x }, (ctx.gas, false)))
       } else {
-        panic!(
-          "missing symbol for function {}",
-          ctx.interner.extern_vec(*name).join("::")
-        )
-      };
-      Ok((Clause::Apply { f: symval, x }, (ctx.gas, false)))
-    },
+        Err(RuntimeError::MissingSymbol(*name, loc.clone()))
+      },
     Clause::P(Primitive::Atom(atom)) => {
       // take a step in expanding atom
       let AtomicReturn { clause, gas, inert } = atom.run(ctx.clone())?;

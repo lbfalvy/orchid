@@ -1,0 +1,5 @@
+export macro ...$a + ...$b =0x2p36=> (add (...$a) (...$b))
+export macro ...$a - ...$b:1 =0x2p36=> (subtract (...$a) (...$b))
+export macro ...$a * ...$b =0x1p36=> (multiply (...$a) (...$b))
+export macro ...$a % ...$b:1 =0x1p36=> (remainder (...$a) (...$b))
+export macro ...$a / ...$b:1 =0x1p36=> (divide (...$a) (...$b))

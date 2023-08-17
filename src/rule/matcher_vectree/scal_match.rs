@@ -16,7 +16,7 @@ pub fn scal_match<'a>(
     (ScalMatcher::S(c1, b_mat), Clause::S(c2, body)) if c1 == c2 =>
       any_match(b_mat, &body[..]),
     (ScalMatcher::Lambda(arg_mat, b_mat), Clause::Lambda(arg, body)) => {
-      let mut state = scal_match(arg_mat, arg)?;
+      let mut state = any_match(arg_mat, arg)?;
       state.extend(any_match(b_mat, body)?);
       Some(state)
     },

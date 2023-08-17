@@ -14,7 +14,7 @@ pub enum ScalMatcher {
   P(Primitive),
   Name(Sym),
   S(char, Box<AnyMatcher>),
-  Lambda(Box<ScalMatcher>, Box<AnyMatcher>),
+  Lambda(Box<AnyMatcher>, Box<AnyMatcher>),
   Placeh(Tok<String>),
 }
 

@@ -1,6 +1,6 @@
-import std::(proc::*, io::print, to_string)
+import std::(proc::*, to_string)
 
-export main := do{
+export const main := do{
   let foo = list::new[1, 2, 3, 4, 5, 6];
   let bar = list::map foo n => n * 2;
   let sum = bar
@@ -8,6 +8,6 @@ export main := do{
     |> list::take 3
     |> list::reduce (\a.\b. a + b)
     |> option::unwrap;
-  cps print $ to_string sum ++ "\n";
+  cps println $ to_string sum;
   0
 }

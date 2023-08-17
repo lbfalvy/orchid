@@ -1,6 +1,6 @@
-import std::(proc::*, io::print, to_string)
+import std::(proc::*, to_string)
 
-export main := do{
+export const main := do{
   let foo = map::new[
     "foo" = 1,
     "bar" = 2,
@@ -9,6 +9,6 @@ export main := do{
   ];
   let num = map::get foo "bar"
     |> option::unwrap;
-  cps print (to_string num ++ "\n");
+  cps println $ to_string num;
   0
 }

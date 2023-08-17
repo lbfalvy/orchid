@@ -36,7 +36,6 @@
 	},
 	"extensions": {
 		"recommendations": [
-			"bungcip.better-toml",
 			"maptz.regionfolder",
 			"serayuzgur.crates",
 			"tamasfe.even-better-toml",

@@ -6,14 +6,17 @@
 use std::hash::Hash;
 use std::rc::Rc;
 
+use hashbrown::HashSet;
 use itertools::Itertools;
 use ordered_float::NotNan;
 
+#[allow(unused)] // for doc
+use super::interpreted;
 use super::location::Location;
 use super::namelike::{NameLike, VName};
 use super::primitive::Primitive;
 use crate::interner::{InternedDisplay, Interner, Tok};
-use crate::utils::{map_rc, Substack};
+use crate::utils::map_rc;
 
 /// A [Clause] with associated metadata
 #[derive(Clone, Debug, PartialEq)]
@@ -25,17 +28,6 @@ pub struct Expr<N: NameLike> {
 }
 
 impl<N: NameLike> Expr<N> {
-  /// Obtain the contained clause
-  pub fn into_clause(self) -> Clause<N> {
-    self.value
-  }
-
-  /// Call the function on every name in this expression
-  pub fn visit_names(&self, binds: Substack<&N>, cb: &mut impl FnMut(&N)) {
-    let Expr { value, .. } = self;
-    value.visit_names(binds, cb);
-  }
-
   /// Process all names with the given mapper.
   /// Return a new object if anything was processed
   pub fn map_names(&self, pred: &impl Fn(&N) -> Option<N>) -> Option<Self> {
@@ -49,6 +41,32 @@ impl<N: NameLike> Expr<N> {
   pub fn transform_names<O: NameLike>(self, pred: &impl Fn(N) -> O) -> Expr<O> {
     Expr { value: self.value.transform_names(pred), location: self.location }
   }
+
+  /// Visit all expressions in the tree. The search can be exited early by
+  /// returning [Some]
+  ///
+  /// See also [interpreted::ExprInst::search_all]
+  pub fn search_all<T>(
+    &self,
+    f: &mut impl FnMut(&Self) -> Option<T>,
+  ) -> Option<T> {
+    f(self).or_else(|| self.value.search_all(f))
+  }
+}
+
+impl<N: NameLike> AsRef<Location> for Expr<N> {
+  fn as_ref(&self) -> &Location {
+    &self.location
+  }
+}
+
+/// Visit all expression sequences including this sequence itself. Otherwise
+/// works exactly like [Expr::search_all_slcs]
+pub fn search_all_slcs<N: NameLike, T>(
+  this: &[Expr<N>],
+  f: &mut impl FnMut(&[Expr<N>]) -> Option<T>,
+) -> Option<T> {
+  f(this).or_else(|| this.iter().find_map(|expr| expr.value.search_all_slcs(f)))
 }
 
 impl Expr<VName> {
@@ -130,7 +148,7 @@ pub enum Clause<N: NameLike> {
   /// eg. `(print out "hello")`, `[1, 2, 3]`, `{Some(t) => t}`
   S(char, Rc<Vec<Expr<N>>>),
   /// A function expression, eg. `\x. x + 1`
-  Lambda(Rc<Expr<N>>, Rc<Vec<Expr<N>>>),
+  Lambda(Rc<Vec<Expr<N>>>, Rc<Vec<Expr<N>>>),
   /// A placeholder for macros, eg. `$name`, `...$body`, `...$lhs:1`
   Placeh(Placeholder),
 }
@@ -162,7 +180,7 @@ impl<N: NameLike> Clause<N> {
     if exprs.is_empty() {
       None
     } else if exprs.len() == 1 {
-      Some(exprs[0].clone().into_clause())
+      Some(exprs[0].value.clone())
     } else {
       Some(Self::S('(', Rc::new(exprs.to_vec())))
     }
@@ -176,30 +194,22 @@ impl<N: NameLike> Clause<N> {
     }
   }
 
-  /// Recursively iterate through all "names" in an expression.
-  /// It also finds a lot of things that aren't names, such as all
-  /// bound parameters. Generally speaking, this is not a very
-  /// sophisticated search.
-  pub fn visit_names(&self, binds: Substack<&N>, cb: &mut impl FnMut(&N)) {
-    match self {
-      Clause::Lambda(arg, body) => {
-        arg.visit_names(binds, cb);
-        let new_binds =
-          if let Clause::Name(n) = &arg.value { binds.push(n) } else { binds };
-        for x in body.iter() {
-          x.visit_names(new_binds, cb)
-        }
-      },
-      Clause::S(_, body) =>
-        for x in body.iter() {
-          x.visit_names(binds, cb)
-        },
-      Clause::Name(name) =>
-        if binds.iter().all(|x| x != &name) {
-          cb(name)
-        },
-      _ => (),
+  /// Collect all names that appear in this expression.
+  /// NOTICE: this isn't the total set of unbound names, it's mostly useful to
+  /// make weak statements for optimization.
+  pub fn collect_names(&self) -> HashSet<N> {
+    if let Self::Name(n) = self {
+      return HashSet::from([n.clone()]);
     }
+    let mut glossary = HashSet::new();
+    let result = self.search_all(&mut |e| {
+      if let Clause::Name(n) = &e.value {
+        glossary.insert(n.clone());
+      }
+      None::<()>
+    });
+    assert!(result.is_none(), "Callback never returns Some, wtf???");
+    glossary
   }
 
   /// Process all names with the given mapper.
@@ -221,10 +231,15 @@ impl<N: NameLike> Clause<N> {
         if any_some { Some(Clause::S(*c, Rc::new(new_body))) } else { None }
       },
       Clause::Lambda(arg, body) => {
-        let new_arg = arg.map_names(pred);
-        let mut any_some = new_arg.is_some();
-        let new_body = body
-          .iter()
+        let mut any_some = false;
+        let new_arg = (arg.iter())
+          .map(|e| {
+            let val = e.map_names(pred);
+            any_some |= val.is_some();
+            val.unwrap_or_else(|| e.clone())
+          })
+          .collect();
+        let new_body = (body.iter())
           .map(|e| {
             let val = e.map_names(pred);
             any_some |= val.is_some();
@@ -232,10 +247,7 @@ impl<N: NameLike> Clause<N> {
           })
           .collect();
         if any_some {
-          Some(Clause::Lambda(
-            new_arg.map(Rc::new).unwrap_or_else(|| arg.clone()),
-            Rc::new(new_body),
-          ))
+          Some(Clause::Lambda(Rc::new(new_arg), Rc::new(new_body)))
         } else {
           None
         }
@@ -253,13 +265,39 @@ impl<N: NameLike> Clause<N> {
       Self::Placeh(p) => Clause::Placeh(p),
       Self::P(p) => Clause::P(p),
       Self::Lambda(n, b) => Clause::Lambda(
-        map_rc(n, |n| n.transform_names(pred)),
+        map_rc(n, |n| n.into_iter().map(|e| e.transform_names(pred)).collect()),
         map_rc(b, |b| b.into_iter().map(|e| e.transform_names(pred)).collect()),
       ),
       Self::S(c, b) => Clause::S(
         c,
         map_rc(b, |b| b.into_iter().map(|e| e.transform_names(pred)).collect()),
       ),
+    }
+  }
+
+  /// Pair of [Expr::search_all]
+  pub fn search_all<T>(
+    &self,
+    f: &mut impl FnMut(&Expr<N>) -> Option<T>,
+  ) -> Option<T> {
+    match self {
+      Clause::Lambda(arg, body) =>
+        arg.iter().chain(body.iter()).find_map(|expr| expr.search_all(f)),
+      Clause::Name(_) | Clause::P(_) | Clause::Placeh(_) => None,
+      Clause::S(_, body) => body.iter().find_map(|expr| expr.search_all(f)),
+    }
+  }
+
+  /// Pair of [Expr::search_all_slcs]
+  pub fn search_all_slcs<T>(
+    &self,
+    f: &mut impl FnMut(&[Expr<N>]) -> Option<T>,
+  ) -> Option<T> {
+    match self {
+      Clause::Lambda(arg, body) =>
+        search_all_slcs(arg, f).or_else(|| search_all_slcs(body, f)),
+      Clause::Name(_) | Clause::P(_) | Clause::Placeh(_) => None,
+      Clause::S(_, body) => search_all_slcs(body, f),
     }
   }
 }
@@ -319,7 +357,7 @@ impl<N: NameLike> InternedDisplay for Clause<N> {
       },
       Self::Lambda(arg, body) => {
         f.write_str("\\")?;
-        arg.fmt_i(f, i)?;
+        fmt_expr_seq(&mut arg.iter(), f, i)?;
         f.write_str(".")?;
         fmt_expr_seq(&mut body.iter(), f, i)
       },
@@ -360,10 +398,13 @@ impl Rule<VName> {
   pub fn collect_single_names(&self) -> Vec<Tok<String>> {
     let mut names = Vec::new();
     for e in self.pattern.iter() {
-      e.visit_names(Substack::Bottom, &mut |ns_name| {
-        if ns_name.len() == 1 {
-          names.push(ns_name[0])
+      e.search_all(&mut |e| {
+        if let Clause::Name(ns_name) = &e.value {
+          if ns_name.len() == 1 {
+            names.push(ns_name[0])
+          }
         }
+        None::<()>
       });
     }
     names

@@ -39,6 +39,36 @@ impl Location {
       None
     }
   }
+
+  /// If the two locations are ranges in the same file, connect them.
+  /// Otherwise choose the more accurate, preferring lhs if equal.
+  pub fn to(self, other: Self) -> Self {
+    match self {
+      Location::Unknown => other,
+      Location::File(f) => match other {
+        Location::Range { .. } => other,
+        _ => Location::File(f),
+      },
+      Location::Range { file: f1, range: r1 } => Location::Range {
+        range: match other {
+          Location::Range { file: f2, range: r2 } if f1 == f2 =>
+            r1.start..r2.end,
+          _ => r1,
+        },
+        file: f1,
+      },
+    }
+  }
+
+  /// Choose one of the two locations, preferring better accuracy, or lhs if
+  /// equal
+  pub fn or(self, alt: Self) -> Self {
+    match (&self, &alt) {
+      (Self::Unknown, _) => alt,
+      (Self::File(_), Self::Range { .. }) => alt,
+      _ => self,
+    }
+  }
 }
 
 impl Display for Location {

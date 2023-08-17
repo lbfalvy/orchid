@@ -2,7 +2,7 @@ use super::collect_ops::ExportedOpsCache;
 use crate::interner::{Interner, Tok};
 use crate::pipeline::import_abs_path::import_abs_path;
 use crate::representations::sourcefile::{
-  FileEntry, Import, Member, Namespace,
+  FileEntry, Import, Member, ModuleBlock,
 };
 use crate::representations::tree::{ModMember, Module};
 use crate::utils::iter::box_once;
@@ -20,14 +20,14 @@ fn member_rec(
   i: &Interner,
 ) -> Member {
   match member {
-    Member::Namespace(Namespace { name, body }) => {
+    Member::Module(ModuleBlock { name, body }) => {
       let subprep = unwrap_or!(
         &preparsed.items[&name].member => ModMember::Sub;
         unreachable!("This name must point to a namespace")
       );
       let new_body =
         entv_rec(mod_stack.push(name), subprep, body, path, ops_cache, i);
-      Member::Namespace(Namespace { name, body: new_body })
+      Member::Module(ModuleBlock { name, body: new_body })
     },
     any => any,
   }
@@ -58,10 +58,14 @@ fn entv_rec(
           .into_iter()
           .flat_map(|import| {
             if let Import { name: None, path } = import {
-              let p = import_abs_path(mod_path, mod_stack, &i.r(path)[..], i)
-                .expect("Should have emerged in preparsing");
-              let names = (ops_cache.find(&i.i(&p)))
-                .expect("Should have emerged in second parsing");
+              let p = i.expect(
+                import_abs_path(mod_path, mod_stack, &i.r(path)[..], i),
+                "Should have emerged in preparsing",
+              );
+              let names = i.expect(
+                ops_cache.find(&i.i(&p)),
+                "Should have emerged in second parsing",
+              );
               let imports = (names.iter())
                 .map(move |&n| Import { name: Some(n), path })
                 .collect::<Vec<_>>();

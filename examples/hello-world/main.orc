@@ -1,3 +1,5 @@
-import std::io::print
-
-main := print "Hello, world!\n" "goodbye"
+const main := (
+  println "Hello, world!"
+    "success"
+)
+-- main := "Hello, World!\n"

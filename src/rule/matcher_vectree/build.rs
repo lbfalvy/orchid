@@ -112,7 +112,7 @@ fn mk_scalar(pattern: &RuleExpr) -> ScalMatcher {
     },
     Clause::S(c, body) => ScalMatcher::S(*c, Box::new(mk_any(body))),
     Clause::Lambda(arg, body) =>
-      ScalMatcher::Lambda(Box::new(mk_scalar(arg)), Box::new(mk_any(body))),
+      ScalMatcher::Lambda(Box::new(mk_any(arg)), Box::new(mk_any(body))),
   }
 }
 

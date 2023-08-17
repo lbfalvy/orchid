@@ -1,0 +1,183 @@
+use std::any::{type_name, Any, TypeId};
+use std::cell::RefCell;
+use std::fmt::{Debug, Display};
+use std::rc::Rc;
+use std::sync::mpsc::Sender;
+use std::time::Duration;
+
+use hashbrown::HashMap;
+use ordered_float::NotNan;
+
+use super::types::MessagePort;
+use super::Asynch;
+use crate::facade::{IntoSystem, System};
+use crate::foreign::cps_box::{init_cps, CPSBox};
+use crate::foreign::ExternError;
+use crate::interpreted::ExprInst;
+use crate::interpreter::HandlerTable;
+use crate::systems::codegen::call;
+use crate::systems::stl::Boolean;
+use crate::utils::{unwrap_or, PollEvent, Poller};
+use crate::{atomic_inert, define_fn, ConstTree, Interner};
+
+#[derive(Debug, Clone)]
+struct Timer {
+  recurring: Boolean,
+  duration: NotNan<f64>,
+}
+define_fn! {expr=x in
+  SetTimer {
+    recurring: Boolean,
+    duration: NotNan<f64>
+  } => Ok(init_cps(2, Timer{
+    recurring: *recurring,
+    duration: *duration
+  }))
+}
+
+#[derive(Clone)]
+struct CancelTimer(Rc<dyn Fn()>);
+impl Debug for CancelTimer {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "opaque cancel operation")
+  }
+}
+
+#[derive(Clone, Debug)]
+struct Yield;
+atomic_inert!(Yield, "a yield command");
+
+/// Error indicating a yield command when all event producers and timers had
+/// exited
+pub struct InfiniteBlock;
+impl ExternError for InfiniteBlock {}
+impl Display for InfiniteBlock {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    static MSG: &str = "User code yielded, but there are no timers or event \
+                        producers to wake it up in the future";
+    write!(f, "{}", MSG)
+  }
+}
+
+impl MessagePort for Sender<Box<dyn Any + Send>> {
+  fn send<T: Send + 'static>(&mut self, message: T) {
+    let _ = Self::send(self, Box::new(message));
+  }
+}
+
+impl<F> MessagePort for F
+where
+  F: FnMut(Box<dyn Any + Send>) + Send + Clone + 'static,
+{
+  fn send<T: Send + 'static>(&mut self, message: T) {
+    self(Box::new(message))
+  }
+}
+
+type AnyHandler<'a> = Box<dyn FnMut(Box<dyn Any>) -> Option<ExprInst> + 'a>;
+
+/// Datastructures the asynch system will eventually be constructed from
+pub struct AsynchConfig<'a> {
+  poller: Poller<Box<dyn Any + Send>, ExprInst, ExprInst>,
+  sender: Sender<Box<dyn Any + Send>>,
+  handlers: HashMap<TypeId, AnyHandler<'a>>,
+}
+impl<'a> AsynchConfig<'a> {
+  /// Create a new async event loop that allows registering handlers and taking
+  /// references to the port before it's converted into a [System]
+  pub fn new() -> Self {
+    let (sender, poller) = Poller::new();
+    Self { poller, sender, handlers: HashMap::new() }
+  }
+}
+impl<'a> Asynch for AsynchConfig<'a> {
+  type Port = Sender<Box<dyn Any + Send>>;
+
+  fn register<T: 'static>(
+    &mut self,
+    mut f: impl FnMut(Box<T>) -> Option<ExprInst> + 'a,
+  ) {
+    let cb = move |a: Box<dyn Any>| f(a.downcast().expect("keyed by TypeId"));
+    let prev = self.handlers.insert(TypeId::of::<T>(), Box::new(cb));
+    assert!(
+      prev.is_none(),
+      "Duplicate handlers for async event {}",
+      type_name::<T>()
+    )
+  }
+
+  fn get_port(&self) -> Self::Port {
+    self.sender.clone()
+  }
+}
+
+impl<'a> Default for AsynchConfig<'a> {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
+impl<'a> IntoSystem<'a> for AsynchConfig<'a> {
+  fn into_system(self, i: &Interner) -> System<'a> {
+    let Self { mut handlers, poller, .. } = self;
+    let mut handler_table = HandlerTable::new();
+    let polly = Rc::new(RefCell::new(poller));
+    handler_table.register({
+      let polly = polly.clone();
+      move |t: &CPSBox<Timer>| {
+        let mut polly = polly.borrow_mut();
+        let (timeout, action, cont) = t.unpack2();
+        let duration = Duration::from_secs_f64(*timeout.duration);
+        let cancel_timer = if timeout.recurring.0 {
+          CancelTimer(Rc::new(polly.set_interval(duration, action.clone())))
+        } else {
+          CancelTimer(Rc::new(polly.set_timeout(duration, action.clone())))
+        };
+        Ok(call(cont.clone(), [init_cps(1, cancel_timer).wrap()]).wrap())
+      }
+    });
+    handler_table.register(move |t: &CPSBox<CancelTimer>| {
+      let (command, cont) = t.unpack1();
+      command.0.as_ref()();
+      Ok(cont.clone())
+    });
+    handler_table.register({
+      let polly = polly.clone();
+      move |_: &Yield| {
+        let mut polly = polly.borrow_mut();
+        loop {
+          let next = unwrap_or!(polly.run();
+            return Err(InfiniteBlock.into_extern())
+          );
+          match next {
+            PollEvent::Once(expr) => return Ok(expr),
+            PollEvent::Recurring(expr) => return Ok(expr),
+            PollEvent::Event(ev) => {
+              let handler = (handlers.get_mut(&ev.as_ref().type_id()))
+                .unwrap_or_else(|| {
+                  panic!("Unhandled messgae type: {:?}", ev.type_id())
+                });
+              if let Some(expr) = handler(ev) {
+                return Ok(expr);
+              }
+            },
+          }
+        }
+      }
+    });
+    System {
+      name: vec!["system".to_string(), "asynch".to_string()],
+      constants: ConstTree::namespace(
+        [i.i("system"), i.i("async")],
+        ConstTree::tree([
+          (i.i("set_timer"), ConstTree::xfn(SetTimer)),
+          (i.i("yield"), ConstTree::atom(Yield)),
+        ]),
+      )
+      .unwrap_tree(),
+      code: HashMap::new(),
+      prelude: Vec::new(),
+      handlers: handler_table,
+    }
+  }
+}

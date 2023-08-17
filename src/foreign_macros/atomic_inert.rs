@@ -14,7 +14,7 @@ use crate::foreign::Atomic;
 /// on [Any], [Debug] and [DynClone].
 #[macro_export]
 macro_rules! atomic_inert {
-  ($typ:ident) => {
+  ($typ:ident, $typename:expr) => {
     impl $crate::foreign::Atomic for $typ {
       $crate::atomic_defaults! {}
 
@@ -23,10 +23,24 @@ macro_rules! atomic_inert {
         ctx: $crate::interpreter::Context,
       ) -> $crate::foreign::AtomicResult {
         Ok($crate::foreign::AtomicReturn {
-          clause: self.clone().to_atom_cls(),
+          clause: self.clone().atom_cls(),
           gas: ctx.gas,
           inert: true,
         })
+      }
+    }
+
+    impl TryFrom<&ExprInst> for $typ {
+      type Error = std::rc::Rc<dyn $crate::foreign::ExternError>;
+
+      fn try_from(
+        value: &$crate::interpreted::ExprInst,
+      ) -> Result<Self, Self::Error> {
+        $crate::systems::cast_exprinst::with_atom(
+          value,
+          $typename,
+          |a: &$typ| Ok(a.clone()),
+        )
       }
     }
   };

@@ -2,8 +2,10 @@
 mod apply;
 mod context;
 mod error;
+mod handler;
 mod run;
 
 pub use context::{Context, Return};
 pub use error::RuntimeError;
-pub use run::{run, run_handler, Handler, HandlerErr, HandlerParm, HandlerRes};
+pub use handler::{run_handler, HandlerRes, HandlerTable};
+pub use run::run;

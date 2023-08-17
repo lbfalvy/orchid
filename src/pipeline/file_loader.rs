@@ -3,11 +3,13 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::{fs, io};
 
-use chumsky::text::Character;
+use hashbrown::{HashMap, HashSet};
 use rust_embed::RustEmbed;
 
+use crate::error::{ErrorPosition, ProjectError, ProjectResult};
+#[allow(unused)] // for doc
+use crate::facade::System;
 use crate::interner::Interner;
-use crate::pipeline::error::{ErrorPosition, ProjectError};
 use crate::utils::iter::box_once;
 use crate::utils::{BoxedIter, Cache};
 use crate::{Stok, VName};
@@ -23,10 +25,10 @@ impl ProjectError for FileLoadingError {
   fn description(&self) -> &str {
     "Neither a file nor a directory could be read from the requested path"
   }
-  fn positions(&self) -> BoxedIter<ErrorPosition> {
+  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
     box_once(ErrorPosition::just_file(self.path.clone()))
   }
-  fn message(&self) -> String {
+  fn message(&self, _i: &Interner) -> String {
     format!("File: {}\nDirectory: {}", self.file, self.dir)
   }
 }
@@ -49,7 +51,7 @@ impl Loaded {
 }
 
 /// Returned by any source loading callback
-pub type IOResult = Result<Loaded, Rc<dyn ProjectError>>;
+pub type IOResult = ProjectResult<Loaded>;
 
 /// Load a file from a path expressed in Rust strings, but relative to
 /// a root expressed as an OS Path.
@@ -103,7 +105,8 @@ pub fn mk_dir_cache(root: PathBuf, i: &Interner) -> Cache<VName, IOResult> {
 pub fn load_embed<T: 'static + RustEmbed>(path: &str, ext: &str) -> IOResult {
   let file_path = path.to_string() + ext;
   if let Some(file) = T::get(&file_path) {
-    let s = file.data.iter().map(|c| c.to_char()).collect::<String>();
+    let s =
+      String::from_utf8(file.data.to_vec()).expect("Embed must be valid UTF-8");
     Ok(Loaded::Code(Rc::new(s)))
   } else {
     let entries = T::iter()
@@ -136,4 +139,39 @@ pub fn mk_embed_cache<'a, T: 'static + RustEmbed>(
     let path = i.extern_all(&vname).join("/");
     load_embed::<T>(&path, ext)
   })
+}
+
+/// Load all files from an embed and convert them into a map usable in a
+/// [System]
+pub fn embed_to_map<T: 'static + RustEmbed>(
+  suffix: &str,
+  i: &Interner,
+) -> HashMap<Vec<Stok>, Loaded> {
+  let mut files = HashMap::new();
+  let mut dirs = HashMap::new();
+  for path in T::iter() {
+    let vpath = path
+      .strip_suffix(suffix)
+      .expect("the embed must be filtered for suffix")
+      .split('/')
+      .map(|s| s.to_string())
+      .collect::<Vec<_>>();
+    let tokvpath = vpath.iter().map(|segment| i.i(segment)).collect::<Vec<_>>();
+    let data = T::get(&path).expect("path from iterator").data;
+    let text =
+      String::from_utf8(data.to_vec()).expect("code embeds must be utf-8");
+    files.insert(tokvpath.clone(), text);
+    for (lvl, subname) in vpath.iter().enumerate() {
+      let dirname = tokvpath.split_at(lvl).0;
+      let (_, entries) = (dirs.raw_entry_mut().from_key(dirname))
+        .or_insert_with(|| (dirname.to_vec(), HashSet::new()));
+      entries.get_or_insert_with(subname, Clone::clone);
+    }
+  }
+  (files.into_iter())
+    .map(|(k, s)| (k, Loaded::Code(Rc::new(s))))
+    .chain((dirs.into_iter()).map(|(k, entv)| {
+      (k, Loaded::Collection(Rc::new(entv.into_iter().collect())))
+    }))
+    .collect()
 }

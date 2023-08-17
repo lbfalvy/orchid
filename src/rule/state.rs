@@ -1,7 +1,6 @@
 use std::rc::Rc;
 
 use hashbrown::HashMap;
-use itertools::Itertools;
 
 use super::matcher::RuleExpr;
 use crate::ast::{Clause, Expr, PHClass, Placeholder};
@@ -44,12 +43,7 @@ pub fn apply_expr(template: &RuleExpr, state: &State) -> Vec<RuleExpr> {
     Clause::Lambda(arg, body) => vec![Expr {
       location: location.clone(),
       value: Clause::Lambda(
-        Rc::new(
-          apply_expr(arg.as_ref(), state)
-            .into_iter()
-            .exactly_one()
-            .expect("Lambda arguments can only ever be scalar"),
-        ),
+        Rc::new(apply_exprv(arg, state)),
         Rc::new(apply_exprv(&body[..], state)),
       ),
     }],

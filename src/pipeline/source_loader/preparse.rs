@@ -4,11 +4,9 @@ use std::rc::Rc;
 use hashbrown::HashMap;
 
 use crate::ast::Constant;
+use crate::error::{ProjectError, ProjectResult, VisibilityMismatch};
 use crate::interner::Interner;
 use crate::parse::{self, ParsingContext};
-use crate::pipeline::error::{
-  ParseErrorWithPath, ProjectError, VisibilityMismatch,
-};
 use crate::representations::sourcefile::{
   imports, normalize_namespaces, FileEntry, Member,
 };
@@ -38,12 +36,12 @@ fn to_module(src: &[FileEntry], prelude: &[FileEntry]) -> Module<(), ()> {
   let imports = imports(all_src()).cloned().collect::<Vec<_>>();
   let mut items = all_src()
     .filter_map(|ent| match ent {
-      FileEntry::Internal(Member::Namespace(ns)) => {
+      FileEntry::Internal(Member::Module(ns)) => {
         let member = ModMember::Sub(to_module(&ns.body, prelude));
         let entry = ModEntry { exported: false, member };
         Some((ns.name, entry))
       },
-      FileEntry::Exported(Member::Namespace(ns)) => {
+      FileEntry::Exported(Member::Module(ns)) => {
         let member = ModMember::Sub(to_module(&ns.body, prelude));
         let entry = ModEntry { exported: true, member };
         Some((ns.name, entry))
@@ -55,8 +53,8 @@ fn to_module(src: &[FileEntry], prelude: &[FileEntry]) -> Module<(), ()> {
     match file_entry {
       FileEntry::Comment(_)
       | FileEntry::Import(_)
-      | FileEntry::Internal(Member::Namespace(_))
-      | FileEntry::Exported(Member::Namespace(_)) => (),
+      | FileEntry::Internal(Member::Module(_))
+      | FileEntry::Exported(Member::Module(_)) => (),
       FileEntry::Export(tokv) =>
         for tok in tokv {
           add_export(&mut items, *tok)
@@ -89,24 +87,13 @@ pub fn preparse(
   source: &str,
   prelude: &[FileEntry],
   i: &Interner,
-) -> Result<Preparsed, Rc<dyn ProjectError>> {
+) -> ProjectResult<Preparsed> {
   // Parse with no operators
   let ctx = ParsingContext::<&str>::new(&[], i, Rc::new(file.clone()));
-  let entries = parse::parse(source, ctx).map_err(|error| {
-    ParseErrorWithPath {
-      full_source: source.to_string(),
-      error,
-      path: file.clone(),
-    }
-    .rc()
-  })?;
+  let entries = parse::parse2(source, ctx)?;
   let normalized = normalize_namespaces(Box::new(entries.into_iter()))
-    .map_err(|ns| {
-      VisibilityMismatch {
-        namespace: ns.into_iter().map(|t| i.r(t)).cloned().collect(),
-        file: Rc::new(file.clone()),
-      }
-      .rc()
+    .map_err(|namespace| {
+      VisibilityMismatch { namespace, file: Rc::new(file.clone()) }.rc()
     })?;
   Ok(Preparsed(to_module(&normalized, prelude)))
 }

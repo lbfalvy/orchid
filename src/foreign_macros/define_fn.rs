@@ -74,25 +74,27 @@ use crate::write_fn_step;
 #[macro_export]
 macro_rules! define_fn {
   // Unary function entry
-  ($( #[ $attr:meta ] )* $qual:vis $name:ident = $body:expr) => {paste::paste!{
-    $crate::write_fn_step!(
-      $( #[ $attr ] )* $qual $name
-      >
-      [< Internal $name >]
-    );
-    $crate::write_fn_step!(
-      [< Internal $name >]
-      {}
-      out = expr => Ok(expr);
-      {
-        let lambda = $body;
-        lambda(out)
-      }
-    );
-  }};
+  ($( #[ $attr:meta ] )* $qual:vis $name:ident = |$x:ident| $body:expr) => {
+    paste::paste!{
+      $crate::write_fn_step!(
+        $( #[ $attr ] )* $qual $name
+        >
+        [< Internal $name >]
+      );
+      $crate::write_fn_step!(
+        [< Internal $name >]
+        {}
+        out = expr => Ok(expr);
+        {
+          let lambda = |$x: &$crate::interpreted::ExprInst| $body;
+          lambda(out)
+        }
+      );
+    }
+  };
   // xname is optional only if every conversion is implicit
   ($( #[ $attr:meta ] )* $qual:vis $name:ident {
-    $( $arg:ident: $typ:ty ),+
+    $( $arg:ident: $typ:ty ),+  $(,)?
   } => $body:expr) => {
     $crate::define_fn!{expr=expr in
       $( #[ $attr ] )* $qual $name {
@@ -105,7 +107,7 @@ macro_rules! define_fn {
     $( #[ $attr:meta ] )*
     $qual:vis $name:ident {
       $arg0:ident: $typ0:ty $( as $parse0:expr )?
-      $(, $arg:ident: $typ:ty $( as $parse:expr )? )*
+      $(, $arg:ident: $typ:ty $( as $parse:expr )? )* $(,)?
     } => $body:expr
   ) => {paste::paste!{
     // Generate initial state

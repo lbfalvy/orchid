@@ -74,7 +74,7 @@ macro_rules! atomic_impl {
   ($typ:ident) => {
     $crate::atomic_impl! {$typ, |this: &Self, _: $crate::interpreter::Context| {
       use $crate::foreign::ExternFn;
-      Ok(this.clone().to_xfn_cls())
+      Ok(this.clone().xfn_cls())
     }}
   };
   ($typ:ident, $next_phase:expr) => {
@@ -108,7 +108,7 @@ macro_rules! atomic_impl {
             Err(e) => return Err($crate::interpreter::RuntimeError::Extern(e)),
           }
         } else {
-          next_self.to_atom_cls()
+          next_self.atom_cls()
         };
         // package and return
         Ok($crate::foreign::AtomicReturn { clause, gas, inert: false })

@@ -21,7 +21,7 @@ use crate::interpreted::ExprInst;
 /// ```no_run
 /// // FIXME this is a very old example that wouldn't compile now
 /// use unicode_segmentation::UnicodeSegmentation;
-/// 
+///
 /// use orchidlang::{write_fn_step, Literal, Primitive};
 /// use orchidlang::interpreted::Clause;
 /// use orchidlang::stl::litconv::{with_str, with_uint};

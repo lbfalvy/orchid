@@ -1,6 +1,4 @@
-use std::rc::Rc;
-
-use super::error::{ProjectError, TooManySupers};
+use crate::error::{ProjectError, ProjectResult, TooManySupers};
 use crate::interner::{Interner, Tok};
 use crate::representations::sourcefile::absolute_path;
 use crate::utils::Substack;
@@ -10,7 +8,7 @@ pub fn import_abs_path(
   mod_stack: Substack<Tok<String>>,
   import_path: &[Tok<String>],
   i: &Interner,
-) -> Result<Vec<Tok<String>>, Rc<dyn ProjectError>> {
+) -> ProjectResult<Vec<Tok<String>>> {
   // path of module within file
   let mod_pathv = mod_stack.iter().rev_vec_clone();
   // path of module within compilation
@@ -23,9 +21,9 @@ pub fn import_abs_path(
   // preload-target path within compilation
   absolute_path(&abs_pathv, import_path, i).map_err(|_| {
     TooManySupers {
-      path: import_path.iter().map(|t| i.r(*t)).cloned().collect(),
-      offender_file: src_path.iter().map(|t| i.r(*t)).cloned().collect(),
-      offender_mod: mod_pathv.iter().map(|t| i.r(*t)).cloned().collect(),
+      path: import_path.to_vec(),
+      offender_file: src_path.to_vec(),
+      offender_mod: mod_pathv,
     }
     .rc()
   })

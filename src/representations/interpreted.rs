@@ -7,6 +7,8 @@ use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
+#[allow(unused)] // for doc
+use super::ast;
 use super::location::Location;
 use super::path_set::PathSet;
 use super::primitive::Primitive;
@@ -83,9 +85,11 @@ impl ExprInst {
   /// across the tree.
   pub fn try_normalize<T, E>(
     &self,
-    mapper: impl FnOnce(&Clause) -> Result<(Clause, T), E>,
+    mapper: impl FnOnce(&Clause, &Location) -> Result<(Clause, T), E>,
   ) -> Result<(Self, T), E> {
-    let (new_clause, extra) = mapper(&self.expr().clause)?;
+    let expr = self.expr();
+    let (new_clause, extra) = mapper(&expr.clause, &expr.location)?;
+    drop(expr);
     self.expr_mut().clause = new_clause;
     Ok((self.clone(), extra))
   }
@@ -95,10 +99,10 @@ impl ExprInst {
   /// the original but is normalized independently.
   pub fn try_update<T, E>(
     &self,
-    mapper: impl FnOnce(&Clause) -> Result<(Clause, T), E>,
+    mapper: impl FnOnce(&Clause, &Location) -> Result<(Clause, T), E>,
   ) -> Result<(Self, T), E> {
     let expr = self.expr();
-    let (clause, extra) = mapper(&expr.clause)?;
+    let (clause, extra) = mapper(&expr.clause, &expr.location)?;
     let new_expr = Expr { clause, location: expr.location.clone() };
     Ok((Self(Rc::new(RefCell::new(new_expr))), extra))
   }
@@ -122,6 +126,25 @@ impl ExprInst {
     } else {
       Err(NotALiteral)
     }
+  }
+
+  /// Visit all expressions in the tree. The search can be exited early by
+  /// returning [Some]
+  ///
+  /// See also [ast::Expr::search_all]
+  pub fn search_all<T>(
+    &self,
+    predicate: &mut impl FnMut(&Self) -> Option<T>,
+  ) -> Option<T> {
+    if let Some(t) = predicate(self) {
+      return Some(t);
+    }
+    self.inspect(|c| match c {
+      Clause::Apply { f, x } =>
+        f.search_all(predicate).or_else(|| x.search_all(predicate)),
+      Clause::Lambda { body, .. } => body.search_all(predicate),
+      Clause::Constant(_) | Clause::LambdaArg | Clause::P(_) => None,
+    })
   }
 }
 

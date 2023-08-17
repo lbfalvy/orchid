@@ -1,138 +1,28 @@
 use std::iter;
 use std::rc::Rc;
 
-use chumsky::prelude::*;
-use chumsky::Parser;
 use itertools::Itertools;
 
 use super::context::Context;
-use super::decls::{SimpleParser, SimpleRecursive};
-use super::enum_filter::enum_filter;
-use super::expression::xpr_parser;
-use super::import::import_parser;
-use super::lexer::{filter_map_lex, Lexeme};
+use super::errors::{
+  BadTokenInRegion, Expected, ExpectedName, LeadingNS, MisalignedParen,
+  NamespacedExport, ReservedToken, UnexpectedEOL,
+};
+use super::lexer::Lexeme;
+use super::multiname::parse_multiname;
+use super::stream::Stream;
 use super::Entry;
 use crate::ast::{Clause, Constant, Expr, Rule};
+use crate::error::{ProjectError, ProjectResult};
 use crate::representations::location::Location;
-use crate::representations::sourcefile::{FileEntry, Member, Namespace};
+use crate::representations::sourcefile::{FileEntry, Member, ModuleBlock};
 use crate::representations::VName;
+use crate::sourcefile::Import;
+use crate::Primitive;
 
-fn rule_parser<'a>(
-  ctx: impl Context + 'a,
-) -> impl SimpleParser<Entry, Rule<VName>> + 'a {
-  xpr_parser(ctx.clone())
-    .repeated()
-    .at_least(1)
-    .then(filter_map_lex(enum_filter!(Lexeme::Rule)))
-    .then(xpr_parser(ctx).repeated().at_least(1))
-    .map(|((p, (prio, _)), t)| Rule { pattern: p, prio, template: t })
-    .labelled("Rule")
-}
-
-fn const_parser<'a>(
-  ctx: impl Context + 'a,
-) -> impl SimpleParser<Entry, Constant> + 'a {
-  filter_map_lex(enum_filter!(Lexeme::Name))
-    .then_ignore(Lexeme::Const.parser())
-    .then(xpr_parser(ctx.clone()).repeated().at_least(1))
-    .map(move |((name, _), value)| Constant {
-      name,
-      value: if let Ok(ex) = value.iter().exactly_one() {
-        ex.clone()
-      } else {
-        let start = value
-          .first()
-          .expect("value cannot be empty")
-          .location
-          .range()
-          .expect("all locations in parsed source are known")
-          .start;
-        let end = value
-          .last()
-          .expect("asserted right above")
-          .location
-          .range()
-          .expect("all locations in parsed source are known")
-          .end;
-        Expr {
-          location: Location::Range { file: ctx.file(), range: start..end },
-          value: Clause::S('(', Rc::new(value)),
-        }
-      },
-    })
-}
-
-pub fn collect_errors<T, E: chumsky::Error<T>>(e: Vec<E>) -> E {
-  e.into_iter()
-    .reduce(chumsky::Error::merge)
-    .expect("Error list must be non_enmpty")
-}
-
-fn namespace_parser<'a>(
-  line: impl SimpleParser<Entry, FileEntry> + 'a,
-) -> impl SimpleParser<Entry, Namespace> + 'a {
-  Lexeme::Namespace
-    .parser()
-    .ignore_then(filter_map_lex(enum_filter!(Lexeme::Name)))
-    .then(
-      any()
-        .repeated()
-        .delimited_by(Lexeme::LP('(').parser(), Lexeme::RP('(').parser())
-        .try_map(move |body, _| {
-          split_lines(&body)
-            .map(|l| line.parse(l))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(collect_errors)
-        }),
-    )
-    .map(move |((name, _), body)| Namespace { name, body })
-}
-
-fn member_parser<'a>(
-  line: impl SimpleParser<Entry, FileEntry> + 'a,
-  ctx: impl Context + 'a,
-) -> impl SimpleParser<Entry, Member> + 'a {
-  choice((
-    namespace_parser(line).map(Member::Namespace),
-    rule_parser(ctx.clone()).map(Member::Rule),
-    const_parser(ctx).map(Member::Constant),
-  ))
-}
-
-pub fn line_parser<'a>(
-  ctx: impl Context + 'a,
-) -> impl SimpleParser<Entry, FileEntry> + 'a {
-  recursive(|line: SimpleRecursive<Entry, FileEntry>| {
-    choice((
-      // In case the usercode wants to parse doc
-      filter_map_lex(enum_filter!(Lexeme >> FileEntry; Comment))
-        .map(|(ent, _)| ent),
-      // plain old imports
-      Lexeme::Import
-        .parser()
-        .ignore_then(import_parser(ctx.clone()).map(FileEntry::Import)),
-      Lexeme::Export.parser().ignore_then(choice((
-        // token collection
-        Lexeme::NS
-          .parser()
-          .ignore_then(
-            filter_map_lex(enum_filter!(Lexeme::Name))
-              .map(|(e, _)| e)
-              .separated_by(Lexeme::Name(ctx.interner().i(",")).parser())
-              .delimited_by(Lexeme::LP('(').parser(), Lexeme::RP('(').parser()),
-          )
-          .map(FileEntry::Export),
-        // public declaration
-        member_parser(line.clone(), ctx.clone()).map(FileEntry::Exported),
-      ))),
-      // This could match almost anything so it has to go last
-      member_parser(line, ctx).map(FileEntry::Internal),
-    ))
-  })
-}
-
-pub fn split_lines(data: &[Entry]) -> impl Iterator<Item = &[Entry]> {
-  let mut source = data.iter().enumerate();
+pub fn split_lines(module: Stream<'_>) -> impl Iterator<Item = Stream<'_>> {
+  let mut source = module.data.iter().enumerate();
+  let mut fallback = module.fallback;
   let mut last_slice = 0;
   let mut finished = false;
   iter::from_fn(move || {
@@ -144,7 +34,9 @@ pub fn split_lines(data: &[Entry]) -> impl Iterator<Item = &[Entry]> {
         Lexeme::BR if paren_count == 0 => {
           let begin = last_slice;
           last_slice = i + 1;
-          return Some(&data[begin..i]);
+          let cur_prev = fallback;
+          fallback = &module.data[i];
+          return Some(Stream::new(cur_prev, &module.data[begin..i]));
         },
         _ => (),
       }
@@ -152,9 +44,242 @@ pub fn split_lines(data: &[Entry]) -> impl Iterator<Item = &[Entry]> {
     // Include last line even without trailing newline
     if !finished {
       finished = true;
-      return Some(&data[last_slice..]);
+      return Some(Stream::new(fallback, &module.data[last_slice..]));
     }
     None
   })
-  .filter(|s| !s.is_empty())
+}
+
+pub fn parse_module_body(
+  cursor: Stream<'_>,
+  ctx: impl Context,
+) -> ProjectResult<Vec<FileEntry>> {
+  split_lines(cursor)
+    .map(Stream::trim)
+    .filter(|l| !l.data.is_empty())
+    .map(|l| parse_line(l, ctx.clone()))
+    .collect()
+}
+
+pub fn parse_line(
+  cursor: Stream<'_>,
+  ctx: impl Context,
+) -> ProjectResult<FileEntry> {
+  match cursor.get(0)?.lexeme {
+    Lexeme::BR | Lexeme::Comment(_) => parse_line(cursor.step()?, ctx),
+    Lexeme::Export => parse_export_line(cursor.step()?, ctx),
+    Lexeme::Const | Lexeme::Macro | Lexeme::Module =>
+      Ok(FileEntry::Internal(parse_member(cursor, ctx)?)),
+    Lexeme::Import => {
+      let globstar = ctx.interner().i("*");
+      let (names, cont) = parse_multiname(cursor.step()?, ctx.clone())?;
+      cont.expect_empty()?;
+      let imports = (names.into_iter())
+        .map(|mut nsname| {
+          let name = nsname.pop().expect("multinames cannot be zero-length");
+          Import {
+            path: ctx.interner().i(&nsname),
+            name: if name == globstar { None } else { Some(name) },
+          }
+        })
+        .collect();
+      Ok(FileEntry::Import(imports))
+    },
+    _ => {
+      let err = BadTokenInRegion {
+        entry: cursor.get(0)?.clone(),
+        region: "start of line",
+      };
+      Err(err.rc())
+    },
+  }
+}
+
+pub fn parse_export_line(
+  cursor: Stream<'_>,
+  ctx: impl Context,
+) -> ProjectResult<FileEntry> {
+  let cursor = cursor.trim();
+  match cursor.get(0)?.lexeme {
+    Lexeme::NS => {
+      let (names, cont) = parse_multiname(cursor.step()?, ctx)?;
+      cont.expect_empty()?;
+      let names = (names.into_iter())
+        .map(|i| if i.len() == 1 { Some(i[0]) } else { None })
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| NamespacedExport { location: cursor.location() }.rc())?;
+      Ok(FileEntry::Export(names))
+    },
+    Lexeme::Const | Lexeme::Macro | Lexeme::Module =>
+      Ok(FileEntry::Exported(parse_member(cursor, ctx)?)),
+    _ => {
+      let err = BadTokenInRegion {
+        entry: cursor.get(0)?.clone(),
+        region: "exported line",
+      };
+      Err(err.rc())
+    },
+  }
+}
+
+fn parse_member(
+  cursor: Stream<'_>,
+  ctx: impl Context,
+) -> ProjectResult<Member> {
+  let (typemark, cursor) = cursor.trim().pop()?;
+  match typemark.lexeme {
+    Lexeme::Const => {
+      let constant = parse_const(cursor, ctx)?;
+      Ok(Member::Constant(constant))
+    },
+    Lexeme::Macro => {
+      let rule = parse_rule(cursor, ctx)?;
+      Ok(Member::Rule(rule))
+    },
+    Lexeme::Module => {
+      let module = parse_module(cursor, ctx)?;
+      Ok(Member::Module(module))
+    },
+    _ => {
+      let err =
+        BadTokenInRegion { entry: typemark.clone(), region: "member type" };
+      Err(err.rc())
+    },
+  }
+}
+
+fn parse_rule(
+  cursor: Stream<'_>,
+  ctx: impl Context,
+) -> ProjectResult<Rule<VName>> {
+  let (pattern, prio, template) = cursor.find_map("arrow", |a| match a {
+    Lexeme::Arrow(p) => Some(*p),
+    _ => None,
+  })?;
+  let (pattern, _) = parse_exprv(pattern, None, ctx.clone())?;
+  let (template, _) = parse_exprv(template, None, ctx)?;
+  Ok(Rule { pattern, prio, template })
+}
+
+fn parse_const(
+  cursor: Stream<'_>,
+  ctx: impl Context,
+) -> ProjectResult<Constant> {
+  let (name_ent, cursor) = cursor.trim().pop()?;
+  let name = ExpectedName::expect(name_ent)?;
+  let (walrus_ent, cursor) = cursor.trim().pop()?;
+  Expected::expect(Lexeme::Walrus, walrus_ent)?;
+  let (body, _) = parse_exprv(cursor, None, ctx)?;
+  Ok(Constant { name, value: vec_to_single(walrus_ent, body)? })
+}
+
+fn parse_module(
+  cursor: Stream<'_>,
+  ctx: impl Context,
+) -> ProjectResult<ModuleBlock> {
+  let (name_ent, cursor) = cursor.trim().pop()?;
+  let name = ExpectedName::expect(name_ent)?;
+  let (lp_ent, cursor) = cursor.trim().pop()?;
+  Expected::expect(Lexeme::LP('('), lp_ent)?;
+  let (last, cursor) = cursor.pop_back()?;
+  Expected::expect(Lexeme::RP('('), last)?;
+  let body = parse_module_body(cursor, ctx)?;
+  Ok(ModuleBlock { name, body })
+}
+
+fn parse_exprv(
+  mut cursor: Stream<'_>,
+  paren: Option<char>,
+  ctx: impl Context,
+) -> ProjectResult<(Vec<Expr<VName>>, Stream<'_>)> {
+  let mut output = Vec::new();
+  cursor = cursor.trim();
+  while let Ok(current) = cursor.get(0) {
+    match &current.lexeme {
+      Lexeme::BR | Lexeme::Comment(_) => unreachable!("Fillers skipped"),
+      Lexeme::At | Lexeme::Type =>
+        return Err(ReservedToken { entry: current.clone() }.rc()),
+      Lexeme::Literal(l) => {
+        output.push(Expr {
+          value: Clause::P(Primitive::Literal(l.clone())),
+          location: current.location(),
+        });
+        cursor = cursor.step()?;
+      },
+      Lexeme::Placeh(ph) => {
+        output.push(Expr {
+          value: Clause::Placeh(*ph),
+          location: current.location(),
+        });
+        cursor = cursor.step()?;
+      },
+      Lexeme::Name(n) => {
+        let location = cursor.location();
+        let mut fullname = vec![*n];
+        while cursor.get(1).ok().map(|e| &e.lexeme) == Some(&Lexeme::NS) {
+          fullname.push(ExpectedName::expect(cursor.get(2)?)?);
+          cursor = cursor.step()?.step()?;
+        }
+        output.push(Expr { value: Clause::Name(fullname), location });
+        cursor = cursor.step()?;
+      },
+      Lexeme::NS =>
+        return Err(LeadingNS { location: current.location() }.rc()),
+      Lexeme::RP(c) =>
+        return if Some(*c) == paren {
+          Ok((output, cursor.step()?))
+        } else {
+          Err(MisalignedParen { entry: cursor.get(0)?.clone() }.rc())
+        },
+      Lexeme::LP(c) => {
+        let (result, leftover) =
+          parse_exprv(cursor.step()?, Some(*c), ctx.clone())?;
+        output.push(Expr {
+          value: Clause::S(*c, Rc::new(result)),
+          location: cursor.get(0)?.location().to(leftover.fallback.location()),
+        });
+        cursor = leftover;
+      },
+      Lexeme::BS => {
+        let (arg, body) =
+          cursor.step()?.find("A '.'", |l| l == &Lexeme::Dot)?;
+        let (arg, _) = parse_exprv(arg, None, ctx.clone())?;
+        let (body, leftover) = parse_exprv(body, paren, ctx)?;
+        output.push(Expr {
+          location: cursor.location(),
+          value: Clause::Lambda(Rc::new(arg), Rc::new(body)),
+        });
+        return Ok((output, leftover));
+      },
+      _ => {
+        let err = BadTokenInRegion {
+          entry: cursor.get(0)?.clone(),
+          region: "expression",
+        };
+        return Err(err.rc());
+      },
+    }
+    cursor = cursor.trim();
+  }
+  Ok((output, Stream::new(cursor.fallback, &[])))
+}
+
+fn vec_to_single(
+  fallback: &Entry,
+  v: Vec<Expr<VName>>,
+) -> ProjectResult<Expr<VName>> {
+  match v.len() {
+    0 => return Err(UnexpectedEOL { entry: fallback.clone() }.rc()),
+    1 => Ok(v.into_iter().exactly_one().unwrap()),
+    _ => Ok(Expr {
+      location: expr_slice_location(&v),
+      value: Clause::S('(', Rc::new(v)),
+    }),
+  }
+}
+
+pub fn expr_slice_location(v: &[impl AsRef<Location>]) -> Location {
+  v.first()
+    .map(|l| l.as_ref().clone().to(v.last().unwrap().as_ref().clone()))
+    .unwrap_or(Location::Unknown)
 }

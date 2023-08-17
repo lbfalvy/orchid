@@ -1,7 +1,7 @@
 use super::collect_ops::ExportedOpsCache;
 use crate::ast::{Constant, Rule};
 use crate::interner::{Interner, Tok};
-use crate::representations::sourcefile::{FileEntry, Member, Namespace};
+use crate::representations::sourcefile::{FileEntry, Member, ModuleBlock};
 use crate::utils::Substack;
 
 fn member_rec(
@@ -19,9 +19,9 @@ fn member_rec(
     .chain(mod_stack.iter().rev_vec_clone().into_iter())
     .collect::<Vec<_>>();
   match data {
-    Member::Namespace(Namespace { name, body }) => {
+    Member::Module(ModuleBlock { name, body }) => {
       let new_body = entv_rec(mod_stack.push(name), body, path, ops_cache, i);
-      Member::Namespace(Namespace { name, body: new_body })
+      Member::Module(ModuleBlock { name, body: new_body })
     },
     Member::Constant(constant) => Member::Constant(Constant {
       name: constant.name,
