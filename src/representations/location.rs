@@ -18,6 +18,8 @@ pub enum Location {
     file: Rc<Vec<String>>,
     /// Index of the unicode code points associated with the code
     range: Range<usize>,
+    /// The full source code as received by the parser
+    source: Rc<String>,
   },
 }
 
@@ -40,6 +42,15 @@ impl Location {
     }
   }
 
+  /// Associated source code, if known
+  pub fn source(&self) -> Option<Rc<String>> {
+    if let Self::Range { source, .. } = self {
+      Some(source.clone())
+    } else {
+      None
+    }
+  }
+
   /// If the two locations are ranges in the same file, connect them.
   /// Otherwise choose the more accurate, preferring lhs if equal.
   pub fn to(self, other: Self) -> Self {
@@ -49,13 +60,13 @@ impl Location {
         Location::Range { .. } => other,
         _ => Location::File(f),
       },
-      Location::Range { file: f1, range: r1 } => Location::Range {
-        range: match other {
-          Location::Range { file: f2, range: r2 } if f1 == f2 =>
+      Location::Range { file, range: r1, source } => {
+        let range = match other {
+          Location::Range { file: f2, range: r2, .. } if file == f2 =>
             r1.start..r2.end,
           _ => r1,
-        },
-        file: f1,
+        };
+        Location::Range { file, source, range }
       },
     }
   }
@@ -65,7 +76,7 @@ impl Location {
   pub fn or(self, alt: Self) -> Self {
     match (&self, &alt) {
       (Self::Unknown, _) => alt,
-      (Self::File(_), Self::Range { .. }) => alt,
+      (Self::File { .. }, Self::Range { .. }) => alt,
       _ => self,
     }
   }
@@ -76,13 +87,23 @@ impl Display for Location {
     match self {
       Self::Unknown => write!(f, "unknown"),
       Self::File(file) => write!(f, "{}.orc", file.iter().join("/")),
-      Self::Range { file, range } => write!(
-        f,
-        "{}.orc:{}..{}",
-        file.iter().join("/"),
-        range.start,
-        range.end
-      ),
+      Self::Range { file, range, source } => {
+        let (sl, sc) = pos2lc(source, range.start);
+        let (el, ec) = pos2lc(source, range.end);
+        write!(f, "{}.orc ", file.iter().join("/"))?;
+        write!(f, "{sl}:{sc}")?;
+        if el == sl {
+          if sc + 1 == ec { Ok(()) } else { write!(f, "..{ec}") }
+        } else {
+          write!(f, "..{el}:{ec}")
+        }
+      },
     }
   }
+}
+
+fn pos2lc(s: &str, i: usize) -> (usize, usize) {
+  s.chars().take(i).fold((1, 1), |(line, col), char| {
+    if char == '\n' { (line + 1, 1) } else { (line, col + 1) }
+  })
 }

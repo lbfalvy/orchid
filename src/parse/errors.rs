@@ -237,6 +237,7 @@ impl ProjectError for GlobExport {
 
 pub struct LexError {
   pub errors: Vec<Simple<char>>,
+  pub source: Rc<String>,
   pub file: Rc<Vec<String>>,
 }
 impl ProjectError for LexError {
@@ -246,7 +247,11 @@ impl ProjectError for LexError {
   fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
     let file = self.file.clone();
     Box::new(self.errors.iter().map(move |s| ErrorPosition {
-      location: Location::Range { file: file.clone(), range: s.span() },
+      location: Location::Range {
+        file: file.clone(),
+        range: s.span(),
+        source: self.source.clone(),
+      },
       message: Some(format!("{}", s)),
     }))
   }

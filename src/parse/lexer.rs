@@ -209,6 +209,7 @@ pub static BASE_OPS: &[&str] = &[",", ".", "..", "..."];
 
 pub fn lexer<'a>(
   ctx: impl Context + 'a,
+  source: Rc<String>,
 ) -> impl SimpleParser<char, Vec<Entry>> + 'a {
   let all_ops = ctx
     .ops()
@@ -247,7 +248,11 @@ pub fn lexer<'a>(
   ))
   .map_with_span(move |lexeme, range| Entry {
     lexeme,
-    location: Location::Range { range, file: ctx.file() },
+    location: Location::Range {
+      range,
+      file: ctx.file(),
+      source: source.clone(),
+    },
   })
   .padded_by(one_of(" \t").repeated())
   .repeated()

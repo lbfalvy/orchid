@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use chumsky::Parser;
 
 use super::context::Context;
@@ -9,9 +11,11 @@ use crate::error::{ParseErrorWithTokens, ProjectError, ProjectResult};
 use crate::representations::sourcefile::FileEntry;
 
 pub fn parse2(data: &str, ctx: impl Context) -> ProjectResult<Vec<FileEntry>> {
-  let lexie = lexer(ctx.clone());
-  let tokens = (lexie.parse(data))
-    .map_err(|errors| LexError { errors, file: ctx.file() }.rc())?;
+  let source = Rc::new(data.to_string());
+  let lexie = lexer(ctx.clone(), source.clone());
+  let tokens = (lexie.parse(data)).map_err(|errors| {
+    LexError { errors, file: ctx.file(), source: source.clone() }.rc()
+  })?;
   if tokens.is_empty() {
     Ok(Vec::new())
   } else {
