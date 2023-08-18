@@ -16,16 +16,12 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - name: Install latest nightly
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: nightly
-        components: rustfmt, clippy
+    - name: Install rust toolchain
+      run: curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly
     - name: Build
-      run: cargo build --verbose
+      run: $HOME/.cargo/bin/cargo build --verbose
     - name: Run tests
-      run: cargo test --verbose
+      run: $HOME/.cargo/bin/cargo test --verbose
     - name: Clippy
       run: cargo clippy
     - name: Formatting
