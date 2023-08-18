@@ -4,11 +4,9 @@ use std::rc::Rc;
 use hashbrown::HashMap;
 
 use super::{Process, System};
-use crate::error::{ErrorPosition, ProjectError, ProjectResult};
+use crate::error::{ProjectError, ProjectResult};
 use crate::interpreter::HandlerTable;
 use crate::rule::Repo;
-use crate::utils::iter::box_once;
-use crate::utils::BoxedIter;
 use crate::{
   ast, ast_to_interpreted, collect_consts, collect_rules, rule, Interner,
   Location, ProjectTree, Sym,
@@ -128,7 +126,7 @@ impl ProjectError for MacroTimeout {
     )
   }
 
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { location: self.location.clone(), message: None })
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.location.clone()
   }
 }

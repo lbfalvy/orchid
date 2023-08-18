@@ -6,7 +6,6 @@ use itertools::Itertools;
 use super::{Entry, Lexeme};
 use crate::error::{ErrorPosition, ProjectError};
 use crate::interner::InternedDisplay;
-use crate::utils::iter::box_once;
 use crate::utils::BoxedIter;
 use crate::{Interner, Location, Tok};
 
@@ -21,8 +20,8 @@ impl ProjectError for LineNeedsPrefix {
   fn message(&self, i: &Interner) -> String {
     format!("{} cannot appear at the beginning of a line", self.entry.bundle(i))
   }
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { message: None, location: self.entry.location() })
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.entry.location()
   }
 }
 
@@ -42,8 +41,8 @@ impl ProjectError for UnexpectedEOL {
       .to_string()
   }
 
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { message: None, location: self.entry.location() })
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.entry.location()
   }
 }
 
@@ -54,8 +53,8 @@ impl ProjectError for ExpectedEOL {
   fn description(&self) -> &str {
     "Expected the end of the line"
   }
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { location: self.location.clone(), message: None })
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.location.clone()
   }
 }
 
@@ -87,8 +86,8 @@ impl ProjectError for ExpectedName {
     }
   }
 
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { location: self.entry.location(), message: None })
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.entry.location()
   }
 }
 
@@ -126,8 +125,9 @@ impl ProjectError for Expected {
     let or_name = if self.or_name { " or a name" } else { "" };
     format!("Expected {}{} but found {}", list, or_name, self.found.bundle(i))
   }
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { location: self.found.location(), message: None })
+
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.found.location()
   }
 }
 
@@ -143,8 +143,8 @@ impl ProjectError for ReservedToken {
     format!("{} is a reserved token", self.entry.bundle(i))
   }
 
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { location: self.entry.location(), message: None })
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.entry.location()
   }
 }
 
@@ -161,8 +161,8 @@ impl ProjectError for BadTokenInRegion {
     format!("{} cannot appear in {}", self.entry.bundle(i), self.region)
   }
 
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { location: self.entry.location(), message: None })
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.entry.location()
   }
 }
 
@@ -179,8 +179,8 @@ impl ProjectError for NotFound {
     format!("{} was expected", self.expected)
   }
 
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { location: self.location.clone(), message: None })
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.location.clone()
   }
 }
 
@@ -191,8 +191,8 @@ impl ProjectError for LeadingNS {
   fn description(&self) -> &str {
     ":: can only follow a name token"
   }
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { location: self.location.clone(), message: None })
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.location.clone()
   }
 }
 
@@ -206,8 +206,8 @@ impl ProjectError for MisalignedParen {
   fn message(&self, i: &Interner) -> String {
     format!("This {} has no pair", self.entry.bundle(i))
   }
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { location: self.entry.location(), message: None })
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.entry.location()
   }
 }
 
@@ -218,8 +218,20 @@ impl ProjectError for NamespacedExport {
   fn description(&self) -> &str {
     "Exports can only refer to unnamespaced names in the local namespace"
   }
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { location: self.location.clone(), message: None })
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.location.clone()
+  }
+}
+
+pub struct GlobExport {
+  pub location: Location,
+}
+impl ProjectError for GlobExport {
+  fn description(&self) -> &str {
+    "Exports can only refer to concrete names, globstars are not allowed"
+  }
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.location.clone()
   }
 }
 

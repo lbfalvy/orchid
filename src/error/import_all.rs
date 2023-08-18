@@ -1,9 +1,7 @@
 use std::rc::Rc;
 
-use super::{ErrorPosition, ProjectError};
+use super::ProjectError;
 use crate::representations::location::Location;
-use crate::utils::iter::box_once;
-use crate::utils::BoxedIter;
 use crate::{Interner, VName};
 
 /// Error produced for the statement `import *`
@@ -22,13 +20,7 @@ impl ProjectError for ImportAll {
     format!("{} imports *", i.extern_all(&self.offender_mod).join("::"))
   }
 
-  fn positions(&self, i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition {
-      location: Location::File(self.offender_file.clone()),
-      message: Some(format!(
-        "{} imports *",
-        i.extern_all(&self.offender_mod).join("::")
-      )),
-    })
+  fn one_position(&self, _i: &Interner) -> Location {
+    Location::File(self.offender_file.clone())
   }
 }

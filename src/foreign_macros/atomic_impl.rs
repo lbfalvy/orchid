@@ -41,7 +41,7 @@ use crate::Primitive;
 /// ```
 /// use orchidlang::{Literal};
 /// use orchidlang::interpreted::ExprInst;
-/// use orchidlang::stl::litconv::with_lit;
+/// use orchidlang::systems::cast_exprinst::with_lit;
 /// use orchidlang::{atomic_impl, atomic_redirect, externfn_impl};
 ///
 /// /// Convert a literal to a string using Rust's conversions for floats, chars and

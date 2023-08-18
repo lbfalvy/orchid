@@ -7,7 +7,7 @@ use crate::error::{NotFound, ProjectError, ProjectResult};
 use crate::interner::{Interner, Tok};
 use crate::pipeline::source_loader::LoadedSourceTable;
 use crate::representations::tree::WalkErrorKind;
-use crate::utils::{split_max_prefix, unwrap_or, Cache};
+use crate::utils::{split_max_prefix, Cache};
 use crate::Sym;
 
 pub type OpsResult = ProjectResult<Rc<HashSet<Tok<String>>>>;
@@ -33,40 +33,43 @@ pub fn collect_exported_ops(
 ) -> OpsResult {
   let injected = injected(path).unwrap_or_else(|| Rc::new(HashSet::new()));
   let path_s = &i.r(path)[..];
-  let name_split = split_max_prefix(path_s, &|n| loaded.contains_key(n));
-  let (fpath, subpath) = unwrap_or!(name_split; return Ok(Rc::new(
-    (loaded.keys())
-      .filter_map(|modname| {
-        if path_s.len() == coprefix(path_s.iter(), modname.iter()) {
-          Some(modname[path_s.len()])
-        } else {
-          None
-        }
-      })
-      .chain(injected.iter().copied())
-      .collect::<HashSet<_>>(),
-  )));
-  let preparsed = &loaded[fpath].preparsed;
-  let module =
-    preparsed.0.walk_ref(subpath, false).map_err(
-      |walk_err| match walk_err.kind {
-        WalkErrorKind::Private => {
-          unreachable!("visibility is not being checked here")
+  match split_max_prefix(path_s, &|n| loaded.contains_key(n)) {
+    None => {
+      let ops = (loaded.keys())
+        .filter_map(|modname| {
+          if path_s.len() == coprefix(path_s.iter(), modname.iter()) {
+            Some(modname[path_s.len()])
+          } else {
+            None
+          }
+        })
+        .chain(injected.iter().copied())
+        .collect::<HashSet<_>>();
+      Ok(Rc::new(ops))
+    },
+    Some((fpath, subpath)) => {
+      let preparsed = &loaded[fpath].preparsed;
+      let module = preparsed.0.walk_ref(subpath, false).map_err(
+        |walk_err| match walk_err.kind {
+          WalkErrorKind::Private => {
+            unreachable!("visibility is not being checked here")
+          },
+          WalkErrorKind::Missing => NotFound {
+            source: None,
+            file: fpath.to_vec(),
+            subpath: subpath[..walk_err.pos].to_vec(),
+          }
+          .rc(),
         },
-        WalkErrorKind::Missing => NotFound {
-          source: None,
-          file: fpath.to_vec(),
-          subpath: subpath[..walk_err.pos].to_vec(),
-        }
-        .rc(),
-      },
-    )?;
-  let out = (module.items.iter())
-    .filter(|(_, v)| v.exported)
-    .map(|(k, _)| *k)
-    .chain(injected.iter().copied())
-    .collect::<HashSet<_>>();
-  Ok(Rc::new(out))
+      )?;
+      let out = (module.items.iter())
+        .filter(|(_, v)| v.exported)
+        .map(|(k, _)| *k)
+        .chain(injected.iter().copied())
+        .collect::<HashSet<_>>();
+      Ok(Rc::new(out))
+    },
+  }
 }
 
 pub fn mk_cache<'a>(

@@ -8,10 +8,14 @@
 /// It also supports unwrapping concrete variants of other enums
 ///
 /// ```ignore
-/// use crate::representations::Literal;
+/// use crate::Literal;
 ///
 /// crate::unwrap_or!(Literal::Usize(2) => Literal::Number; return)
 /// ```
+///
+/// Note: this macro influences the control flow of the surrounding code
+/// without an `if`, which can be misleading. It should only be used for small,
+/// straightforward jumps.
 macro_rules! unwrap_or {
   ($m:expr; $fail:expr) => {{
     if let Some(res) = ($m) { res } else { $fail }

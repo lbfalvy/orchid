@@ -145,7 +145,7 @@ impl<'a, P: MessagePort, ST: StreamTable + 'a> IntoSystem<'a>
       constants: io_bindings(i, streams).unwrap_tree(),
       code: embed_to_map::<IOEmbed>(".orc", i),
       prelude: vec![FileEntry::Import(vec![Import {
-        path: i.i(&vec![i.i("system"), i.i("io"), i.i("prelude")]),
+        path: vec![i.i("system"), i.i("io"), i.i("prelude")],
         name: None,
       }])],
       handlers,

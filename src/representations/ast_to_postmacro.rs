@@ -2,9 +2,8 @@ use std::rc::Rc;
 
 use super::location::Location;
 use super::{ast, postmacro};
-use crate::error::{ErrorPosition, ProjectError};
-use crate::utils::iter::box_once;
-use crate::utils::{BoxedIter, Substack};
+use crate::error::ProjectError;
+use crate::utils::Substack;
 use crate::{Interner, Sym};
 
 #[derive(Debug, Clone)]
@@ -51,9 +50,8 @@ impl ProjectError for Error {
       _ => self.description().to_string(),
     }
   }
-
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { location: self.location.clone(), message: None })
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.location.clone()
   }
 }
 

@@ -1,5 +1,4 @@
 use std::any::{Any, TypeId};
-use std::mem;
 use std::rc::Rc;
 
 use hashbrown::HashMap;
@@ -8,7 +7,6 @@ use trait_set::trait_set;
 use super::{run, Context, Return, RuntimeError};
 use crate::foreign::ExternError;
 use crate::interpreted::{Clause, ExprInst};
-use crate::utils::unwrap_or;
 use crate::Primitive;
 
 trait_set! {
@@ -65,20 +63,15 @@ pub fn run_handler(
 ) -> Result<Return, RuntimeError> {
   loop {
     let ret = run(expr.clone(), ctx.clone())?;
-    if ret.gas == Some(0) {
-      return Ok(ret);
+    if let Clause::P(Primitive::Atom(a)) = &ret.state.expr().clause {
+      if let Some(e) = handlers.dispatch(a.0.as_any()) {
+        expr = e?;
+        ctx.gas = ret.gas;
+        if ret.gas.map_or(true, |g| g > 0) {
+          continue;
+        }
+      }
     }
-    let state_ex = ret.state.expr();
-    let a = if let Clause::P(Primitive::Atom(a)) = &state_ex.clause {
-      a
-    } else {
-      mem::drop(state_ex);
-      return Ok(ret);
-    };
-    expr = unwrap_or!(handlers.dispatch(a.0.as_any()); {
-      mem::drop(state_ex);
-      return Ok(ret)
-    })?;
-    ctx.gas = ret.gas;
+    return Ok(ret);
   }
 }

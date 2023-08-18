@@ -44,7 +44,7 @@ pub fn collect_ops_for(
       ret.insert(n);
     } else {
       let path = i.expect(
-        import_abs_path(file, modpath, &i.r(import.path)[..], i),
+        import_abs_path(file, modpath, &import.path, i),
         "This error should have been caught during loading",
       );
       ret.extend(ops_cache.find(&i.i(&path))?.iter().copied());

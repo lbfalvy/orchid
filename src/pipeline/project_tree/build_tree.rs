@@ -75,7 +75,7 @@ fn source_to_module(
     .collect::<Vec<_>>();
   let imports_from = (imports.iter())
     .map(|imp| -> ProjectResult<_> {
-      let mut imp_path_v = i.r(imp.path).clone();
+      let mut imp_path_v = imp.path.clone();
       imp_path_v.push(imp.name.expect("glob imports had just been resolved"));
       let mut abs_path = absolute_path(&path_v, &imp_path_v, i)
         .expect("should have failed in preparsing");

@@ -1,9 +1,7 @@
 use std::rc::Rc;
 
-use super::{ErrorPosition, ProjectError};
+use super::ProjectError;
 use crate::representations::location::Location;
-use crate::utils::iter::box_once;
-use crate::utils::BoxedIter;
 use crate::{Interner, VName};
 
 /// Error produced when an import path starts with more `super` segments
@@ -30,14 +28,7 @@ impl ProjectError for TooManySupers {
     )
   }
 
-  fn positions(&self, i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition {
-      location: Location::File(Rc::new(i.extern_all(&self.offender_file))),
-      message: Some(format!(
-        "path {} in {} contains too many `super` steps.",
-        i.extern_all(&self.path).join("::"),
-        i.extern_all(&self.offender_mod).join("::")
-      )),
-    })
+  fn one_position(&self, i: &Interner) -> Location {
+    Location::File(Rc::new(i.extern_all(&self.offender_file)))
   }
 }

@@ -59,7 +59,7 @@ fn entv_rec(
           .flat_map(|import| {
             if let Import { name: None, path } = import {
               let p = i.expect(
-                import_abs_path(mod_path, mod_stack, &i.r(path)[..], i),
+                import_abs_path(mod_path, mod_stack, &path, i),
                 "Should have emerged in preparsing",
               );
               let names = i.expect(
@@ -67,7 +67,7 @@ fn entv_rec(
                 "Should have emerged in second parsing",
               );
               let imports = (names.iter())
-                .map(move |&n| Import { name: Some(n), path })
+                .map(|&n| Import { name: Some(n), path: path.clone() })
                 .collect::<Vec<_>>();
               Box::new(imports.into_iter()) as BoxedIter<Import>
             } else {

@@ -1,11 +1,11 @@
-use super::{ErrorPosition, ProjectError};
+use std::rc::Rc;
+
+use super::ProjectError;
 use crate::representations::project::ProjectModule;
 #[allow(unused)] // For doc
 use crate::tree::Module;
 use crate::tree::WalkError;
-use crate::utils::iter::box_once;
-use crate::utils::BoxedIter;
-use crate::{Interner, NameLike, Tok, VName};
+use crate::{Interner, Location, NameLike, Tok, VName};
 
 /// Error produced when an import refers to a nonexistent module
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -64,7 +64,7 @@ impl ProjectError for NotFound {
       i.extern_all(&self.file).join("/"),
     )
   }
-  fn positions(&self, i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition::just_file(i.extern_all(&self.file)))
+  fn one_position(&self, i: &Interner) -> crate::Location {
+    Location::File(Rc::new(i.extern_all(&self.file)))
   }
 }

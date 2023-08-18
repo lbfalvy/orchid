@@ -6,13 +6,12 @@ use std::{fs, io};
 use hashbrown::{HashMap, HashSet};
 use rust_embed::RustEmbed;
 
-use crate::error::{ErrorPosition, ProjectError, ProjectResult};
+use crate::error::{ProjectError, ProjectResult};
 #[allow(unused)] // for doc
 use crate::facade::System;
 use crate::interner::Interner;
-use crate::utils::iter::box_once;
-use crate::utils::{BoxedIter, Cache};
-use crate::{Stok, VName};
+use crate::utils::Cache;
+use crate::{Location, Stok, VName};
 
 /// All the data available about a failed source load call
 #[derive(Debug)]
@@ -25,8 +24,8 @@ impl ProjectError for FileLoadingError {
   fn description(&self) -> &str {
     "Neither a file nor a directory could be read from the requested path"
   }
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition::just_file(self.path.clone()))
+  fn one_position(&self, _i: &Interner) -> crate::Location {
+    Location::File(Rc::new(self.path.clone()))
   }
   fn message(&self, _i: &Interner) -> String {
     format!("File: {}\nDirectory: {}", self.file, self.dir)

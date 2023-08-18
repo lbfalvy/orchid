@@ -5,8 +5,8 @@ use itertools::Itertools;
 
 use super::context::Context;
 use super::errors::{
-  BadTokenInRegion, Expected, ExpectedName, LeadingNS, MisalignedParen,
-  NamespacedExport, ReservedToken, UnexpectedEOL,
+  BadTokenInRegion, Expected, ExpectedName, GlobExport, LeadingNS,
+  MisalignedParen, NamespacedExport, ReservedToken, UnexpectedEOL,
 };
 use super::lexer::Lexeme;
 use super::multiname::parse_multiname;
@@ -71,18 +71,8 @@ pub fn parse_line(
     Lexeme::Const | Lexeme::Macro | Lexeme::Module =>
       Ok(FileEntry::Internal(parse_member(cursor, ctx)?)),
     Lexeme::Import => {
-      let globstar = ctx.interner().i("*");
-      let (names, cont) = parse_multiname(cursor.step()?, ctx.clone())?;
+      let (imports, cont) = parse_multiname(cursor.step()?, ctx)?;
       cont.expect_empty()?;
-      let imports = (names.into_iter())
-        .map(|mut nsname| {
-          let name = nsname.pop().expect("multinames cannot be zero-length");
-          Import {
-            path: ctx.interner().i(&nsname),
-            name: if name == globstar { None } else { Some(name) },
-          }
-        })
-        .collect();
       Ok(FileEntry::Import(imports))
     },
     _ => {
@@ -105,9 +95,12 @@ pub fn parse_export_line(
       let (names, cont) = parse_multiname(cursor.step()?, ctx)?;
       cont.expect_empty()?;
       let names = (names.into_iter())
-        .map(|i| if i.len() == 1 { Some(i[0]) } else { None })
-        .collect::<Option<Vec<_>>>()
-        .ok_or_else(|| NamespacedExport { location: cursor.location() }.rc())?;
+        .map(|Import { name, path }| match (name, &path[..]) {
+          (Some(n), []) => Ok(n),
+          (None, _) => Err(GlobExport { location: cursor.location() }.rc()),
+          _ => Err(NamespacedExport { location: cursor.location() }.rc()),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
       Ok(FileEntry::Export(names))
     },
     Lexeme::Const | Lexeme::Macro | Lexeme::Module =>

@@ -5,8 +5,8 @@ use hashbrown::HashMap;
 
 use crate::foreign::ExternError;
 use crate::systems::asynch::MessagePort;
-use crate::utils::{take_with_output, Task};
-use crate::ThreadPool;
+use crate::thread_pool::{Task, ThreadPool};
+use crate::utils::take_with_output;
 
 pub trait StreamHandle: Clone + Send {
   fn new(id: usize) -> Self;

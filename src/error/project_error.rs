@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use crate::interner::InternedDisplay;
 use crate::representations::location::Location;
+use crate::utils::iter::box_once;
 use crate::utils::BoxedIter;
 use crate::Interner;
 
@@ -14,13 +15,6 @@ pub struct ErrorPosition {
   pub message: Option<String>,
 }
 
-impl ErrorPosition {
-  /// An error position referring to an entire file with no comment
-  pub fn just_file(file: Vec<String>) -> Self {
-    Self { message: None, location: Location::File(Rc::new(file)) }
-  }
-}
-
 /// Errors addressed to the developer which are to be resolved with
 /// code changes
 pub trait ProjectError {
@@ -30,8 +24,16 @@ pub trait ProjectError {
   fn message(&self, _i: &Interner) -> String {
     self.description().to_string()
   }
-  /// Code positions relevant to this error
-  fn positions(&self, i: &Interner) -> BoxedIter<ErrorPosition>;
+  /// Code positions relevant to this error. If you don't implement this, you
+  /// must implement [ProjectError::one_position]
+  fn positions(&self, i: &Interner) -> BoxedIter<ErrorPosition> {
+    box_once(ErrorPosition { location: self.one_position(i), message: None })
+  }
+  /// Short way to provide a single location. If you don't implement this, you
+  /// must implement [ProjectError::positions]
+  fn one_position(&self, _i: &Interner) -> Location {
+    unimplemented!()
+  }
   /// Convert the error into an `Rc<dyn ProjectError>` to be able to
   /// handle various errors together
   fn rc(self) -> Rc<dyn ProjectError>

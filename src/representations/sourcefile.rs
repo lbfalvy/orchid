@@ -7,11 +7,10 @@ use super::namelike::VName;
 use crate::ast::{Constant, Rule};
 use crate::interner::{Interner, Tok};
 use crate::utils::{unwrap_or, BoxedIter};
-use crate::Sym;
 
 /// An import pointing at another module, either specifying the symbol to be
 /// imported or importing all available symbols with a globstar (*)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Import {
   /// Import path, a sequence of module names. Can either start with
   ///
@@ -19,7 +18,7 @@ pub struct Import {
   /// - any number of `super` to reference the parent module of the implied
   ///   `self`
   /// - a root name
-  pub path: Sym,
+  pub path: VName,
   /// If name is None, this is a wildcard import
   pub name: Option<Tok<String>>,
 }
@@ -29,8 +28,8 @@ impl Import {
   ///
   /// Returns the path if this is a glob import, or the path plus the
   /// name if this is a specific import
-  pub fn nonglob_path(&self, i: &Interner) -> Vec<Tok<String>> {
-    let mut path_vec = i.r(self.path).clone();
+  pub fn nonglob_path(&self) -> Vec<Tok<String>> {
+    let mut path_vec = self.path.clone();
     if let Some(n) = self.name {
       path_vec.push(n)
     }

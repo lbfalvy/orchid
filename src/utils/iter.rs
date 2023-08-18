@@ -5,8 +5,6 @@ use std::iter;
 /// A trait object of [Iterator] to be assigned to variables that may be
 /// initialized form multiple iterators of incompatible types
 pub type BoxedIter<'a, T> = Box<dyn Iterator<Item = T> + 'a>;
-/// A [BoxedIter] of [BoxedIter].
-pub type BoxedIterIter<'a, T> = BoxedIter<'a, BoxedIter<'a, T>>;
 /// creates a [BoxedIter] of a single element
 pub fn box_once<'a, T: 'a>(t: T) -> BoxedIter<'a, T> {
   Box::new(iter::once(t))

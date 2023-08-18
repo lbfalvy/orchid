@@ -34,4 +34,4 @@ pub use representations::{
   ast, from_const_tree, interpreted, sourcefile, tree, ConstTree, Literal,
   Location, PathSet, Primitive,
 };
-pub use utils::{Side, Substack, ThreadPool};
+pub use utils::{thread_pool, Side, Substack};

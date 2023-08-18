@@ -1,14 +1,12 @@
 use hashbrown::HashMap;
 
-use crate::error::{ErrorPosition, ProjectError, ProjectResult};
+use crate::error::{ProjectError, ProjectResult};
 use crate::interpreted::{self, ExprInst};
 #[allow(unused)] // for doc
 use crate::interpreter;
 use crate::interpreter::{
   run_handler, Context, HandlerTable, Return, RuntimeError,
 };
-use crate::utils::iter::box_once;
-use crate::utils::BoxedIter;
 use crate::{Interner, Location, Sym};
 
 /// This struct ties the state of systems to loaded code, and allows to call
@@ -84,7 +82,7 @@ impl ProjectError for MissingSymbol {
     )
   }
 
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { location: self.location.clone(), message: None })
+  fn one_position(&self, _i: &Interner) -> Location {
+    self.location.clone()
   }
 }

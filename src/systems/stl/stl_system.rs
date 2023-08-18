@@ -41,7 +41,7 @@ impl IntoSystem<'static> for StlConfig {
       constants: HashMap::from([(i.i("std"), fns)]),
       code: embed_to_map::<StlEmbed>(".orc", i),
       prelude: vec![FileEntry::Import(vec![Import {
-        path: i.i(&[i.i("std"), i.i("prelude")][..]),
+        path: vec![i.i("std"), i.i("prelude")],
         name: None,
       }])],
       handlers: HandlerTable::new(),

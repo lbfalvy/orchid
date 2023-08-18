@@ -14,7 +14,10 @@ fn assert_visible(
   target: &[Tok<String>], // may point to a symbol or module of any kind
   project: &ProjectTree<VName>,
 ) -> ProjectResult<()> {
-  let (tgt_item, tgt_path) = unwrap_or!(target.split_last(); return Ok(()));
+  let (tgt_item, tgt_path) = unwrap_or! {
+    target.split_last();
+    return Ok(())
+  };
   let shared_len =
     source.iter().zip(tgt_path.iter()).take_while(|(a, b)| a == b).count();
   let vis_ignored_len = usize::min(tgt_path.len(), shared_len + 1);

@@ -11,7 +11,7 @@ mod split_max_prefix;
 mod string_from_charset;
 mod substack;
 mod take_with_output;
-mod thread_pool;
+pub mod thread_pool;
 mod unwrap_or;
 
 pub use cache::Cache;
@@ -30,4 +30,3 @@ pub use iter::BoxedIter;
 pub use iter_find::iter_find;
 pub use string_from_charset::string_from_charset;
 pub use take_with_output::take_with_output;
-pub use thread_pool::{Query, QueryTask, Task, ThreadPool};

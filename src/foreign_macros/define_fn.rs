@@ -41,7 +41,7 @@ use crate::write_fn_step;
 ///
 /// ```
 /// use orchidlang::interpreted::Clause;
-/// use orchidlang::stl::litconv::with_str;
+/// use orchidlang::systems::cast_exprinst::with_str;
 /// use orchidlang::{define_fn, Literal, Primitive};
 ///
 /// define_fn! {expr=x in
@@ -58,7 +58,7 @@ use crate::write_fn_step;
 /// A simpler format is also offered for unary functions:
 ///
 /// ```
-/// use orchidlang::stl::litconv::with_lit;
+/// use orchidlang::systems::cast_exprinst::with_lit;
 /// use orchidlang::{define_fn, Literal};
 ///
 /// define_fn! {

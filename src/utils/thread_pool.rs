@@ -1,3 +1,7 @@
+//! A thread pool for executing tasks in parallel, spawning threads as workload
+//! increases and terminating them as tasks finish. This is not terribly
+//! efficient, its main design goal is to parallelize blocking I/O calls.
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex};
@@ -6,6 +10,8 @@ use std::thread::spawn;
 /// A trait for a task dispatched on a [ThreadPool]. The task owns all relevant
 /// data, is safe to pass between threads and is executed only once.
 pub trait Task: Send + 'static {
+  /// Execute the task. At a minimum, this involves signaling some other thread,
+  /// otherwise the task has no effect.
   fn run(self);
 }
 
@@ -15,10 +21,21 @@ impl<F: FnOnce() + Send + 'static> Task for F {
   }
 }
 
+/// An async unit of work that produces some result, see [Task]. This can be
+/// wrapped in a generic reporter to create a task.
 pub trait Query: Send + 'static {
+  /// The value produced by the query
   type Result: Send + 'static;
 
+  /// Execute the query, producing some value which can then be sent to another
+  /// thread
   fn run(self) -> Self::Result;
+
+  /// Associate the query with a reporter expressed in a plain function.
+  /// Note that because every lambda has a distinct type and every thread pool
+  /// runs exactly one type of task, this can appear only once in the code for
+  /// a given thread pool. It is practical in a narrow set of cases, most of the
+  /// time however you are better off defining an explicit reporter.
   fn then<F: FnOnce(Self::Result) + Send + 'static>(
     self,
     callback: F,
@@ -37,6 +54,8 @@ impl<F: FnOnce() -> R + Send + 'static, R: Send + 'static> Query for F {
   }
 }
 
+/// A reporter that calls a statically known function with the result of a
+/// query. Constructed with [Query::then]
 pub struct QueryTask<Q: Query, F: FnOnce(Q::Result) + Send + 'static> {
   query: Q,
   callback: F,
@@ -68,16 +87,23 @@ struct ThreadPoolData<T: Task> {
 /// arrive. To get rid of the last waiting thread, drop the thread pool.
 ///
 /// ```
-/// use orchidlang::ThreadPool;
+/// use orchidlang::thread_pool::{Task, ThreadPool};
 ///
-/// let pool = ThreadPool::new(|s: String, _| println!("{}", s));
+/// struct MyTask(&'static str);
+/// impl Task for MyTask {
+///   fn run(self) {
+///     println!("{}", self.0)
+///   }
+/// }
+///
+/// let pool = ThreadPool::new();
 ///
 /// // spawns first thread
-/// pool.submit("foo".to_string());
+/// pool.submit(MyTask("foo"));
 /// // probably spawns second thread
-/// pool.submit("bar".to_string());
+/// pool.submit(MyTask("bar"));
 /// // either spawns third thread or reuses first
-/// pool.submit("baz".to_string());
+/// pool.submit(MyTask("baz"));
 /// ```
 pub struct ThreadPool<T: Task> {
   data: Arc<ThreadPoolData<T>>,

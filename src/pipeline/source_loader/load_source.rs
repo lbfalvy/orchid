@@ -56,7 +56,7 @@ fn load_abs_path_rec(
     // recurse on all imported modules
     preparsed.0.visit_all_imports(&mut |modpath, _module, import| {
       let abs_pathv =
-        import_abs_path(filename, modpath, &import.nonglob_path(i), i)?;
+        import_abs_path(filename, modpath, &import.nonglob_path(), i)?;
       if abs_path.starts_with(&abs_pathv) {
         return Ok(());
       }
