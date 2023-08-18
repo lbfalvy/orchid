@@ -11,6 +11,7 @@ env:
 
 jobs:
   build:
+    if: ${{ false }} # <- This make sure the workflow is skipped without any alert
 
     runs-on: ubuntu-latest
 
