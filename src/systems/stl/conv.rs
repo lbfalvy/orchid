@@ -4,6 +4,7 @@ use ordered_float::NotNan;
 use super::ArithmeticError;
 use crate::foreign::ExternError;
 use crate::interner::Interner;
+use crate::interpreted::Clause;
 use crate::parse::{float_parser, int_parser};
 use crate::systems::cast_exprinst::with_lit;
 use crate::systems::AssertionError;
@@ -43,10 +44,10 @@ define_fn! {
   /// Convert a literal to a string using Rust's conversions for floats, chars and
   /// uints respectively
   ToString = |x| with_lit(x, |l| Ok(match l {
-    Literal::Uint(i) => i.to_string(),
-    Literal::Num(n) => n.to_string(),
-    Literal::Str(s) => s.clone(),
-  })).map(|s| Literal::Str(s).into())
+    Literal::Uint(i) => Literal::Str(i.to_string().into()),
+    Literal::Num(n) => Literal::Str(n.to_string().into()),
+    s@Literal::Str(_) => s.clone(),
+  })).map(Clause::from)
 }
 
 pub fn conv(i: &Interner) -> ConstTree {

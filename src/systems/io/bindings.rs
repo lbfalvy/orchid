@@ -4,6 +4,7 @@ use super::instances::{
 };
 use crate::foreign::cps_box::init_cps;
 use crate::foreign::{Atom, Atomic};
+use crate::representations::OrcString;
 use crate::systems::stl::Binary;
 use crate::systems::RuntimeError;
 use crate::{ast, define_fn, ConstTree, Interner, Primitive};
@@ -53,9 +54,9 @@ define_fn! {
 define_fn! {
   WriteStr {
     stream: SinkHandle,
-    string: String
+    string: OrcString
   } => Ok(init_cps(3, IOCmdHandlePack {
-    cmd: WriteCmd::WStr(string.clone()),
+    cmd: WriteCmd::WStr(string.get_string()),
     handle: *stream,
   }))
 }

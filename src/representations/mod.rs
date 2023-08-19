@@ -13,8 +13,10 @@ pub mod primitive;
 pub mod project;
 pub mod sourcefile;
 pub mod tree;
+mod string;
 
 pub use const_tree::{from_const_tree, ConstTree};
+pub use string::OrcString;
 pub use literal::Literal;
 pub use location::Location;
 pub use namelike::{NameLike, Sym, VName};

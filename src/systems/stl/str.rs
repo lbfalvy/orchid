@@ -1,6 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::interner::Interner;
+use crate::representations::OrcString;
 use crate::systems::cast_exprinst::with_str;
 use crate::systems::codegen::{orchid_opt, tuple};
 use crate::systems::RuntimeError;
@@ -9,15 +10,16 @@ use crate::{define_fn, ConstTree, Literal};
 
 define_fn! {expr=x in
   /// Append a string to another
-  pub Concatenate { a: String, b: String }
-  => Ok(Literal::Str(a.to_owned() + b).into())
+  pub Concatenate { a: OrcString, b: OrcString }
+  => Ok(Literal::Str((a.get_string() + b.as_str()).into()).into())
 }
 
 define_fn! {expr=x in
-  pub Slice { s: String, i: u64, len: u64 } => {
-    let graphs = s.graphemes(true);
+  pub Slice { s: OrcString, i: u64, len: u64 } => {
+    let graphs = s.as_str().graphemes(true);
     if *i == 0 {
-      Ok(Literal::Str(graphs.take(*len as usize).collect()).into())
+      let orc_str = graphs.take(*len as usize).collect::<String>().into();
+      Ok(Literal::Str(orc_str).into())
     } else {
       let mut prefix = graphs.skip(*i as usize - 1);
       if prefix.next().is_none() {
@@ -27,10 +29,9 @@ define_fn! {expr=x in
         )
       } else {
         let mut count = 0;
-        let ret = prefix
-            .take(*len as usize)
+        let ret = (prefix.take(*len as usize))
             .map(|x| { count+=1; x })
-            .collect();
+            .collect::<String>().into();
         if count == *len {
           Ok(Literal::Str(ret).into())
         } else {
@@ -45,15 +46,16 @@ define_fn! {expr=x in
 }
 
 define_fn! {expr=x in
-  pub Find { haystack: String, needle: String } => {
-    let found = iter_find(haystack.graphemes(true), needle.graphemes(true));
+  pub Find { haystack: OrcString, needle: OrcString } => {
+    let haystack_graphs = haystack.as_str().graphemes(true);
+    let found = iter_find(haystack_graphs, needle.as_str().graphemes(true));
     Ok(orchid_opt(found.map(|x| Literal::Uint(x as u64).into())))
   }
 }
 
 define_fn! {expr=x in
-  pub Split { s: String, i: u64 } => {
-    let mut graphs = s.graphemes(true);
+  pub Split { s: OrcString, i: u64 } => {
+    let mut graphs = s.as_str().graphemes(true);
     let a = graphs.by_ref().take(*i as usize).collect::<String>();
     let b = graphs.collect::<String>();
     Ok(tuple(vec![a.into(), b.into()]))

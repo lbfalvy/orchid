@@ -8,7 +8,7 @@ use super::assertion_error::AssertionError;
 use crate::foreign::{Atomic, ExternError};
 use crate::interpreted::Clause;
 use crate::representations::interpreted::ExprInst;
-use crate::representations::Literal;
+use crate::representations::{Literal, OrcString};
 use crate::Primitive;
 
 /// Tries to cast the [ExprInst] as a [Literal], calls the provided function on
@@ -25,7 +25,7 @@ pub fn with_lit<T>(
 /// Like [with_lit] but also unwraps [Literal::Str]
 pub fn with_str<T>(
   x: &ExprInst,
-  predicate: impl FnOnce(&String) -> Result<T, Rc<dyn ExternError>>,
+  predicate: impl FnOnce(&OrcString) -> Result<T, Rc<dyn ExternError>>,
 ) -> Result<T, Rc<dyn ExternError>> {
   with_lit(x, |l| {
     if let Literal::Str(s) = l {
@@ -93,7 +93,7 @@ impl TryFrom<&ExprInst> for Literal {
   }
 }
 
-impl TryFrom<&ExprInst> for String {
+impl TryFrom<&ExprInst> for OrcString {
   type Error = Rc<dyn ExternError>;
 
   fn try_from(value: &ExprInst) -> Result<Self, Self::Error> {

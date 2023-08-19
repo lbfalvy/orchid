@@ -105,7 +105,7 @@ impl IOHandler<ReadCmd> for (ExprInst, ExprInst) {
       ReadResult::RBin(_, Ok(bytes)) =>
         call(succ, vec![Binary(Arc::new(bytes)).atom_cls().wrap()]).wrap(),
       ReadResult::RStr(_, Ok(text)) =>
-        call(succ, vec![Literal::Str(text).into()]).wrap(),
+        call(succ, vec![Literal::Str(text.into()).into()]).wrap(),
     }
   }
 }

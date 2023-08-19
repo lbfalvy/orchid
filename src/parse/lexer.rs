@@ -185,12 +185,12 @@ fn paren_parser(lp: char, rp: char) -> impl SimpleParser<char, Lexeme> {
   just(lp).to(Lexeme::LP(lp)).or(just(rp).to(Lexeme::RP(lp)))
 }
 
-pub fn literal_parser() -> impl SimpleParser<char, Literal> {
+pub fn literal_parser<'a>(ctx: impl Context + 'a) -> impl SimpleParser<char, Literal> + 'a {
   choice((
     // all ints are valid floats so it takes precedence
     number::int_parser().map(Literal::Uint),
     number::float_parser().map(Literal::Num),
-    string::str_parser().map(Literal::Str),
+    string::str_parser().map(move |s| Literal::Str(ctx.interner().i(&s).into())),
   ))
 }
 
@@ -229,7 +229,7 @@ pub fn lexer<'a>(
     just(':').to(Lexeme::Type),
     just('\n').to(Lexeme::BR),
     just('.').to(Lexeme::Dot),
-    literal_parser().map(Lexeme::Literal),
+    literal_parser(ctx.clone()).map(Lexeme::Literal),
     name::name_parser(&all_ops).map({
       let ctx = ctx.clone();
       move |n| Lexeme::Name(ctx.interner().i(&n))
