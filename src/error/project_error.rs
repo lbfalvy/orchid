@@ -1,10 +1,10 @@
+use std::fmt::Debug;
+use std::fmt::Display;
 use std::rc::Rc;
 
-use crate::interner::InternedDisplay;
 use crate::representations::location::Location;
 use crate::utils::iter::box_once;
 use crate::utils::BoxedIter;
-use crate::Interner;
 
 /// A point of interest in resolving the error, such as the point where
 /// processing got stuck, a command that is likely to be incorrect
@@ -21,17 +21,17 @@ pub trait ProjectError {
   /// A general description of this type of error
   fn description(&self) -> &str;
   /// A formatted message that includes specific parameters
-  fn message(&self, _i: &Interner) -> String {
+  fn message(&self) -> String {
     self.description().to_string()
   }
   /// Code positions relevant to this error. If you don't implement this, you
   /// must implement [ProjectError::one_position]
-  fn positions(&self, i: &Interner) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { location: self.one_position(i), message: None })
+  fn positions(&self) -> BoxedIter<ErrorPosition> {
+    box_once(ErrorPosition { location: self.one_position(), message: None })
   }
   /// Short way to provide a single location. If you don't implement this, you
   /// must implement [ProjectError::positions]
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     unimplemented!()
   }
   /// Convert the error into an `Rc<dyn ProjectError>` to be able to
@@ -44,15 +44,11 @@ pub trait ProjectError {
   }
 }
 
-impl InternedDisplay for dyn ProjectError {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &Interner,
-  ) -> std::fmt::Result {
+impl Display for dyn ProjectError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     let description = self.description();
-    let message = self.message(i);
-    let positions = self.positions(i);
+    let message = self.message();
+    let positions = self.positions();
     writeln!(f, "Project error: {description}\n{message}")?;
     for ErrorPosition { location, message } in positions {
       writeln!(
@@ -62,6 +58,12 @@ impl InternedDisplay for dyn ProjectError {
       )?
     }
     Ok(())
+  }
+}
+
+impl Debug for dyn ProjectError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{self}")
   }
 }
 

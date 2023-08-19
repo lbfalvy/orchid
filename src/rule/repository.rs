@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Write};
+use std::fmt::{Debug, Display};
 use std::format;
 use std::rc::Rc;
 
@@ -11,7 +11,7 @@ use super::prepare_rule::prepare_rule;
 use super::state::apply_exprv;
 use super::{update_first_seq, RuleError, VectreeMatcher};
 use crate::ast::Rule;
-use crate::interner::{InternedDisplay, Interner};
+use crate::interner::Interner;
 use crate::Sym;
 
 #[derive(Debug)]
@@ -21,18 +21,10 @@ pub struct CachedRule<M: Matcher> {
   template: Vec<RuleExpr>,
 }
 
-impl<M: InternedDisplay + Matcher> InternedDisplay for CachedRule<M> {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &Interner,
-  ) -> std::fmt::Result {
-    for item in self.pattern.iter() {
-      item.fmt_i(f, i)?;
-      f.write_char(' ')?;
-    }
-    write!(f, "is matched by ")?;
-    self.matcher.fmt_i(f, i)
+impl<M: Display + Matcher> Display for CachedRule<M> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let patterns = self.pattern.iter().join(" ");
+    write!(f, "{patterns} is matched by {}", self.matcher)
   }
 }
 
@@ -152,22 +144,14 @@ fn fmt_hex(num: f64) -> String {
   format!("0x{:x}p{}", mantissa as i64, exponent as i64)
 }
 
-impl<M: InternedDisplay + Matcher> InternedDisplay for Repository<M> {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &Interner,
-  ) -> std::fmt::Result {
+impl<M: Display + Matcher> Display for Repository<M> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     writeln!(f, "Repository[")?;
-    for (item, deps, p) in self.cache.iter() {
-      write!(
-        f,
-        "  priority: {}\tdependencies: [{}]\n    ",
-        fmt_hex(f64::from(*p)),
-        deps.iter().map(|t| i.extern_vec(*t).join("::")).join(", ")
-      )?;
-      item.fmt_i(f, i)?;
-      writeln!(f)?;
+    for (rule, deps, p) in self.cache.iter() {
+      let prio = fmt_hex(f64::from(*p));
+      let deps = deps.iter().map(|t| t.extern_vec().join("::")).join(", ");
+      writeln!(f, "  priority: {prio}\tdependencies: [{deps}]")?;
+      writeln!(f, "    {rule}")?;
     }
     write!(f, "]")
   }

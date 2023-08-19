@@ -1,13 +1,15 @@
-use std::fmt::Write;
+use std::fmt::{Display, Write};
 use std::rc::Rc;
+
+use itertools::Itertools;
 
 use super::any_match::any_match;
 use super::build::mk_any;
-use crate::interner::{InternedDisplay, Interner, Tok};
+use crate::interner::Tok;
 use crate::representations::Primitive;
 use crate::rule::matcher::{Matcher, RuleExpr};
 use crate::rule::state::State;
-use crate::utils::{sym2string, unwrap_or, Side};
+use crate::utils::Side;
 use crate::Sym;
 
 pub enum ScalMatcher {
@@ -63,115 +65,64 @@ impl Matcher for AnyMatcher {
   }
 }
 
-// ################ InternedDisplay ################
+// ################ Display ################
 
-fn disp_scalv(
-  scalv: &[ScalMatcher],
-  f: &mut std::fmt::Formatter<'_>,
-  i: &Interner,
-) -> std::fmt::Result {
-  let (head, tail) = unwrap_or!(scalv.split_first(); return Ok(()));
-  head.fmt_i(f, i)?;
-  for s in tail.iter() {
-    write!(f, " ")?;
-    s.fmt_i(f, i)?;
-  }
-  Ok(())
-}
-
-impl InternedDisplay for ScalMatcher {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &Interner,
-  ) -> std::fmt::Result {
+impl Display for ScalMatcher {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::P(p) => write!(f, "{:?}", p),
-      Self::Placeh(n) => write!(f, "${}", i.r(*n)),
-      Self::Name(n) => write!(f, "{}", sym2string(*n, i)),
+      Self::Placeh(n) => write!(f, "${n}"),
+      Self::Name(n) => write!(f, "{}", n.extern_vec().join("::")),
       Self::S(c, body) => {
-        f.write_char(*c)?;
-        body.fmt_i(f, i)?;
-        f.write_char(match c {
+        let pair = match c {
           '(' => ')',
           '[' => ']',
           '{' => '}',
           _ => unreachable!(),
-        })
+        };
+        write!(f, "{c}{body}{pair}")
       },
       Self::Lambda(arg, body) => {
-        f.write_char('\\')?;
-        arg.fmt_i(f, i)?;
-        f.write_char('.')?;
-        body.fmt_i(f, i)
+        write!(f, "\\{arg}.{body}")
       },
     }
   }
 }
 
-impl InternedDisplay for VecMatcher {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &Interner,
-  ) -> std::fmt::Result {
+impl Display for VecMatcher {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Placeh { key, nonzero } => {
         if *nonzero {
           f.write_char('.')?;
         };
-        write!(f, "..${}", i.r(*key))
+        write!(f, "..${key}")
       },
-      Self::Scan { left, sep, right, direction } => {
-        let arrow = match direction {
-          Side::Left => " <== ",
-          Side::Right => " ==> ",
-        };
-        write!(f, "Scan{{")?;
-        left.fmt_i(f, i)?;
-        f.write_str(arrow)?;
-        disp_scalv(sep, f, i)?;
-        f.write_str(arrow)?;
-        right.fmt_i(f, i)?;
-        write!(f, "}}")
+      Self::Scan { left, sep, right, direction } => match direction {
+        Side::Left =>
+          write!(f, "Scan{{{left} <== {} <== {right}}}", sep.iter().join(" ")),
+        Side::Right =>
+          write!(f, "Scan{{{left} ==> {} ==> {right}}}", sep.iter().join(" ")),
       },
       Self::Middle { left, left_sep, mid, right_sep, right, .. } => {
-        write!(f, "Middle{{")?;
-        left.fmt_i(f, i)?;
-        f.write_str("|")?;
-        disp_scalv(left_sep, f, i)?;
-        f.write_str("|")?;
-        mid.fmt_i(f, i)?;
-        f.write_str("|")?;
-        disp_scalv(right_sep, f, i)?;
-        f.write_str("|")?;
-        right.fmt_i(f, i)?;
-        write!(f, "}}")
+        let left_sep_s = left_sep.iter().join(" ");
+        let right_sep_s = right_sep.iter().join(" ");
+        write!(f, "Middle{{{left}|{left_sep_s}|{mid}|{right_sep_s}|{right}}}")
       },
     }
   }
 }
 
-impl InternedDisplay for AnyMatcher {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &Interner,
-  ) -> std::fmt::Result {
+impl Display for AnyMatcher {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Scalar(s) => {
-        write!(f, "(")?;
-        disp_scalv(s, f, i)?;
-        write!(f, ")")
+        write!(f, "({})", s.iter().join(" "))
       },
       Self::Vec { left, mid, right } => {
-        write!(f, "[")?;
-        disp_scalv(left, f, i)?;
-        write!(f, "|")?;
-        mid.fmt_i(f, i)?;
-        write!(f, "|")?;
-        disp_scalv(right, f, i)?;
-        write!(f, "]")
+        let lefts = left.iter().join(" ");
+        let rights = right.iter().join(" ");
+        write!(f, "[{lefts}|{mid}|{rights}]")
       },
     }
   }
@@ -191,12 +142,8 @@ impl Matcher for VectreeMatcher {
     self.0.apply(source)
   }
 }
-impl InternedDisplay for VectreeMatcher {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &Interner,
-  ) -> std::fmt::Result {
-    self.0.fmt_i(f, i)
+impl Display for VectreeMatcher {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.0.fmt(f)
   }
 }

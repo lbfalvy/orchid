@@ -42,11 +42,12 @@ impl<'a> PreMacro<'a> {
       repo,
       consts: (consts.into_iter())
         .map(|(name, expr)| {
-          let location = (i.r(name).split_last())
+          let location = (name.split_last())
             .and_then(|(_, path)| {
               let origin = (tree.0.walk_ref(path, false))
                 .expect("path sourced from symbol names");
-              origin.extra.file.as_ref().map(|path| i.extern_all(&path[..]))
+              (origin.extra.file.as_ref())
+                .map(|path| Interner::extern_all(&path[..]))
             })
             .map(|p| Location::File(Rc::new(p)))
             .unwrap_or(Location::Unknown);
@@ -73,7 +74,7 @@ impl<'a> PreMacro<'a> {
           return Err(
             MacroTimeout {
               location: source_location.clone(),
-              symbol: *name,
+              symbol: name.clone(),
               limit,
             }
             .rc(),
@@ -85,7 +86,7 @@ impl<'a> PreMacro<'a> {
         repo.pass(source).unwrap_or_else(|| source.clone())
       };
       let runtree = ast_to_interpreted(&unmatched).map_err(|e| e.rc())?;
-      symbols.insert(*name, runtree);
+      symbols.insert(name.clone(), runtree);
     }
     Ok(Process {
       symbols,
@@ -118,15 +119,15 @@ impl ProjectError for MacroTimeout {
     "Macro execution has not halted"
   }
 
-  fn message(&self, i: &Interner) -> String {
+  fn message(&self) -> String {
     format!(
       "Macro execution during the processing of {} took more than {} steps",
-      i.extern_vec(self.symbol).join("::"),
+      self.symbol.extern_vec().join("::"),
       self.limit
     )
   }
 
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.location.clone()
   }
 }

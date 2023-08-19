@@ -20,17 +20,17 @@ pub type Sym = Tok<Vec<Tok<String>>>;
 /// handled together in datastructures
 pub trait NameLike: 'static + Clone + Eq + Hash {
   /// Fully resolve the name for printing
-  fn to_strv(&self, i: &Interner) -> Vec<String>;
+  fn to_strv(&self) -> Vec<String>;
 }
 
 impl NameLike for Sym {
-  fn to_strv(&self, i: &Interner) -> Vec<String> {
-    i.extern_vec(*self)
+  fn to_strv(&self) -> Vec<String> {
+    self.extern_vec()
   }
 }
 
 impl NameLike for VName {
-  fn to_strv(&self, i: &Interner) -> Vec<String> {
-    i.extern_all(self)
+  fn to_strv(&self) -> Vec<String> {
+    Interner::extern_all(self)
   }
 }

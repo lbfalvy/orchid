@@ -64,7 +64,7 @@ fn mk_vec(pattern: &[RuleExpr]) -> VecMatcher {
   let (r_sep, r_side) = right.split_at(r_sep_size);
   let l_sep_size = scal_cnt(left.iter().rev());
   let (l_side, l_sep) = left.split_at(left.len() - l_sep_size);
-  let main = VecMatcher::Placeh { key, nonzero };
+  let main = VecMatcher::Placeh { key: key.clone(), nonzero };
   match (left, right) {
     (&[], &[]) => VecMatcher::Placeh { key, nonzero },
     (&[], _) => VecMatcher::Scan {
@@ -102,13 +102,13 @@ fn mk_vec(pattern: &[RuleExpr]) -> VecMatcher {
 fn mk_scalar(pattern: &RuleExpr) -> ScalMatcher {
   match &pattern.value {
     Clause::P(p) => ScalMatcher::P(p.clone()),
-    Clause::Name(n) => ScalMatcher::Name(*n),
+    Clause::Name(n) => ScalMatcher::Name(n.clone()),
     Clause::Placeh(Placeholder { name, class }) => {
       debug_assert!(
         !matches!(class, PHClass::Vec { .. }),
         "Scalar matcher cannot be built from vector pattern"
       );
-      ScalMatcher::Placeh(*name)
+      ScalMatcher::Placeh(name.clone())
     },
     Clause::S(c, body) => ScalMatcher::S(*c, Box::new(mk_any(body))),
     Clause::Lambda(arg, body) =>
@@ -122,7 +122,7 @@ mod test {
 
   use super::mk_any;
   use crate::ast::{Clause, PHClass, Placeholder};
-  use crate::interner::{InternedDisplay, Interner};
+  use crate::interner::Interner;
 
   #[test]
   fn test_scan() {
@@ -158,6 +158,6 @@ mod test {
       .into_expr(),
     ];
     let matcher = mk_any(&pattern);
-    println!("{}", matcher.bundle(&i));
+    println!("{matcher}");
   }
 }

@@ -24,10 +24,10 @@ impl ProjectError for FileLoadingError {
   fn description(&self) -> &str {
     "Neither a file nor a directory could be read from the requested path"
   }
-  fn one_position(&self, _i: &Interner) -> crate::Location {
+  fn one_position(&self) -> crate::Location {
     Location::File(Rc::new(self.path.clone()))
   }
-  fn message(&self, _i: &Interner) -> String {
+  fn message(&self) -> String {
     format!("File: {}\nDirectory: {}", self.file, self.dir)
   }
 }
@@ -89,9 +89,9 @@ pub fn load_file(root: &Path, path: &[impl AsRef<str>]) -> IOResult {
 }
 
 /// Generates a cached file loader for a directory
-pub fn mk_dir_cache(root: PathBuf, i: &Interner) -> Cache<VName, IOResult> {
+pub fn mk_dir_cache(root: PathBuf) -> Cache<'static, VName, IOResult> {
   Cache::new(move |vname: VName, _this| -> IOResult {
-    let path = vname.iter().map(|t| i.r(*t).as_str()).collect::<Vec<_>>();
+    let path = vname.iter().map(|t| t.as_str()).collect::<Vec<_>>();
     load_file(&root, &path)
   })
 }
@@ -130,12 +130,11 @@ pub fn load_embed<T: 'static + RustEmbed>(path: &str, ext: &str) -> IOResult {
 }
 
 /// Generates a cached file loader for a [RustEmbed]
-pub fn mk_embed_cache<'a, T: 'static + RustEmbed>(
-  ext: &'a str,
-  i: &'a Interner,
-) -> Cache<'a, Vec<Stok>, IOResult> {
+pub fn mk_embed_cache<T: 'static + RustEmbed>(
+  ext: &str,
+) -> Cache<'_, Vec<Stok>, IOResult> {
   Cache::new(move |vname: VName, _this| -> IOResult {
-    let path = i.extern_all(&vname).join("/");
+    let path = Interner::extern_all(&vname).join("/");
     load_embed::<T>(&path, ext)
   })
 }

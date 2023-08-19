@@ -1,8 +1,10 @@
 use std::rc::Rc;
 
+use itertools::Itertools;
+
 use super::ProjectError;
 use crate::representations::location::Location;
-use crate::{Interner, VName};
+use crate::VName;
 
 /// Error produced for the statement `import *`
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -16,11 +18,11 @@ impl ProjectError for ImportAll {
   fn description(&self) -> &str {
     "a top-level glob import was used"
   }
-  fn message(&self, i: &Interner) -> String {
-    format!("{} imports *", i.extern_all(&self.offender_mod).join("::"))
+  fn message(&self) -> String {
+    format!("{} imports *", self.offender_mod.iter().join("::"))
   }
 
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     Location::File(self.offender_file.clone())
   }
 }

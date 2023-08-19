@@ -105,13 +105,13 @@ fn collect_aliases_rec(
   if !updated(&mod_path_v) {
     return Ok(());
   };
-  for (&name, target_mod_name) in module.extra.imports_from.iter() {
-    let target_sym_v = pushed(target_mod_name, name);
+  for (name, target_mod_name) in module.extra.imports_from.iter() {
+    let target_sym_v = pushed(target_mod_name, name.clone());
     assert_visible(&mod_path_v, &target_sym_v, project)?;
-    let sym_path_v = pushed(&mod_path_v, name);
+    let sym_path_v = pushed(&mod_path_v, name.clone());
     let target_mod = (project.0.walk_ref(target_mod_name, false))
       .expect("checked above in assert_visible");
-    let target_sym = (target_mod.extra.exports.get(&name))
+    let target_sym = (target_mod.extra.exports.get(name))
       .ok_or_else(|| {
         let file_len =
           target_mod.extra.file.as_ref().unwrap_or(target_mod_name).len();
@@ -125,10 +125,10 @@ fn collect_aliases_rec(
       .clone();
     alias_map.link(sym_path_v, target_sym);
   }
-  for (&name, entry) in module.items.iter() {
+  for (name, entry) in module.items.iter() {
     let submodule = unwrap_or!(&entry.member => ModMember::Sub; continue);
     collect_aliases_rec(
-      path.push(name),
+      path.push(name.clone()),
       submodule,
       project,
       alias_map,

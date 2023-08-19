@@ -108,7 +108,7 @@ impl<T: CPSPayload> Atomic for CPSBox<T> {
 }
 
 /// Like [init_cps] but wrapped in a [ConstTree] for init-time usage
-pub fn mk_const<T: CPSPayload>(argc: usize, payload: T) -> ConstTree {
+pub fn const_cps<T: CPSPayload>(argc: usize, payload: T) -> ConstTree {
   ConstTree::xfn(CPSFn::new(argc, payload))
 }
 

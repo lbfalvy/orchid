@@ -30,8 +30,8 @@ impl Import {
   /// name if this is a specific import
   pub fn nonglob_path(&self) -> Vec<Tok<String>> {
     let mut path_vec = self.path.clone();
-    if let Some(n) = self.name {
-      path_vec.push(n)
+    if let Some(n) = &self.name {
+      path_vec.push(n.clone())
     }
     path_vec
   }
@@ -98,10 +98,10 @@ pub fn normalize_namespaces(
       other => Either::Right(other),
     });
   // Combine namespace blocks with the same name
-  namespaces.sort_unstable_by_key(|(_, ns)| ns.name);
+  namespaces.sort_unstable_by_key(|(_, ns)| ns.name.clone());
   let mut lumped = namespaces
     .into_iter()
-    .group_by(|(_, ns)| ns.name)
+    .group_by(|(_, ns)| ns.name.clone())
     .into_iter()
     .map(|(name, grp)| {
       let mut any_exported = false;
@@ -119,10 +119,10 @@ pub fn normalize_namespaces(
         .flat_map(|ns| ns.body.into_iter());
       // Apply the function to the contents of these blocks too
       let body = normalize_namespaces(Box::new(grp_src)).map_err(|mut e| {
-        e.push(name);
+        e.push(name.clone());
         e
       })?;
-      let member = Member::Module(ModuleBlock { name, body });
+      let member = Member::Module(ModuleBlock { name: name.clone(), body });
       match (any_exported, any_internal) {
         (true, true) => Err(vec![name]),
         (true, false) => Ok(FileEntry::Exported(member)),
@@ -161,11 +161,11 @@ pub fn absolute_path(
       Ok(new_abs.to_vec())
     } else {
       let new_rel =
-        iter::once(i.i("self")).chain(tail.iter().copied()).collect::<Vec<_>>();
+        iter::once(i.i("self")).chain(tail.iter().cloned()).collect::<Vec<_>>();
       absolute_path(new_abs, &new_rel, i)
     }
   } else if *head == i.i("self") {
-    Ok(abs_location.iter().chain(tail.iter()).copied().collect())
+    Ok(abs_location.iter().chain(tail.iter()).cloned().collect())
   } else {
     Ok(rel_path.to_vec())
   }

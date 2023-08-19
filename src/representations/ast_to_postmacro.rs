@@ -4,7 +4,7 @@ use super::location::Location;
 use super::{ast, postmacro};
 use crate::error::ProjectError;
 use crate::utils::Substack;
-use crate::{Interner, Sym};
+use crate::Sym;
 
 #[derive(Debug, Clone)]
 pub enum ErrorKind {
@@ -44,13 +44,13 @@ impl ProjectError for Error {
     }
   }
 
-  fn message(&self, _i: &Interner) -> String {
+  fn message(&self) -> String {
     match self.kind {
       ErrorKind::BadGroup(char) => format!("{} block found in the code", char),
       _ => self.description().to_string(),
     }
   }
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.location.clone()
   }
 }
@@ -60,7 +60,7 @@ pub fn expr(expr: &ast::Expr<Sym>) -> Result<postmacro::Expr, Error> {
   expr_rec(expr, Context::new())
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Context<'a> {
   names: Substack<'a, Sym>,
 }
@@ -89,7 +89,7 @@ fn exprv_rec<'a>(
   if rest.is_empty() {
     return expr_rec(&v[0], ctx);
   }
-  let f = exprv_rec(location, rest, ctx)?;
+  let f = exprv_rec(location, rest, ctx.clone())?;
   let x = expr_rec(last, ctx)?;
   let value = postmacro::Clause::Apply(Rc::new(f), Rc::new(x));
   Ok(postmacro::Expr { value, location: Location::Unknown })
@@ -116,7 +116,7 @@ fn expr_rec<'a>(
             return Err(Error::new(ErrorKind::Placeholder, location)),
           _ => return Err(Error::new(ErrorKind::InvalidArg, location)),
         };
-        let body_ctx = ctx.w_name(*name);
+        let body_ctx = ctx.w_name(name.clone());
         let body = exprv_rec(location, b.as_ref(), body_ctx)?;
         postmacro::Clause::Lambda(Rc::new(body))
       },
@@ -127,7 +127,7 @@ fn expr_rec<'a>(
           .map(|(lvl, _)| lvl);
         match lvl_opt {
           Some(lvl) => postmacro::Clause::LambdaArg(lvl),
-          None => postmacro::Clause::Constant(*name),
+          None => postmacro::Clause::Constant(name.clone()),
         }
       },
       ast::Clause::S(paren, entries) => {

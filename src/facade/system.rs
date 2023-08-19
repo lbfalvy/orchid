@@ -52,14 +52,14 @@ impl ProjectError for MissingSystemCode {
   fn description(&self) -> &str {
     "A system tried to import a path that doesn't exist"
   }
-  fn message(&self, i: &Interner) -> String {
+  fn message(&self) -> String {
     format!(
       "Path {} is not defined by {} or any system before it",
-      i.extern_all(&self.path).join("::"),
+      Interner::extern_all(&self.path).join("::"),
       self.system.join("::")
     )
   }
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
+  fn positions(&self) -> BoxedIter<ErrorPosition> {
     box_empty()
   }
 }

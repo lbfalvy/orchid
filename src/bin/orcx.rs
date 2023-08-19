@@ -8,7 +8,6 @@ use std::process;
 use clap::Parser;
 use itertools::Itertools;
 use orchidlang::facade::{Environment, PreMacro};
-use orchidlang::interner::InternedDisplay;
 use orchidlang::systems::stl::StlConfig;
 use orchidlang::systems::{io_system, AsynchConfig, IOStream};
 use orchidlang::{ast, interpreted, interpreter, Interner, Sym, VName};
@@ -70,36 +69,34 @@ pub fn to_vname(data: &str, i: &Interner) -> VName {
   data.split("::").map(|s| i.i(s)).collect::<Vec<_>>()
 }
 
-fn print_for_debug(e: &ast::Expr<Sym>, i: &Interner) {
+fn print_for_debug(e: &ast::Expr<Sym>) {
   print!(
     "code: {}\nglossary: {}",
-    e.bundle(i),
+    e,
     (e.value.collect_names().into_iter())
-      .map(|t| i.extern_vec(t).join("::"))
+      .map(|t| t.iter().join("::"))
       .join(", ")
   )
 }
 
 /// A little utility to step through the resolution of a macro set
-pub fn macro_debug(premacro: PreMacro, sym: Sym, i: &Interner) {
+pub fn macro_debug(premacro: PreMacro, sym: Sym) {
   let (mut code, location) = (premacro.consts.get(&sym))
     .unwrap_or_else(|| {
       panic!(
         "Symbol {} not found\nvalid symbols: \n\t{}\n",
-        i.extern_vec(sym).join("::"),
-        (premacro.consts.keys())
-          .map(|t| i.extern_vec(*t).join("::"))
-          .join("\n\t")
+        sym.iter().join("::"),
+        (premacro.consts.keys()).map(|t| t.iter().join("::")).join("\n\t")
       )
     })
     .clone();
   println!(
     "Debugging macros in {} defined at {}.
     Initial state: ",
-    i.extern_vec(sym).join("::"),
+    sym.iter().join("::"),
     location
   );
-  print_for_debug(&code, i);
+  print_for_debug(&code);
   let mut steps = premacro.step(sym).enumerate();
   loop {
     let (cmd, _) = cmd_prompt("\ncmd> ").unwrap();
@@ -108,12 +105,12 @@ pub fn macro_debug(premacro: PreMacro, sym: Sym, i: &Interner) {
         if let Some((idx, c)) = steps.next() {
           code = c;
           print!("Step {idx}: ");
-          print_for_debug(&code, i);
+          print_for_debug(&code);
         } else {
           print!("Halted")
         },
-      "p" | "print" => print_for_debug(&code, i),
-      "d" | "dump" => print!("Rules: {}", premacro.repo.bundle(i)),
+      "p" | "print" => print_for_debug(&code),
+      "d" | "dump" => print!("Rules: {}", premacro.repo),
       "q" | "quit" => return,
       "h" | "help" => print!(
         "Available commands:
@@ -146,22 +143,22 @@ pub fn main() {
     .add_system(StlConfig { impure: true })
     .add_system(asynch)
     .add_system(io);
-  let premacro = i.unwrap(env.load_dir(&dir, &main));
+  let premacro = env.load_dir(&dir, &main).unwrap();
   if args.dump_repo {
-    println!("Parsed rules: {}", premacro.repo.bundle(&i));
+    println!("Parsed rules: {}", premacro.repo);
     return;
   }
   if !args.macro_debug.is_empty() {
     let sym = i.i(&to_vname(&args.macro_debug, &i));
-    return macro_debug(premacro, sym, &i);
+    return macro_debug(premacro, sym);
   }
-  let mut proc = i.unwrap(premacro.build_process(Some(args.macro_limit)));
+  let mut proc = premacro.build_process(Some(args.macro_limit)).unwrap();
   let main = interpreted::Clause::Constant(i.i(&main)).wrap();
-  let ret = i.unwrap(proc.run(main, None));
+  let ret = proc.run(main, None).unwrap();
   let interpreter::Return { gas, state, inert } = ret;
   drop(proc);
   if inert {
-    println!("Settled at {}", state.expr().clause.bundle(&i));
+    println!("Settled at {}", state.expr().clause);
     if let Some(g) = gas {
       println!("Remaining gas: {g}")
     }

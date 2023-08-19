@@ -64,16 +64,16 @@ fn check_rec_expr(
       let typ = (*class).into();
       // in a template, the type must be known and identical
       // outside template (in pattern) the type must be unknown
-      if let Some(known) = types.insert(*name, typ) {
+      if let Some(known) = types.insert(name.clone(), typ) {
         if !in_template {
-          Err(RuleError::Multiple(*name))
+          Err(RuleError::Multiple(name.clone()))
         } else if known != typ {
-          Err(RuleError::ArityMismatch(*name))
+          Err(RuleError::ArityMismatch(name.clone()))
         } else {
           Ok(())
         }
       } else if in_template {
-        Err(RuleError::Missing(*name))
+        Err(RuleError::Missing(name.clone()))
       } else {
         Ok(())
       }

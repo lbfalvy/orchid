@@ -17,7 +17,7 @@ fn resolve_rec(
     Some(alias.clone())
   } else if let Some((foot, body)) = namespace.split_last() {
     let mut new_beginning = resolve_rec(body, alias_map)?;
-    new_beginning.push(*foot);
+    new_beginning.push(foot.clone());
     Some(new_beginning)
   } else {
     None
@@ -61,7 +61,7 @@ fn apply_aliases_rec(
         ModMember::Item(expr) =>
           ModMember::Item(process_expr(expr, alias_map, injected_as)),
         ModMember::Sub(module) => {
-          let subpath = path.push(*name);
+          let subpath = path.push(name.clone());
           let new_mod = if !updated(&subpath.iter().rev_vec_clone()) {
             module.clone()
           } else {
@@ -70,7 +70,7 @@ fn apply_aliases_rec(
           ModMember::Sub(new_mod)
         },
       };
-      (*name, ModEntry { exported: *exported, member })
+      (name.clone(), ModEntry { exported: *exported, member })
     })
     .collect::<HashMap<_, _>>();
   let rules = (module.extra.rules.iter())
@@ -94,7 +94,7 @@ fn apply_aliases_rec(
       rules,
       exports: (module.extra.exports.iter())
         .map(|(k, v)| {
-          (*k, resolve(v, alias_map, injected_as).unwrap_or(v.clone()))
+          (k.clone(), resolve(v, alias_map, injected_as).unwrap_or(v.clone()))
         })
         .collect(),
       file: module.extra.file.clone(),

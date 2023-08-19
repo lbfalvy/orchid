@@ -76,11 +76,11 @@ fn collect_consts_rec<N: NameLike>(
     match &entry.member {
       ModMember::Item(expr) => {
         let mut name = path.iter().rev_vec_clone();
-        name.push(*key);
+        name.push(key.clone());
         bag.insert(i.i(&name), expr.clone());
       },
       ModMember::Sub(module) =>
-        collect_consts_rec(path.push(*key), bag, module, i),
+        collect_consts_rec(path.push(key.clone()), bag, module, i),
     }
   }
 }

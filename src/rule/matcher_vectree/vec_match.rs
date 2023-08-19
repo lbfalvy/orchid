@@ -17,7 +17,7 @@ pub fn vec_match<'a>(
       if *nonzero && seq.is_empty() {
         return None;
       }
-      return Some(State::from([(*key, StateEntry::Vec(seq))]));
+      return Some(State::from([(key.clone(), StateEntry::Vec(seq))]));
     },
     VecMatcher::Scan { left, sep, right, direction } => {
       if seq.len() < sep.len() {

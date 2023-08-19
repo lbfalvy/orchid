@@ -15,12 +15,13 @@ fn member_rec(
   i: &Interner,
 ) -> Member {
   let prefix = (path.iter())
-    .copied()
+    .cloned()
     .chain(mod_stack.iter().rev_vec_clone().into_iter())
     .collect::<Vec<_>>();
   match data {
     Member::Module(ModuleBlock { name, body }) => {
-      let new_body = entv_rec(mod_stack.push(name), body, path, ops_cache, i);
+      let new_stack = mod_stack.push(name.clone());
+      let new_body = entv_rec(new_stack, body, path, ops_cache, i);
       Member::Module(ModuleBlock { name, body: new_body })
     },
     Member::Constant(constant) => Member::Constant(Constant {
@@ -49,15 +50,15 @@ fn entv_rec(
   ops_cache: &ExportedOpsCache,
   i: &Interner,
 ) -> Vec<FileEntry> {
-  data
-    .into_iter()
-    .map(|fe| match fe {
-      FileEntry::Exported(mem) =>
-        FileEntry::Exported(member_rec(mod_stack, mem, path, ops_cache, i)),
-      FileEntry::Internal(mem) =>
-        FileEntry::Internal(member_rec(mod_stack, mem, path, ops_cache, i)),
-      // XXX should [FileEntry::Export] be prefixed?
-      any => any,
+  (data.into_iter())
+    .map(|fe| {
+      let (mem, wrapper): (Member, fn(Member) -> FileEntry) = match fe {
+        FileEntry::Exported(mem) => (mem, FileEntry::Exported),
+        FileEntry::Internal(mem) => (mem, FileEntry::Internal),
+        // XXX should [FileEntry::Export] be prefixed?
+        any => return any,
+      };
+      wrapper(member_rec(mod_stack.clone(), mem, path, ops_cache, i))
     })
     .collect()
 }

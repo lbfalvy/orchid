@@ -1,7 +1,7 @@
+use std::fmt::Display;
 use std::rc::Rc;
 
 use crate::foreign::ExternError;
-use crate::interner::InternedDisplay;
 use crate::representations::interpreted::ExprInst;
 use crate::{Location, Sym};
 
@@ -22,12 +22,8 @@ impl From<Rc<dyn ExternError>> for RuntimeError {
   }
 }
 
-impl InternedDisplay for RuntimeError {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &crate::Interner,
-  ) -> std::fmt::Result {
+impl Display for RuntimeError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Extern(e) => write!(f, "Error in external function: {e}"),
       Self::NonFunctionApplication(expr) => {
@@ -37,7 +33,7 @@ impl InternedDisplay for RuntimeError {
         write!(
           f,
           "{}, called at {loc} is not loaded",
-          i.extern_vec(*sym).join("::")
+          sym.extern_vec().join("::")
         )
       },
     }

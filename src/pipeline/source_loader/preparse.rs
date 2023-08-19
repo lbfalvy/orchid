@@ -39,12 +39,12 @@ fn to_module(src: &[FileEntry], prelude: &[FileEntry]) -> Module<(), ()> {
       FileEntry::Internal(Member::Module(ns)) => {
         let member = ModMember::Sub(to_module(&ns.body, prelude));
         let entry = ModEntry { exported: false, member };
-        Some((ns.name, entry))
+        Some((ns.name.clone(), entry))
       },
       FileEntry::Exported(Member::Module(ns)) => {
         let member = ModMember::Sub(to_module(&ns.body, prelude));
         let entry = ModEntry { exported: true, member };
-        Some((ns.name, entry))
+        Some((ns.name.clone(), entry))
       },
       _ => None,
     })
@@ -57,12 +57,12 @@ fn to_module(src: &[FileEntry], prelude: &[FileEntry]) -> Module<(), ()> {
       | FileEntry::Exported(Member::Module(_)) => (),
       FileEntry::Export(tokv) =>
         for tok in tokv {
-          add_export(&mut items, *tok)
+          add_export(&mut items, tok.clone())
         },
       FileEntry::Internal(Member::Constant(Constant { name, .. })) =>
-        add_intern(&mut items, *name),
+        add_intern(&mut items, name.clone()),
       FileEntry::Exported(Member::Constant(Constant { name, .. })) =>
-        add_export(&mut items, *name),
+        add_export(&mut items, name.clone()),
       FileEntry::Internal(Member::Rule(rule)) => {
         let names = rule.collect_single_names();
         for name in names {

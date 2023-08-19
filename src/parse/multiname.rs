@@ -43,8 +43,8 @@ fn parse_multiname_branch(
   let comma = ctx.interner().i(",");
   let (subnames, cursor) = parse_multiname_rec(cursor, ctx.clone())?;
   let (delim, cursor) = cursor.trim().pop()?;
-  match delim.lexeme {
-    Lexeme::Name(n) if n == comma => {
+  match &delim.lexeme {
+    Lexeme::Name(n) if n == &comma => {
       let (tail, cont) = parse_multiname_branch(cursor, ctx)?;
       Ok((box_chain!(subnames, tail), cont))
     },
@@ -74,7 +74,7 @@ fn parse_multiname_rec(
       loop {
         let head;
         (head, cursor) = cursor.trim().pop()?;
-        match head.lexeme {
+        match &head.lexeme {
           Lexeme::Name(n) => names.push(n),
           Lexeme::RP('[') => break,
           _ => {
@@ -87,7 +87,10 @@ fn parse_multiname_rec(
           },
         }
       }
-      Ok((Box::new(names.into_iter().map(Subresult::new_named)), cursor))
+      Ok((
+        Box::new(names.into_iter().map(|n| Subresult::new_named(n.clone()))),
+        cursor,
+      ))
     },
     Lexeme::Name(n) if *n == star =>
       Ok((box_once(Subresult::new_glob()), cursor)),
@@ -96,10 +99,10 @@ fn parse_multiname_rec(
       if cursor.get(0).ok().map(|e| &e.lexeme) == Some(&Lexeme::NS) {
         let cursor = cursor.step()?;
         let (out, cursor) = parse_multiname_rec(cursor, ctx)?;
-        let out = Box::new(out.map(|sr| sr.push_front(*n)));
+        let out = Box::new(out.map(|sr| sr.push_front(n.clone())));
         Ok((out, cursor))
       } else {
-        Ok((box_once(Subresult::new_named(*n)), cursor))
+        Ok((box_once(Subresult::new_named(n.clone())), cursor))
       }
     },
     _ => Err(

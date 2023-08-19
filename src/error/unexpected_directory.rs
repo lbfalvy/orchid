@@ -15,14 +15,14 @@ impl ProjectError for UnexpectedDirectory {
     "A stage that deals specifically with code encountered a path that refers \
      to a directory"
   }
-  fn one_position(&self, i: &Interner) -> crate::Location {
-    Location::File(Rc::new(i.extern_all(&self.path)))
+  fn one_position(&self) -> crate::Location {
+    Location::File(Rc::new(Interner::extern_all(&self.path)))
   }
 
-  fn message(&self, i: &Interner) -> String {
+  fn message(&self) -> String {
     format!(
       "{} was expected to be a file but a directory was found",
-      i.extern_all(&self.path).join("/")
+      Interner::extern_all(&self.path).join("/")
     )
   }
 }

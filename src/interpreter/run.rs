@@ -30,8 +30,9 @@ pub fn run(expr: ExprInst, mut ctx: Context) -> Result<Return, RuntimeError> {
             i = clause.clone();
           },
           Clause::Constant(c) => {
-            let symval = (ctx.symbols.get(c))
-              .ok_or_else(|| RuntimeError::MissingSymbol(*c, loc.clone()))?;
+            let symval = (ctx.symbols.get(c)).ok_or_else(|| {
+              RuntimeError::MissingSymbol(c.clone(), loc.clone())
+            })?;
             ctx.gas = ctx.gas.map(|g| g - 1); // cost of lookup
             i = symval.expr().clause.clone();
           },

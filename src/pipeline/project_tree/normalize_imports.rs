@@ -25,8 +25,8 @@ fn member_rec(
         &preparsed.items[&name].member => ModMember::Sub;
         unreachable!("This name must point to a namespace")
       );
-      let new_body =
-        entv_rec(mod_stack.push(name), subprep, body, path, ops_cache, i);
+      let new_stack = mod_stack.push(name.clone());
+      let new_body = entv_rec(new_stack, subprep, body, path, ops_cache, i);
       Member::Module(ModuleBlock { name, body: new_body })
     },
     any => any,
@@ -58,16 +58,12 @@ fn entv_rec(
           .into_iter()
           .flat_map(|import| {
             if let Import { name: None, path } = import {
-              let p = i.expect(
-                import_abs_path(mod_path, mod_stack, &path, i),
-                "Should have emerged in preparsing",
-              );
-              let names = i.expect(
-                ops_cache.find(&i.i(&p)),
-                "Should have emerged in second parsing",
-              );
+              let p = import_abs_path(mod_path, mod_stack.clone(), &path, i)
+                .expect("Should have emerged in preparsing");
+              let names = (ops_cache.find(&i.i(&p)))
+                .expect("Should have emerged in second parsing");
               let imports = (names.iter())
-                .map(|&n| Import { name: Some(n), path: path.clone() })
+                .map(|n| Import { name: Some(n.clone()), path: path.clone() })
                 .collect::<Vec<_>>();
               Box::new(imports.into_iter()) as BoxedIter<Import>
             } else {
@@ -77,10 +73,10 @@ fn entv_rec(
           .collect(),
       ),
       FileEntry::Exported(mem) => FileEntry::Exported(member_rec(
-        mod_stack, preparsed, mem, mod_path, ops_cache, i,
+        mod_stack.clone(), preparsed, mem, mod_path, ops_cache, i,
       )),
       FileEntry::Internal(mem) => FileEntry::Internal(member_rec(
-        mod_stack, preparsed, mem, mod_path, ops_cache, i,
+        mod_stack.clone(), preparsed, mem, mod_path, ops_cache, i,
       )),
       any => any,
     })

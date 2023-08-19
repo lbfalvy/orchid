@@ -3,7 +3,6 @@ use super::{ErrorPosition, ProjectError};
 use crate::parse_layer;
 use crate::utils::iter::box_empty;
 use crate::utils::BoxedIter;
-use crate::Interner;
 
 /// Error produced when [parse_layer] is called without targets. This function
 /// produces an error instead of returning a straightforward empty tree because
@@ -17,7 +16,7 @@ impl ProjectError for NoTargets {
     "No targets were specified for layer parsing"
   }
 
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
+  fn positions(&self) -> BoxedIter<ErrorPosition> {
     box_empty()
   }
 }

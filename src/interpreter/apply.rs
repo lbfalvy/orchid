@@ -108,7 +108,7 @@ pub fn apply(
       if let Some(sym) = ctx.symbols.get(name) {
         Ok((Clause::Apply { f: sym.clone(), x }, (ctx.gas, false)))
       } else {
-        Err(RuntimeError::MissingSymbol(*name, loc.clone()))
+        Err(RuntimeError::MissingSymbol(name.clone(), loc.clone()))
       },
     Clause::P(Primitive::Atom(atom)) => {
       // take a step in expanding atom

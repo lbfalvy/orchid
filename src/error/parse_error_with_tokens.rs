@@ -3,10 +3,8 @@ use std::rc::Rc;
 use itertools::Itertools;
 
 use super::{ErrorPosition, ProjectError};
-use crate::interner::InternedDisplay;
 use crate::parse::Entry;
 use crate::utils::BoxedIter;
-use crate::Interner;
 
 /// Produced by stages that parse text when it fails.
 pub struct ParseErrorWithTokens {
@@ -21,14 +19,14 @@ impl ProjectError for ParseErrorWithTokens {
   fn description(&self) -> &str {
     self.error.description()
   }
-  fn message(&self, i: &Interner) -> String {
+  fn message(&self) -> String {
     format!(
       "Failed to parse code: {}\nTokenized source for context:\n{}",
-      self.error.message(i),
-      self.tokens.iter().map(|t| t.to_string_i(i)).join(" "),
+      self.error.message(),
+      self.tokens.iter().map(|t| t.to_string()).join(" "),
     )
   }
-  fn positions(&self, i: &Interner) -> BoxedIter<ErrorPosition> {
-    self.error.positions(i)
+  fn positions(&self) -> BoxedIter<ErrorPosition> {
+    self.error.positions()
   }
 }

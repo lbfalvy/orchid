@@ -37,7 +37,7 @@ impl NotFound {
   ) -> Self {
     let last_mod =
       orig.walk_ref(&path[..e.pos], false).expect("error occured on next step");
-    let mut whole_path = prefix.iter().chain(path.iter()).copied();
+    let mut whole_path = prefix.iter().chain(path.iter()).cloned();
     if let Some(file) = &last_mod.extra.file {
       Self {
         source: Some(source.to_vec()),
@@ -57,14 +57,14 @@ impl ProjectError for NotFound {
   fn description(&self) -> &str {
     "an import refers to a nonexistent module"
   }
-  fn message(&self, i: &Interner) -> String {
+  fn message(&self) -> String {
     format!(
       "module {} in {} was not found",
-      i.extern_all(&self.subpath).join("::"),
-      i.extern_all(&self.file).join("/"),
+      Interner::extern_all(&self.subpath).join("::"),
+      Interner::extern_all(&self.file).join("/"),
     )
   }
-  fn one_position(&self, i: &Interner) -> crate::Location {
-    Location::File(Rc::new(i.extern_all(&self.file)))
+  fn one_position(&self) -> crate::Location {
+    Location::File(Rc::new(Interner::extern_all(&self.file)))
   }
 }

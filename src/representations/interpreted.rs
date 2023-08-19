@@ -3,7 +3,7 @@
 //! This code may be generated to minimize the number of states external
 //! functions have to define
 use std::cell::RefCell;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
@@ -13,8 +13,6 @@ use super::location::Location;
 use super::path_set::PathSet;
 use super::primitive::Primitive;
 use super::Literal;
-use crate::interner::InternedDisplay;
-use crate::utils::sym2string;
 use crate::Sym;
 
 // TODO: implement Debug, Eq and Hash with cycle detection
@@ -36,19 +34,11 @@ impl Debug for Expr {
   }
 }
 
-impl InternedDisplay for Expr {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &crate::interner::Interner,
-  ) -> std::fmt::Result {
+impl Display for Expr {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match &self.location {
-      Location::Unknown => self.clause.fmt_i(f, i),
-      loc => {
-        write!(f, "{}:(", loc)?;
-        self.clause.fmt_i(f, i)?;
-        write!(f, ")")
-      },
+      Location::Unknown => write!(f, "{}", self.clause),
+      loc => write!(f, "{}:({})", loc, self.clause),
     }
   }
 }
@@ -151,20 +141,16 @@ impl ExprInst {
 impl Debug for ExprInst {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self.0.try_borrow() {
-      Ok(expr) => write!(f, "{:?}", expr),
+      Ok(expr) => write!(f, "{expr:?}"),
       Err(_) => write!(f, "<borrowed>"),
     }
   }
 }
 
-impl InternedDisplay for ExprInst {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &crate::interner::Interner,
-  ) -> std::fmt::Result {
+impl Display for ExprInst {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self.0.try_borrow() {
-      Ok(expr) => expr.fmt_i(f, i),
+      Ok(expr) => write!(f, "{expr}"),
       Err(_) => write!(f, "<borrowed>"),
     }
   }
@@ -208,32 +194,17 @@ impl Clause {
   }
 }
 
-impl InternedDisplay for Clause {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &crate::interner::Interner,
-  ) -> std::fmt::Result {
+impl Display for Clause {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Clause::P(p) => write!(f, "{p:?}"),
       Clause::LambdaArg => write!(f, "arg"),
-      Clause::Apply { f: fun, x } => {
-        write!(f, "(")?;
-        fun.fmt_i(f, i)?;
-        write!(f, " ")?;
-        x.fmt_i(f, i)?;
-        write!(f, ")")
+      Clause::Apply { f: fun, x } => write!(f, "({fun} {x})"),
+      Clause::Lambda { args, body } => match args {
+        Some(path) => write!(f, "\\{path:?}.{body}"),
+        None => write!(f, "\\_.{body}"),
       },
-      Clause::Lambda { args, body } => {
-        write!(f, "\\")?;
-        match args {
-          Some(path) => write!(f, "{path:?}")?,
-          None => write!(f, "_")?,
-        }
-        write!(f, ".")?;
-        body.fmt_i(f, i)
-      },
-      Clause::Constant(t) => write!(f, "{}", sym2string(*t, i)),
+      Clause::Constant(t) => write!(f, "{}", t.extern_vec().join("::")),
     }
   }
 }

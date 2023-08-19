@@ -20,15 +20,15 @@ impl ProjectError for TooManySupers {
     "an import path starts with more `super` segments than the current \
      module's absolute path"
   }
-  fn message(&self, i: &Interner) -> String {
+  fn message(&self) -> String {
     format!(
       "path {} in {} contains too many `super` steps.",
-      i.extern_all(&self.path).join("::"),
-      i.extern_all(&self.offender_mod).join("::")
+      Interner::extern_all(&self.path).join("::"),
+      Interner::extern_all(&self.offender_mod).join("::")
     )
   }
 
-  fn one_position(&self, i: &Interner) -> Location {
-    Location::File(Rc::new(i.extern_all(&self.offender_file)))
+  fn one_position(&self) -> Location {
+    Location::File(Rc::new(Interner::extern_all(&self.offender_file)))
   }
 }

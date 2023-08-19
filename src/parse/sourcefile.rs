@@ -201,14 +201,14 @@ fn parse_exprv(
       },
       Lexeme::Placeh(ph) => {
         output.push(Expr {
-          value: Clause::Placeh(*ph),
+          value: Clause::Placeh(ph.clone()),
           location: current.location(),
         });
         cursor = cursor.step()?;
       },
       Lexeme::Name(n) => {
         let location = cursor.location();
-        let mut fullname = vec![*n];
+        let mut fullname = vec![n.clone()];
         while cursor.get(1).ok().map(|e| &e.lexeme) == Some(&Lexeme::NS) {
           fullname.push(ExpectedName::expect(cursor.get(2)?)?);
           cursor = cursor.step()?.step()?;

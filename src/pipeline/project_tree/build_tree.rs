@@ -76,7 +76,8 @@ fn source_to_module(
   let imports_from = (imports.iter())
     .map(|imp| -> ProjectResult<_> {
       let mut imp_path_v = imp.path.clone();
-      imp_path_v.push(imp.name.expect("glob imports had just been resolved"));
+      imp_path_v
+        .push(imp.name.clone().expect("glob imports had just been resolved"));
       let mut abs_path = absolute_path(&path_v, &imp_path_v, i)
         .expect("should have failed in preparsing");
       let name = abs_path.pop().ok_or_else(|| {
@@ -92,19 +93,19 @@ fn source_to_module(
     .collect::<Result<HashMap<_, _>, _>>()?;
   let exports = (data.iter())
     .flat_map(|ent| {
-      let mk_ent = |name| (name, pushed(&path_v, name));
+      let mk_ent = |name: Tok<String>| (name.clone(), pushed(&path_v, name));
       match ent {
-        FileEntry::Export(names) => Box::new(names.iter().copied().map(mk_ent)),
+        FileEntry::Export(names) => Box::new(names.iter().cloned().map(mk_ent)),
         FileEntry::Exported(mem) => match mem {
-          Member::Constant(constant) => box_once(mk_ent(constant.name)),
-          Member::Module(ns) => box_once(mk_ent(ns.name)),
+          Member::Constant(constant) => box_once(mk_ent(constant.name.clone())),
+          Member::Module(ns) => box_once(mk_ent(ns.name.clone())),
           Member::Rule(rule) => {
             let mut names = Vec::new();
             for e in rule.pattern.iter() {
               e.search_all(&mut |e| {
                 if let Clause::Name(n) = &e.value {
                   if let Some([name]) = n.strip_prefix(&path_v[..]) {
-                    names.push((*name, n.clone()))
+                    names.push((name.clone(), n.clone()))
                   }
                 }
                 None::<()>
@@ -134,7 +135,7 @@ fn source_to_module(
             panic!("Preparsed should include entries for all submodules")
           );
           let module = match source_to_module(
-            path.push(ns.name),
+            path.push(ns.name.clone()),
             new_prep,
             ns.body,
             i,
@@ -144,7 +145,7 @@ fn source_to_module(
             Ok(t) => t,
           };
           let member = ModMember::Sub(module);
-          Some(Ok((ns.name, ModEntry { exported, member })))
+          Some(Ok((ns.name.clone(), ModEntry { exported, member })))
         },
         Member::Constant(Constant { name, value }) => {
           let member = ModMember::Item(value);
@@ -184,7 +185,7 @@ fn files_to_module(
   let path_v = path.iter().rev_vec_clone();
   if files.len() == 1 && files[0].path.len() == lvl {
     return source_to_module(
-      path,
+      path.clone(),
       &files[0].loaded.preparsed.0,
       files[0].parsed.clone(),
       i,
@@ -192,18 +193,19 @@ fn files_to_module(
     );
   }
   let items = (files.into_iter())
-    .group_by(|f| f.path[lvl])
+    .group_by(|f| f.path[lvl].clone())
     .into_iter()
     .map(|(namespace, files)| -> ProjectResult<_> {
-      let subpath = path.push(namespace);
+      let subpath = path.push(namespace.clone());
       let files_v = files.collect::<Vec<_>>();
       let module = files_to_module(subpath, files_v, i)?;
       let member = ModMember::Sub(module);
       Ok((namespace, ModEntry { exported: true, member }))
     })
     .collect::<Result<HashMap<_, _>, _>>()?;
-  let exports: HashMap<_, _> =
-    items.keys().copied().map(|name| (name, pushed(&path_v, name))).collect();
+  let exports: HashMap<_, _> = (items.keys())
+    .map(|name| (name.clone(), pushed(&path_v, name.clone())))
+    .collect();
   Ok(Module {
     items,
     imports: vec![],
@@ -223,7 +225,7 @@ pub fn build_tree(
   injected: &impl InjectedOperatorsFn,
 ) -> ProjectResult<ProjectTree<VName>> {
   assert!(!files.is_empty(), "A tree requires at least one module");
-  let ops_cache = collect_ops::mk_cache(&files, i, injected);
+  let ops_cache = collect_ops::mk_cache(&files, injected);
   let mut entries = files
     .iter()
     .map(|(path, loaded)| {

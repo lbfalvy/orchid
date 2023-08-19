@@ -5,9 +5,8 @@ use itertools::Itertools;
 
 use super::{Entry, Lexeme};
 use crate::error::{ErrorPosition, ProjectError};
-use crate::interner::InternedDisplay;
 use crate::utils::BoxedIter;
-use crate::{Interner, Location, Tok};
+use crate::{Location, Tok};
 
 #[derive(Debug)]
 pub struct LineNeedsPrefix {
@@ -17,10 +16,10 @@ impl ProjectError for LineNeedsPrefix {
   fn description(&self) -> &str {
     "This linetype requires a prefix"
   }
-  fn message(&self, i: &Interner) -> String {
-    format!("{} cannot appear at the beginning of a line", self.entry.bundle(i))
+  fn message(&self) -> String {
+    format!("{} cannot appear at the beginning of a line", self.entry)
   }
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.entry.location()
   }
 }
@@ -35,13 +34,13 @@ impl ProjectError for UnexpectedEOL {
     "The line ended abruptly"
   }
 
-  fn message(&self, _i: &Interner) -> String {
+  fn message(&self) -> String {
     "The line ends unexpectedly here. In Orchid, all line breaks outside \
      parentheses start a new declaration"
       .to_string()
   }
 
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.entry.location()
   }
 }
@@ -53,7 +52,7 @@ impl ProjectError for ExpectedEOL {
   fn description(&self) -> &str {
     "Expected the end of the line"
   }
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.location.clone()
   }
 }
@@ -64,8 +63,8 @@ pub struct ExpectedName {
 }
 impl ExpectedName {
   pub fn expect(entry: &Entry) -> Result<Tok<String>, Rc<dyn ProjectError>> {
-    match entry.lexeme {
-      Lexeme::Name(n) => Ok(n),
+    match &entry.lexeme {
+      Lexeme::Name(n) => Ok(n.clone()),
       _ => Err(Self { entry: entry.clone() }.rc()),
     }
   }
@@ -75,18 +74,18 @@ impl ProjectError for ExpectedName {
     "A name was expected here, but something else was found"
   }
 
-  fn message(&self, i: &Interner) -> String {
+  fn message(&self) -> String {
     if self.entry.is_keyword() {
       format!(
         "{} is a restricted keyword and cannot be used as a name",
-        self.entry.bundle(i)
+        self.entry
       )
     } else {
-      format!("Expected a name, found {}", self.entry.bundle(i))
+      format!("Expected a name, found {}", self.entry)
     }
   }
 
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.entry.location()
   }
 }
@@ -111,22 +110,19 @@ impl ProjectError for Expected {
   fn description(&self) -> &str {
     "A concrete token was expected but something else was found"
   }
-  fn message(&self, i: &Interner) -> String {
+  fn message(&self) -> String {
     let list = match &self.expected[..] {
       &[] => return "Unsatisfiable expectation".to_string(),
-      [only] => only.to_string_i(i),
-      [a, b] => format!("either {} or {}", a.bundle(i), b.bundle(i)),
-      [variants @ .., last] => format!(
-        "any of {} or {}",
-        variants.iter().map(|l| l.to_string_i(i)).join(", "),
-        last.bundle(i)
-      ),
+      [only] => only.to_string(),
+      [a, b] => format!("either {a} or {b}"),
+      [variants @ .., last] =>
+        format!("any of {} or {last}", variants.iter().join(", ")),
     };
     let or_name = if self.or_name { " or a name" } else { "" };
-    format!("Expected {}{} but found {}", list, or_name, self.found.bundle(i))
+    format!("Expected {list}{or_name} but found {}", self.found)
   }
 
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.found.location()
   }
 }
@@ -139,11 +135,11 @@ impl ProjectError for ReservedToken {
     "A token reserved for future use was found in the code"
   }
 
-  fn message(&self, i: &Interner) -> String {
-    format!("{} is a reserved token", self.entry.bundle(i))
+  fn message(&self) -> String {
+    format!("{} is a reserved token", self.entry)
   }
 
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.entry.location()
   }
 }
@@ -157,11 +153,11 @@ impl ProjectError for BadTokenInRegion {
     "A token was found in a region where it should not appear"
   }
 
-  fn message(&self, i: &Interner) -> String {
-    format!("{} cannot appear in {}", self.entry.bundle(i), self.region)
+  fn message(&self) -> String {
+    format!("{} cannot appear in {}", self.entry, self.region)
   }
 
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.entry.location()
   }
 }
@@ -175,11 +171,11 @@ impl ProjectError for NotFound {
     "A specific lexeme was expected but not found in the given range"
   }
 
-  fn message(&self, _i: &Interner) -> String {
+  fn message(&self) -> String {
     format!("{} was expected", self.expected)
   }
 
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.location.clone()
   }
 }
@@ -191,7 +187,7 @@ impl ProjectError for LeadingNS {
   fn description(&self) -> &str {
     ":: can only follow a name token"
   }
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.location.clone()
   }
 }
@@ -203,10 +199,10 @@ impl ProjectError for MisalignedParen {
   fn description(&self) -> &str {
     "Parentheses (), [] and {} must always pair up"
   }
-  fn message(&self, i: &Interner) -> String {
-    format!("This {} has no pair", self.entry.bundle(i))
+  fn message(&self) -> String {
+    format!("This {} has no pair", self.entry)
   }
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.entry.location()
   }
 }
@@ -218,7 +214,7 @@ impl ProjectError for NamespacedExport {
   fn description(&self) -> &str {
     "Exports can only refer to unnamespaced names in the local namespace"
   }
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.location.clone()
   }
 }
@@ -230,7 +226,7 @@ impl ProjectError for GlobExport {
   fn description(&self) -> &str {
     "Exports can only refer to concrete names, globstars are not allowed"
   }
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.location.clone()
   }
 }
@@ -244,7 +240,7 @@ impl ProjectError for LexError {
   fn description(&self) -> &str {
     "An error occured during tokenization"
   }
-  fn positions(&self, _i: &Interner) -> BoxedIter<ErrorPosition> {
+  fn positions(&self) -> BoxedIter<ErrorPosition> {
     let file = self.file.clone();
     Box::new(self.errors.iter().map(move |s| ErrorPosition {
       location: Location::Range {

@@ -38,9 +38,9 @@ impl<'a> Process<'a> {
     let sym = self.symbols.get(&key).expect("symbol must exist");
     sym.search_all(&mut |s: &ExprInst| {
       let expr = s.expr();
-      if let interpreted::Clause::Constant(sym) = expr.clause {
-        if !self.symbols.contains_key(&sym) {
-          errors.push((sym, expr.location.clone()))
+      if let interpreted::Clause::Constant(sym) = &expr.clause {
+        if !self.symbols.contains_key(sym) {
+          errors.push((sym.clone(), expr.location.clone()))
         }
       }
       None::<()>
@@ -53,8 +53,10 @@ impl<'a> Process<'a> {
   /// produced
   pub fn validate_refs(&self) -> ProjectResult<()> {
     for key in self.symbols.keys() {
-      if let Some((symbol, location)) = self.unbound_refs(*key).pop() {
-        return Err(MissingSymbol { location, referrer: *key, symbol }.rc());
+      if let Some((symbol, location)) = self.unbound_refs(key.clone()).pop() {
+        return Err(
+          MissingSymbol { location, referrer: key.clone(), symbol }.rc(),
+        );
       }
     }
     Ok(())
@@ -74,15 +76,15 @@ impl ProjectError for MissingSymbol {
      that macro execution didn't correctly halt."
   }
 
-  fn message(&self, i: &Interner) -> String {
+  fn message(&self) -> String {
     format!(
       "The symbol {} referenced in {} does not exist",
-      i.extern_vec(self.symbol).join("::"),
-      i.extern_vec(self.referrer).join("::")
+      self.symbol.extern_vec().join("::"),
+      self.referrer.extern_vec().join("::")
     )
   }
 
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     self.location.clone()
   }
 }

@@ -16,13 +16,13 @@ impl ProjectError for VisibilityMismatch {
   fn description(&self) -> &str {
     "Some occurences of a namespace are exported but others are not"
   }
-  fn message(&self, i: &Interner) -> String {
+  fn message(&self) -> String {
     format!(
       "{} is opened multiple times with different visibilities",
-      i.extern_all(&self.namespace).join("::")
+      Interner::extern_all(&self.namespace).join("::")
     )
   }
-  fn one_position(&self, _i: &Interner) -> Location {
+  fn one_position(&self) -> Location {
     Location::File(self.file.clone())
   }
 }

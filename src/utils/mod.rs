@@ -2,7 +2,6 @@ mod cache;
 mod delete_cell;
 mod event_poller;
 mod iter_find;
-mod print_nname;
 mod pushed;
 mod rc_to_owned;
 mod replace_first;
@@ -15,7 +14,6 @@ pub mod thread_pool;
 mod unwrap_or;
 
 pub use cache::Cache;
-pub use print_nname::sym2string;
 pub use pushed::pushed;
 pub use rc_to_owned::{map_rc, rc_to_owned};
 pub use replace_first::replace_first;

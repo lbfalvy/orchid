@@ -3,6 +3,7 @@
 //! These structures are produced by the pipeline, processed by the macro
 //! executor, and then converted to other usable formats.
 
+use std::fmt::Display;
 use std::hash::Hash;
 use std::rc::Rc;
 
@@ -15,7 +16,7 @@ use super::interpreted;
 use super::location::Location;
 use super::namelike::{NameLike, VName};
 use super::primitive::Primitive;
-use crate::interner::{InternedDisplay, Interner, Tok};
+use crate::interner::Tok;
 use crate::utils::map_rc;
 
 /// A [Clause] with associated metadata
@@ -74,7 +75,7 @@ impl Expr<VName> {
   pub fn prefix(
     &self,
     prefix: &[Tok<String>],
-    except: &impl Fn(Tok<String>) -> bool,
+    except: &impl Fn(&Tok<String>) -> bool,
   ) -> Self {
     Self {
       value: self.value.prefix(prefix, except),
@@ -83,15 +84,9 @@ impl Expr<VName> {
   }
 }
 
-impl<N: NameLike> InternedDisplay for Expr<N> {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &Interner,
-  ) -> std::fmt::Result {
-    let Expr { value, .. } = self;
-    value.fmt_i(f, i)?;
-    Ok(())
+impl<N: NameLike> Display for Expr<N> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.value.fmt(f)
   }
 }
 
@@ -110,7 +105,7 @@ pub enum PHClass {
 }
 
 /// Properties of a placeholder that matches unknown tokens in macros
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Placeholder {
   /// Identifier to pair placeholders in the pattern and template
   pub name: Tok<String>,
@@ -118,21 +113,15 @@ pub struct Placeholder {
   pub class: PHClass,
 }
 
-impl InternedDisplay for Placeholder {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &Interner,
-  ) -> std::fmt::Result {
-    let name = i.r(self.name);
+impl Display for Placeholder {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let name = &self.name;
     match self.class {
       PHClass::Scalar => write!(f, "${name}"),
-      PHClass::Vec { nonzero, prio } =>
-        if nonzero {
-          write!(f, "...${name}:{prio}")
-        } else {
-          write!(f, "..${name}:{prio}")
-        },
+      PHClass::Vec { nonzero, prio } => {
+        if nonzero { write!(f, "...") } else { write!(f, "..") }?;
+        write!(f, "${name}:{prio}")
+      },
     }
   }
 }
@@ -307,11 +296,11 @@ impl Clause<VName> {
   pub fn prefix(
     &self,
     prefix: &[Tok<String>],
-    except: &impl Fn(Tok<String>) -> bool,
+    except: &impl Fn(&Tok<String>) -> bool,
   ) -> Self {
     self
       .map_names(&|name| {
-        if except(name[0]) {
+        if except(&name[0]) {
           return None;
         }
         let mut new = prefix.to_vec();
@@ -322,46 +311,27 @@ impl Clause<VName> {
   }
 }
 
-fn fmt_expr_seq<'a, N: NameLike>(
-  it: &mut impl Iterator<Item = &'a Expr<N>>,
-  f: &mut std::fmt::Formatter<'_>,
-  i: &Interner,
-) -> std::fmt::Result {
-  for item in Itertools::intersperse(it.map(Some), None) {
-    match item {
-      Some(expr) => expr.fmt_i(f, i),
-      None => f.write_str(" "),
-    }?
-  }
-  Ok(())
-}
-
-impl<N: NameLike> InternedDisplay for Clause<N> {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &Interner,
-  ) -> std::fmt::Result {
+impl<N: NameLike> Display for Clause<N> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::P(p) => write!(f, "{:?}", p),
-      Self::Name(name) => write!(f, "{}", name.to_strv(i).join("::")),
+      Self::Name(name) => write!(f, "{}", name.to_strv().join("::")),
       Self::S(del, items) => {
-        f.write_str(&del.to_string())?;
-        fmt_expr_seq(&mut items.iter(), f, i)?;
-        f.write_str(match del {
+        let body = items.iter().join(" ");
+        let led = match del {
           '(' => ")",
           '[' => "]",
           '{' => "}",
           _ => "CLOSING_DELIM",
-        })
+        };
+        write!(f, "{del}{body}{led}")
       },
       Self::Lambda(arg, body) => {
-        f.write_str("\\")?;
-        fmt_expr_seq(&mut arg.iter(), f, i)?;
-        f.write_str(".")?;
-        fmt_expr_seq(&mut body.iter(), f, i)
+        let args = arg.iter().join(" ");
+        let bodys = body.iter().join(" ");
+        write!(f, "\\{args}.{bodys}")
       },
-      Self::Placeh(ph) => ph.fmt_i(f, i),
+      Self::Placeh(ph) => ph.fmt(f),
     }
   }
 }
@@ -382,7 +352,7 @@ impl Rule<VName> {
   pub fn prefix(
     &self,
     prefix: &[Tok<String>],
-    except: &impl Fn(Tok<String>) -> bool,
+    except: &impl Fn(&Tok<String>) -> bool,
   ) -> Self {
     Self {
       prio: self.prio,
@@ -401,7 +371,7 @@ impl Rule<VName> {
       e.search_all(&mut |e| {
         if let Clause::Name(ns_name) = &e.value {
           if ns_name.len() == 1 {
-            names.push(ns_name[0])
+            names.push(ns_name[0].clone())
           }
         }
         None::<()>
@@ -411,22 +381,15 @@ impl Rule<VName> {
   }
 }
 
-impl<N: NameLike> InternedDisplay for Rule<N> {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &Interner,
-  ) -> std::fmt::Result {
-    for e in self.pattern.iter() {
-      e.fmt_i(f, i)?;
-      write!(f, " ")?;
-    }
-    write!(f, "={}=>", self.prio)?;
-    for e in self.template.iter() {
-      write!(f, " ")?;
-      e.fmt_i(f, i)?;
-    }
-    Ok(())
+impl<N: NameLike> Display for Rule<N> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(
+      f,
+      "{} ={}=> {}",
+      self.pattern.iter().join(" "),
+      self.prio,
+      self.template.iter().join(" ")
+    )
   }
 }
 
@@ -439,13 +402,8 @@ pub struct Constant {
   pub value: Expr<VName>,
 }
 
-impl InternedDisplay for Constant {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &Interner,
-  ) -> std::fmt::Result {
-    write!(f, "{} := ", i.r(self.name))?;
-    self.value.fmt_i(f, i)
+impl Display for Constant {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{} := {}", *self.name, self.value)
   }
 }

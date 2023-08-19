@@ -8,10 +8,10 @@ use super::conv::conv;
 use super::inspect::inspect;
 use super::num::num;
 use super::panic::panic;
+use super::state::{state_handlers, state_lib};
 use super::str::str;
 use crate::facade::{IntoSystem, System};
 use crate::interner::Interner;
-use crate::interpreter::HandlerTable;
 use crate::pipeline::file_loader::embed_to_map;
 use crate::sourcefile::{FileEntry, Import};
 
@@ -33,7 +33,8 @@ struct StlEmbed;
 
 impl IntoSystem<'static> for StlConfig {
   fn into_system(self, i: &Interner) -> System<'static> {
-    let pure_fns = conv(i) + bool(i) + str(i) + num(i) + bin(i) + panic(i);
+    let pure_fns =
+      conv(i) + bool(i) + str(i) + num(i) + bin(i) + panic(i) + state_lib(i);
     let mk_impure_fns = || inspect(i);
     let fns = if self.impure { pure_fns + mk_impure_fns() } else { pure_fns };
     System {
@@ -44,7 +45,7 @@ impl IntoSystem<'static> for StlConfig {
         path: vec![i.i("std"), i.i("prelude")],
         name: None,
       }])],
-      handlers: HandlerTable::new(),
+      handlers: state_handlers(),
     }
   }
 }

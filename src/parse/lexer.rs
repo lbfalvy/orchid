@@ -1,10 +1,11 @@
-use std::fmt;
+use std::fmt::{self, Display};
 use std::ops::Range;
 use std::rc::Rc;
 
 use chumsky::prelude::*;
 use chumsky::text::keyword;
 use chumsky::Parser;
+use itertools::Itertools;
 use ordered_float::NotNan;
 
 use super::context::Context;
@@ -12,7 +13,7 @@ use super::decls::SimpleParser;
 use super::number::print_nat16;
 use super::{comment, name, number, placeholder, string};
 use crate::ast::{PHClass, Placeholder};
-use crate::interner::{InternedDisplay, Interner, Tok};
+use crate::interner::Tok;
 use crate::representations::Literal;
 use crate::Location;
 
@@ -51,13 +52,9 @@ impl Entry {
   }
 }
 
-impl InternedDisplay for Entry {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &Interner,
-  ) -> std::fmt::Result {
-    self.lexeme.fmt_i(f, i)
+impl Display for Entry {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.lexeme.fmt(f)
   }
 }
 
@@ -120,15 +117,11 @@ pub enum Lexeme {
   Placeh(Placeholder),
 }
 
-impl InternedDisplay for Lexeme {
-  fn fmt_i(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    i: &Interner,
-  ) -> std::fmt::Result {
+impl Display for Lexeme {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Literal(l) => write!(f, "{:?}", l),
-      Self::Name(token) => write!(f, "{}", i.r(*token)),
+      Self::Name(token) => write!(f, "{}", **token),
       Self::Walrus => write!(f, ":="),
       Self::Arrow(prio) => write!(f, "={}=>", print_nat16(*prio)),
       Self::NS => write!(f, "::"),
@@ -151,10 +144,10 @@ impl InternedDisplay for Lexeme {
       Self::Const => write!(f, "const"),
       Self::Macro => write!(f, "macro"),
       Self::Placeh(Placeholder { name, class }) => match *class {
-        PHClass::Scalar => write!(f, "${}", i.r(*name)),
+        PHClass::Scalar => write!(f, "${}", **name),
         PHClass::Vec { nonzero, prio } => {
           if nonzero { write!(f, "...") } else { write!(f, "..") }?;
-          write!(f, "${}", i.r(*name))?;
+          write!(f, "${}", **name)?;
           if prio != 0 {
             write!(f, ":{}", prio)?;
           };
@@ -182,13 +175,9 @@ impl Lexeme {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct LexedText(pub Vec<Entry>);
 
-impl InternedDisplay for LexedText {
-  fn fmt_i(&self, f: &mut fmt::Formatter<'_>, i: &Interner) -> fmt::Result {
-    for tok in self.0.iter() {
-      tok.fmt_i(f, i)?;
-      f.write_str(" ")?
-    }
-    Ok(())
+impl Display for LexedText {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.0.iter().join(" "))
   }
 }
 

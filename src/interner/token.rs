@@ -1,66 +1,94 @@
 use std::cmp::PartialEq;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
-use std::marker::PhantomData;
-use std::num::NonZeroU32;
+use std::num::NonZeroUsize;
+use std::ops::Deref;
+use std::rc::{Rc, Weak};
+
+use super::TypedInterner;
 
 /// A number representing an object of type `T` stored in some interner. It is a
 /// logic error to compare tokens obtained from different interners, or to use a
 /// token with an interner other than the one that created it, but this is
 /// currently not enforced.
-pub struct Tok<T> {
-  id: NonZeroU32,
-  phantom_data: PhantomData<T>,
+#[derive(Clone)]
+pub struct Tok<T: Eq + Hash + Clone + 'static> {
+  data: Rc<T>,
+  interner: Weak<TypedInterner<T>>,
 }
-impl<T> Tok<T> {
-  /// Wrap an ID number into a token
-  pub fn from_id(id: NonZeroU32) -> Self {
-    Self { id, phantom_data: PhantomData }
+impl<T: Eq + Hash + Clone + 'static> Tok<T> {
+  /// Create a new token. Used exclusively by the interner
+  pub(crate) fn new(data: Rc<T>, interner: Weak<TypedInterner<T>>) -> Self {
+    Self { data, interner }
   }
   /// Take the ID number out of a token
-  pub fn into_id(self) -> NonZeroU32 {
-    self.id
+  pub fn id(&self) -> NonZeroUsize {
+    ((self.data.as_ref() as *const T as usize).try_into())
+      .expect("Pointer can always be cast to nonzero")
   }
   /// Cast into usize
-  pub fn into_usize(self) -> usize {
-    let zero: u32 = self.id.into();
-    zero as usize
+  pub fn usize(&self) -> usize {
+    self.id().into()
+  }
+  ///
+  pub fn assert_comparable(&self, other: &Self) {
+    let iref = self.interner.as_ptr() as usize;
+    assert!(
+      iref == other.interner.as_ptr() as usize,
+      "Tokens must come from the same interner"
+    );
   }
 }
 
-impl<T> Debug for Tok<T> {
+impl<T: Eq + Hash + Clone + 'static> Tok<Vec<Tok<T>>> {
+  /// Extern all elements of the vector in a new vector
+  pub fn extern_vec(&self) -> Vec<T> {
+    self.iter().map(|t| (**t).clone()).collect()
+  }
+}
+
+impl<T: Eq + Hash + Clone + 'static> Deref for Tok<T> {
+  type Target = T;
+
+  fn deref(&self) -> &Self::Target {
+    self.data.as_ref()
+  }
+}
+
+impl<T: Eq + Hash + Clone + 'static> Debug for Tok<T> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "Token({})", self.id)
+    write!(f, "Token({})", self.id())
   }
 }
 
-impl<T> Copy for Tok<T> {}
-impl<T> Clone for Tok<T> {
-  fn clone(&self) -> Self {
-    Self { id: self.id, phantom_data: PhantomData }
+impl<T: Eq + Hash + Clone + Display + 'static> Display for Tok<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", *self)
   }
 }
 
-impl<T> Eq for Tok<T> {}
-impl<T> PartialEq for Tok<T> {
+impl<T: Eq + Hash + Clone + 'static> Eq for Tok<T> {}
+impl<T: Eq + Hash + Clone + 'static> PartialEq for Tok<T> {
   fn eq(&self, other: &Self) -> bool {
-    self.id == other.id
+    self.assert_comparable(other);
+    self.id() == other.id()
   }
 }
 
-impl<T> Ord for Tok<T> {
+impl<T: Eq + Hash + Clone + 'static> Ord for Tok<T> {
   fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-    self.id.cmp(&other.id)
+    self.assert_comparable(other);
+    self.id().cmp(&other.id())
   }
 }
-impl<T> PartialOrd for Tok<T> {
+impl<T: Eq + Hash + Clone + 'static> PartialOrd for Tok<T> {
   fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
     Some(self.cmp(other))
   }
 }
 
-impl<T> Hash for Tok<T> {
+impl<T: Eq + Hash + Clone + 'static> Hash for Tok<T> {
   fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-    state.write_u32(self.id.into())
+    state.write_usize(self.usize())
   }
 }

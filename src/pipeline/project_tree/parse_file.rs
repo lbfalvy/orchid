@@ -28,16 +28,14 @@ pub fn parse_file(
   let ld = &loaded[path];
   // let ops_cache = collect_ops::mk_cache(loaded, i);
   let ops = collect_ops_for(path, loaded, ops_cache, i)?;
-  let ops_vec = ops.iter().map(|t| i.r(*t)).cloned().collect::<Vec<_>>();
+  let ops_vec = ops.iter().map(|t| (**t).clone()).collect::<Vec<_>>();
   let ctx = parse::ParsingContext {
     interner: i,
     ops: &ops_vec,
-    file: Rc::new(i.extern_all(path)),
+    file: Rc::new(Interner::extern_all(path)),
   };
-  let entries = i.expect(
-    parse::parse2(ld.text.as_str(), ctx),
-    "This error should have been caught during loading",
-  );
+  let entries = parse::parse2(ld.text.as_str(), ctx)
+    .expect("This error should have been caught during loading");
   let with_prelude = add_prelude(entries, path, prelude);
   let impnormalized =
     normalize_imports(&ld.preparsed.0, with_prelude, path, ops_cache, i);

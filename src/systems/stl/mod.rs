@@ -9,6 +9,7 @@ mod num;
 mod panic;
 mod stl_system;
 mod str;
+mod state;
 pub use arithmetic_error::ArithmeticError;
 pub use bin::Binary;
 pub use num::Numeric;

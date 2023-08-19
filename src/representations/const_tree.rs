@@ -94,7 +94,7 @@ fn from_const_tree_rec(
   let mut items = HashMap::new();
   let path_v = path.iter().rev_vec_clone();
   for (name, item) in consts {
-    items.insert(name, ModEntry {
+    items.insert(name.clone(), ModEntry {
       exported: true,
       member: match item {
         ConstTree::Const(c) => ModMember::Item(c),
@@ -103,8 +103,9 @@ fn from_const_tree_rec(
       },
     });
   }
-  let exports =
-    items.keys().map(|name| (*name, pushed(&path_v, *name))).collect();
+  let exports = (items.keys())
+    .map(|name| (name.clone(), pushed(&path_v, name.clone())))
+    .collect();
   Module {
     items,
     imports: vec![],

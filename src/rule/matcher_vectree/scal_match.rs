@@ -12,7 +12,7 @@ pub fn scal_match<'a>(
     (ScalMatcher::P(p1), Clause::P(p2)) if p1 == p2 => Some(State::new()),
     (ScalMatcher::Name(n1), Clause::Name(n2)) if n1 == n2 => Some(State::new()),
     (ScalMatcher::Placeh(key), _) =>
-      Some(State::from([(*key, StateEntry::Scalar(expr))])),
+      Some(State::from([(key.clone(), StateEntry::Scalar(expr))])),
     (ScalMatcher::S(c1, b_mat), Clause::S(c2, body)) if c1 == c2 =>
       any_match(b_mat, &body[..]),
     (ScalMatcher::Lambda(arg_mat, b_mat), Clause::Lambda(arg, body)) => {

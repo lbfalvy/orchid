@@ -40,7 +40,8 @@ fn collect_paths_cls_rec(
 
 pub fn clause(cls: &postmacro::Clause) -> interpreted::Clause {
   match cls {
-    postmacro::Clause::Constant(name) => interpreted::Clause::Constant(*name),
+    postmacro::Clause::Constant(name) =>
+      interpreted::Clause::Constant(name.clone()),
     postmacro::Clause::P(p) => interpreted::Clause::P(p.clone()),
     postmacro::Clause::Apply(f, x) =>
       interpreted::Clause::Apply { f: expr(f.as_ref()), x: expr(x.as_ref()) },

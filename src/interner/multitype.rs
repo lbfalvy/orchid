@@ -8,7 +8,7 @@ use hashbrown::HashMap;
 
 use super::monotype::TypedInterner;
 use super::token::Tok;
-use super::InternedDisplay;
+// use super::InternedDisplay;
 
 /// A collection of interners based on their type. Allows to intern any object
 /// that implements [ToOwned]. Objects of the same type are stored together in a
@@ -32,57 +32,33 @@ impl Interner {
     interner.i(q)
   }
 
-  /// Resolve a token to a reference
-  pub fn r<T: 'static + Eq + Hash + Clone>(&self, t: Tok<T>) -> &T {
-    let mut interners = self.interners.borrow_mut();
-    let interner = get_interner(&mut interners);
-    // TODO: figure this out
-    unsafe { (interner.r(t) as *const T).as_ref().unwrap() }
-  }
-
-  /// Fully resolve an interned list of interned things
-  /// TODO: make this generic over containers
-  pub fn extern_vec<T: 'static + Eq + Hash + Clone>(
-    &self,
-    t: Tok<Vec<Tok<T>>>,
-  ) -> Vec<T> {
-    let mut interners = self.interners.borrow_mut();
-    let v_int = get_interner(&mut interners);
-    let t_int = get_interner(&mut interners);
-    let v = v_int.r(t);
-    v.iter().map(|t| t_int.r(*t)).cloned().collect()
-  }
-
   /// Fully resolve a list of interned things.
-  pub fn extern_all<T: 'static + Eq + Hash + Clone>(
-    &self,
-    s: &[Tok<T>],
-  ) -> Vec<T> {
-    s.iter().map(|t| self.r(*t)).cloned().collect()
+  pub fn extern_all<T: 'static + Eq + Hash + Clone>(s: &[Tok<T>]) -> Vec<T> {
+    s.iter().map(|t| (**t).clone()).collect()
   }
 
-  /// A variant of `unwrap` using [InternedDisplay] to circumvent `unwrap`'s
-  /// dependencyon [Debug]. For clarity, [expect] should be preferred.
-  pub fn unwrap<T, E: InternedDisplay>(&self, result: Result<T, E>) -> T {
-    result.unwrap_or_else(|e| {
-      println!("Unwrapped Error: {}", e.bundle(self));
-      panic!("Unwrapped an error");
-    })
-  }
+  // /// A variant of `unwrap` using [InternedDisplay] to circumvent `unwrap`'s
+  // /// dependencyon [Debug]. For clarity, [expect] should be preferred.
+  // pub fn unwrap<T, E: InternedDisplay>(&self, result: Result<T, E>) -> T {
+  //   result.unwrap_or_else(|e| {
+  //     println!("Unwrapped Error: {}", e.bundle(self));
+  //     panic!("Unwrapped an error");
+  //   })
+  // }
 
-  /// A variant of `expect` using  [InternedDisplay] to circumvent `expect`'s
-  /// depeendency on [Debug].
-  pub fn expect<T, E: InternedDisplay>(
-    &self,
-    result: Result<T, E>,
-    msg: &str,
-  ) -> T {
-    result.unwrap_or_else(|e| {
-      println!("Expectation failed: {msg}");
-      println!("Error: {}", e.bundle(self));
-      panic!("Expected an error");
-    })
-  }
+  // /// A variant of `expect` using  [InternedDisplay] to circumvent `expect`'s
+  // /// depeendency on [Debug].
+  // pub fn expect<T, E: InternedDisplay>(
+  //   &self,
+  //   result: Result<T, E>,
+  //   msg: &str,
+  // ) -> T {
+  //   result.unwrap_or_else(|e| {
+  //     println!("Expectation failed: {msg}");
+  //     println!("Error: {}", e.bundle(self));
+  //     panic!("Expected an error");
+  //   })
+  // }
 }
 
 impl Default for Interner {
@@ -98,7 +74,7 @@ fn get_interner<T: 'static + Eq + Hash + Clone>(
   let boxed = interners
     .raw_entry_mut()
     .from_key(&TypeId::of::<T>())
-    .or_insert_with(|| (TypeId::of::<T>(), Rc::new(TypedInterner::<T>::new())))
+    .or_insert_with(|| (TypeId::of::<T>(), TypedInterner::<T>::new()))
     .1
     .clone();
   boxed.downcast().expect("the typeid is supposed to protect from this")

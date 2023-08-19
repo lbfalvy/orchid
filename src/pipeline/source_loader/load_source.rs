@@ -44,7 +44,7 @@ fn load_abs_path_rec(
       return Err(UnexpectedDirectory { path: filename.to_vec() }.rc())
     });
     let preparsed = preparse(
-      filename.iter().map(|t| i.r(*t)).cloned().collect(),
+      Interner::extern_all(filename),
       text.as_str(),
       prelude,
       i,
@@ -87,7 +87,7 @@ fn load_abs_path_rec(
     // recurse on all files and folders within
     for item in coll.iter() {
       let abs_subpath = (abs_path.iter())
-        .copied()
+        .cloned()
         .chain(iter::once(i.i(item)))
         .collect::<Vec<_>>();
       load_abs_path_rec(

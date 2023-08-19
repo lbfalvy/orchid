@@ -16,7 +16,7 @@ fn tree_all_ops(
   module: &Module<impl Clone, impl Clone>,
   ops: &mut HashSet<Tok<String>>,
 ) {
-  ops.extend(module.items.keys().copied());
+  ops.extend(module.items.keys().cloned());
   for ent in module.items.values() {
     if let ModMember::Sub(m) = &ent.member {
       tree_all_ops(m, ops);
@@ -40,16 +40,14 @@ pub fn collect_ops_for(
   let mut ret = HashSet::new();
   tree_all_ops(tree, &mut ret);
   tree.visit_all_imports(&mut |modpath, _m, import| -> ProjectResult<()> {
-    if let Some(n) = import.name {
-      ret.insert(n);
+    if let Some(n) = &import.name {
+      ret.insert(n.clone());
     } else {
-      let path = i.expect(
-        import_abs_path(file, modpath, &import.path, i),
-        "This error should have been caught during loading",
-      );
-      ret.extend(ops_cache.find(&i.i(&path))?.iter().copied());
+      let path = import_abs_path(file, modpath, &import.path, i)
+        .expect("This error should have been caught during loading");
+      ret.extend(ops_cache.find(&i.i(&path))?.iter().cloned());
     }
     Ok(())
   })?;
-  Ok(Rc::new(ret.into_iter().filter(|t| is_op(i.r(*t))).collect()))
+  Ok(Rc::new(ret.into_iter().filter(|t| is_op(&**t)).collect()))
 }

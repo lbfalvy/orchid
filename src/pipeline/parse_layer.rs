@@ -30,8 +30,8 @@ pub fn parse_layer<'a>(
     module.extra.exports.get(item).cloned()
   };
   let injected_names = |path: Tok<Vec<Tok<String>>>| {
-    let module = environment.0.walk_ref(&i.r(path)[..], false).ok()?;
-    Some(Rc::new(module.extra.exports.keys().copied().collect()))
+    let module = environment.0.walk_ref(&path, false).ok()?;
+    Some(Rc::new(module.extra.exports.keys().cloned().collect()))
   };
   let source =
     source_loader::load_source(targets, prelude, i, loader, &|path| {

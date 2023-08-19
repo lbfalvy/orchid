@@ -65,7 +65,7 @@ impl<'a> Environment<'a> {
   ) -> ProjectResult<PreMacro<'a>> {
     let i = self.i;
     let CompiledEnv { prelude, systems, tree } = self.compile()?;
-    let file_cache = file_loader::mk_dir_cache(dir.to_path_buf(), i);
+    let file_cache = file_loader::mk_dir_cache(dir.to_path_buf());
     let vname_tree = parse_layer(
       iter::once(target),
       &|path| file_cache.find(path),

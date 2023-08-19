@@ -12,10 +12,9 @@ pub fn import_abs_path(
   // path of module within file
   let mod_pathv = mod_stack.iter().rev_vec_clone();
   // path of module within compilation
-  let abs_pathv = src_path
-    .iter()
-    .copied()
-    .chain(mod_pathv.iter().copied())
+  let abs_pathv = (src_path.iter())
+    .chain(mod_pathv.iter())
+    .cloned()
     .collect::<Vec<_>>();
   // preload-target path relative to module
   // preload-target path within compilation

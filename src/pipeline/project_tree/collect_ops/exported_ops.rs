@@ -4,7 +4,7 @@ use hashbrown::HashSet;
 use trait_set::trait_set;
 
 use crate::error::{NotFound, ProjectError, ProjectResult};
-use crate::interner::{Interner, Tok};
+use crate::interner::Tok;
 use crate::pipeline::source_loader::LoadedSourceTable;
 use crate::representations::tree::WalkErrorKind;
 use crate::utils::{split_max_prefix, Cache};
@@ -28,22 +28,21 @@ fn coprefix<T: Eq>(
 pub fn collect_exported_ops(
   path: Sym,
   loaded: &LoadedSourceTable,
-  i: &Interner,
   injected: &impl InjectedOperatorsFn,
 ) -> OpsResult {
-  let injected = injected(path).unwrap_or_else(|| Rc::new(HashSet::new()));
-  let path_s = &i.r(path)[..];
-  match split_max_prefix(path_s, &|n| loaded.contains_key(n)) {
+  let injected =
+    injected(path.clone()).unwrap_or_else(|| Rc::new(HashSet::new()));
+  match split_max_prefix(&path, &|n| loaded.contains_key(n)) {
     None => {
       let ops = (loaded.keys())
         .filter_map(|modname| {
-          if path_s.len() == coprefix(path_s.iter(), modname.iter()) {
-            Some(modname[path_s.len()])
+          if path.len() == coprefix(path.iter(), modname.iter()) {
+            Some(modname[path.len()].clone())
           } else {
             None
           }
         })
-        .chain(injected.iter().copied())
+        .chain(injected.iter().cloned())
         .collect::<HashSet<_>>();
       Ok(Rc::new(ops))
     },
@@ -64,8 +63,8 @@ pub fn collect_exported_ops(
       )?;
       let out = (module.items.iter())
         .filter(|(_, v)| v.exported)
-        .map(|(k, _)| *k)
-        .chain(injected.iter().copied())
+        .map(|(k, _)| k.clone())
+        .chain(injected.iter().cloned())
         .collect::<HashSet<_>>();
       Ok(Rc::new(out))
     },
@@ -74,8 +73,7 @@ pub fn collect_exported_ops(
 
 pub fn mk_cache<'a>(
   loaded: &'a LoadedSourceTable,
-  i: &'a Interner,
   injected: &'a impl InjectedOperatorsFn,
 ) -> ExportedOpsCache<'a> {
-  Cache::new(|path, _this| collect_exported_ops(path, loaded, i, injected))
+  Cache::new(|path, _this| collect_exported_ops(path, loaded, injected))
 }

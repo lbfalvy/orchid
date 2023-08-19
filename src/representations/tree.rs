@@ -96,11 +96,11 @@ impl<TItem: Clone, TExt: Clone> Module<TItem, TExt> {
     callback: &mut impl FnMut(ModPath, &Self, &Import) -> Result<(), E>,
   ) -> Result<(), E> {
     for import in self.imports.iter() {
-      callback(path, self, import)?
+      callback(path.clone(), self, import)?
     }
     for (name, entry) in self.items.iter() {
       if let ModMember::Sub(module) = &entry.member {
-        module.visit_all_imports_rec(path.push(*name), callback)?
+        module.visit_all_imports_rec(path.push(name.clone()), callback)?
       }
     }
     Ok(())
