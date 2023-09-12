@@ -14,7 +14,12 @@ pub fn parse2(data: &str, ctx: impl Context) -> ProjectResult<Vec<FileEntry>> {
   let source = Rc::new(data.to_string());
   let lexie = lexer(ctx.clone(), source.clone());
   let tokens = (lexie.parse(data)).map_err(|errors| {
-    LexError { errors, file: ctx.file(), source: source.clone() }.rc()
+    LexError {
+      errors,
+      file: ctx.file().as_ref().clone(),
+      source: source.clone(),
+    }
+    .rc()
   })?;
   if tokens.is_empty() {
     Ok(Vec::new())

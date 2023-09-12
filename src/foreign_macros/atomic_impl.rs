@@ -40,7 +40,7 @@ use crate::Primitive;
 /// _definition of the `add` function in the STL_
 /// ```
 /// use orchidlang::{Literal};
-/// use orchidlang::interpreted::ExprInst;
+/// use orchidlang::interpreted::{ExprInst, Clause};
 /// use orchidlang::systems::cast_exprinst::with_lit;
 /// use orchidlang::{atomic_impl, atomic_redirect, externfn_impl};
 ///
@@ -63,10 +63,10 @@ use crate::Primitive;
 /// atomic_redirect!(InternalToString, expr_inst);
 /// atomic_impl!(InternalToString, |Self { expr_inst }: &Self, _|{
 ///   with_lit(expr_inst, |l| Ok(match l {
-///     Literal::Uint(i) => i.to_string(),
-///     Literal::Num(n) => n.to_string(),
-///     Literal::Str(s) => s.clone(),
-///   })).map(|s| Literal::Str(s).into())
+///     Literal::Uint(i) => Literal::Str(i.to_string().into()),
+///     Literal::Num(n) => Literal::Str(n.to_string().into()),
+///     s@Literal::Str(_) => s.clone(),
+///   })).map(Clause::from)
 /// });
 /// ```
 #[macro_export]

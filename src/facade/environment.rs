@@ -8,6 +8,7 @@ use super::PreMacro;
 use crate::error::ProjectResult;
 use crate::pipeline::file_loader;
 use crate::sourcefile::FileEntry;
+use crate::utils::never;
 use crate::{
   from_const_tree, parse_layer, vname_to_sym_tree, Interner, ProjectTree, Stok,
   VName,
@@ -39,7 +40,7 @@ impl<'a> Environment<'a> {
     let mut tree = from_const_tree(HashMap::new(), &[i.i("none")]);
     for sys in systems.iter() {
       let system_tree = from_const_tree(sys.constants.clone(), &sys.vname(i));
-      tree = ProjectTree(tree.0.overlay(system_tree.0));
+      tree = ProjectTree(never::unwrap_always(tree.0.overlay(system_tree.0)));
     }
     let mut prelude = vec![];
     for sys in systems.iter() {

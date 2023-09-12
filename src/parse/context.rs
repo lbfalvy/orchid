@@ -1,16 +1,15 @@
 use std::rc::Rc;
 
 use crate::interner::Interner;
+use crate::{Tok, VName};
 
 /// Trait enclosing all context features
 ///
 /// Hiding type parameters in associated types allows for simpler
 /// parser definitions
 pub trait Context: Clone {
-  type Op: AsRef<str>;
-
-  fn ops(&self) -> &[Self::Op];
-  fn file(&self) -> Rc<Vec<String>>;
+  fn ops(&self) -> &[Tok<String>];
+  fn file(&self) -> Rc<VName>;
   fn interner(&self) -> &Interner;
 }
 
@@ -18,38 +17,36 @@ pub trait Context: Clone {
 ///
 /// Hiding type parameters in associated types allows for simpler
 /// parser definitions
-pub struct ParsingContext<'a, Op> {
-  pub ops: &'a [Op],
+pub struct ParsingContext<'a> {
+  pub ops: &'a [Tok<String>],
   pub interner: &'a Interner,
-  pub file: Rc<Vec<String>>,
+  pub file: Rc<VName>,
 }
 
-impl<'a, Op> ParsingContext<'a, Op> {
+impl<'a> ParsingContext<'a> {
   pub fn new(
-    ops: &'a [Op],
+    ops: &'a [Tok<String>],
     interner: &'a Interner,
-    file: Rc<Vec<String>>,
+    file: Rc<VName>,
   ) -> Self {
     Self { ops, interner, file }
   }
 }
 
-impl<'a, Op> Clone for ParsingContext<'a, Op> {
+impl<'a> Clone for ParsingContext<'a> {
   fn clone(&self) -> Self {
     Self { ops: self.ops, interner: self.interner, file: self.file.clone() }
   }
 }
 
-impl<Op: AsRef<str>> Context for ParsingContext<'_, Op> {
-  type Op = Op;
-
+impl Context for ParsingContext<'_> {
   fn interner(&self) -> &Interner {
     self.interner
   }
-  fn file(&self) -> Rc<Vec<String>> {
+  fn file(&self) -> Rc<VName> {
     self.file.clone()
   }
-  fn ops(&self) -> &[Self::Op] {
+  fn ops(&self) -> &[Tok<String>] {
     self.ops
   }
 }

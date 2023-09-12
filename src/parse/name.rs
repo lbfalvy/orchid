@@ -30,7 +30,7 @@ pub static NOT_NAME_CHAR: &[char] = &[
   '"', // parsed as primitive and therefore would never match
   '(', ')', '[', ']', '{', '}', // must be strictly balanced
   '.', // Argument-body separator in parametrics
-  ',', // used in imports
+  ',', // Import separator
 ];
 
 /// Matches anything that's allowed as an operator
@@ -39,18 +39,20 @@ pub static NOT_NAME_CHAR: &[char] = &[
 /// Could be an operator but then parametrics should take precedence,
 /// which might break stuff. investigate.
 ///
-/// TODO: `'` could work as an operator whenever it isn't closed.
-/// It's common im maths so it's worth a try
-///
 /// TODO: `.` could possibly be parsed as an operator in some contexts.
 /// This operator is very common in maths so it's worth a try.
 /// Investigate.
-pub fn modname_parser<'a>() -> impl SimpleParser<char, String> + 'a {
-  filter(move |c| !NOT_NAME_CHAR.contains(c) && !c.is_whitespace())
-    .repeated()
-    .at_least(1)
-    .collect()
-    .labelled("modname")
+pub fn anyop_parser<'a>() -> impl SimpleParser<char, String> + 'a {
+  filter(move |c| {
+    !NOT_NAME_CHAR.contains(c)
+      && !c.is_whitespace()
+      && !c.is_alphanumeric()
+      && c != &'_'
+  })
+  .repeated()
+  .at_least(1)
+  .collect()
+  .labelled("anyop")
 }
 
 /// Parse an operator or name. Failing both, parse everything up to
@@ -61,16 +63,7 @@ pub fn name_parser<'a>(
   choice((
     op_parser(ops), // First try to parse a known operator
     text::ident().labelled("plain text"), // Failing that, parse plain text
-    modname_parser(), // Finally parse everything until tne next forbidden char
+    anyop_parser(), // Finally parse everything until tne next forbidden char
   ))
   .labelled("name")
-}
-
-/// Decide if a string can be an operator. Operators can include digits
-/// and text, just not at the start.
-pub fn is_op(s: impl AsRef<str>) -> bool {
-  return match s.as_ref().chars().next() {
-    Some(x) => !x.is_alphanumeric(),
-    None => false,
-  };
 }

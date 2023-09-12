@@ -42,12 +42,13 @@ impl<'a> PreMacro<'a> {
       repo,
       consts: (consts.into_iter())
         .map(|(name, expr)| {
+          // Figure out the location of the constant
           let location = (name.split_last())
             .and_then(|(_, path)| {
-              let origin = (tree.0.walk_ref(path, false))
-                .expect("path sourced from symbol names");
-              (origin.extra.file.as_ref())
-                .map(|path| Interner::extern_all(&path[..]))
+              let origin = (tree.0)
+                .walk_ref(&[], path, false)
+                .unwrap_or_else(|_| panic!("path sourced from symbol names"));
+              (origin.extra.file.as_ref()).cloned()
             })
             .map(|p| Location::File(Rc::new(p)))
             .unwrap_or(Location::Unknown);

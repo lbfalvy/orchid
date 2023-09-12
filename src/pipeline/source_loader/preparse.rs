@@ -1,99 +1,169 @@
-use std::hash::Hash;
 use std::rc::Rc;
 
 use hashbrown::HashMap;
+use itertools::Itertools;
 
-use crate::ast::Constant;
-use crate::error::{ProjectError, ProjectResult, VisibilityMismatch};
+use super::types::{PreFileExt, PreItem, PreSubExt};
+use super::{PreExtra, Preparsed};
+use crate::ast::{Clause, Constant, Expr};
+use crate::error::{
+  ConflictingRoles, ProjectError, ProjectResult, VisibilityMismatch,
+};
 use crate::interner::Interner;
 use crate::parse::{self, ParsingContext};
-use crate::representations::sourcefile::{
-  imports, normalize_namespaces, FileEntry, Member,
-};
+use crate::representations::sourcefile::{FileEntry, MemberKind};
 use crate::representations::tree::{ModEntry, ModMember, Module};
+use crate::sourcefile::{FileEntryKind, Import, Member, ModuleBlock};
+use crate::utils::pushed::pushed;
+use crate::utils::{get_or_default, get_or_make};
+use crate::{Location, Tok, VName};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Preparsed(pub Module<(), ()>);
-
-/// Add an internal flat name if it does not exist yet
-fn add_intern<K: Eq + Hash>(map: &mut HashMap<K, ModEntry<(), ()>>, k: K) {
-  let _ = map
-    .try_insert(k, ModEntry { exported: false, member: ModMember::Item(()) });
-}
-
-/// Add an exported flat name or export any existing entry
-fn add_export<K: Eq + Hash>(map: &mut HashMap<K, ModEntry<(), ()>>, k: K) {
-  if let Some(entry) = map.get_mut(&k) {
-    entry.exported = true
-  } else {
-    map.insert(k, ModEntry { exported: true, member: ModMember::Item(()) });
-  }
+struct FileReport {
+  entries: HashMap<Tok<String>, ModEntry<PreItem, PreExtra>>,
+  patterns: Vec<Vec<Expr<VName>>>,
+  imports: Vec<Import>,
 }
 
 /// Convert source lines into a module
-fn to_module(src: &[FileEntry], prelude: &[FileEntry]) -> Module<(), ()> {
-  let all_src = || src.iter().chain(prelude.iter());
-  let imports = imports(all_src()).cloned().collect::<Vec<_>>();
-  let mut items = all_src()
-    .filter_map(|ent| match ent {
-      FileEntry::Internal(Member::Module(ns)) => {
-        let member = ModMember::Sub(to_module(&ns.body, prelude));
-        let entry = ModEntry { exported: false, member };
-        Some((ns.name.clone(), entry))
-      },
-      FileEntry::Exported(Member::Module(ns)) => {
-        let member = ModMember::Sub(to_module(&ns.body, prelude));
-        let entry = ModEntry { exported: true, member };
-        Some((ns.name.clone(), entry))
-      },
-      _ => None,
-    })
-    .collect::<HashMap<_, _>>();
-  for file_entry in all_src() {
-    match file_entry {
-      FileEntry::Comment(_)
-      | FileEntry::Import(_)
-      | FileEntry::Internal(Member::Module(_))
-      | FileEntry::Exported(Member::Module(_)) => (),
-      FileEntry::Export(tokv) =>
-        for tok in tokv {
-          add_export(&mut items, tok.clone())
+fn to_module(
+  file: &[Tok<String>],
+  path: VName,
+  src: Vec<FileEntry>,
+  prelude: &[FileEntry],
+) -> ProjectResult<FileReport> {
+  let mut imports = Vec::new();
+  let mut patterns = Vec::new();
+  let mut items = HashMap::<Tok<String>, (bool, PreItem)>::new();
+  let mut to_export = HashMap::<Tok<String>, Vec<Location>>::new();
+  let mut submods =
+    HashMap::<Tok<String>, (bool, Vec<Location>, Vec<FileEntry>)>::new();
+  let entries = prelude.iter().cloned().chain(src.into_iter());
+  for FileEntry { kind, locations } in entries {
+    match kind {
+      FileEntryKind::Import(imp) => imports.extend(imp.into_iter()),
+      FileEntryKind::Export(names) =>
+        for (t, l) in names {
+          get_or_default(&mut to_export, &t).push(l)
         },
-      FileEntry::Internal(Member::Constant(Constant { name, .. })) =>
-        add_intern(&mut items, name.clone()),
-      FileEntry::Exported(Member::Constant(Constant { name, .. })) =>
-        add_export(&mut items, name.clone()),
-      FileEntry::Internal(Member::Rule(rule)) => {
-        let names = rule.collect_single_names();
-        for name in names {
-          add_intern(&mut items, name)
-        }
+      FileEntryKind::Member(Member { exported, kind }) => match kind {
+        MemberKind::Constant(Constant { name, .. }) => {
+          let (prev_exported, it) = get_or_default(&mut items, &name);
+          if it.has_value {
+            let err = ConflictingRoles { name: pushed(path, name), locations };
+            return Err(err.rc());
+          }
+          if let Some(loc) = locations.get(0) {
+            it.location = it.location.clone().or(loc.clone())
+          };
+          it.has_value = true;
+          *prev_exported |= exported;
+        },
+        MemberKind::Module(ModuleBlock { name, body }) => {
+          if let Some((prev_exported, locv, entv)) = submods.get_mut(&name) {
+            if *prev_exported != exported {
+              let mut namespace = path;
+              namespace.push(name.clone());
+              let err = VisibilityMismatch { namespace, file: file.to_vec() };
+              return Err(err.rc());
+            }
+            locv.extend(locations.into_iter());
+            entv.extend(body.into_iter())
+          } else {
+            submods.insert(name.clone(), (exported, locations, body.clone()));
+          }
+        },
+        MemberKind::Operators(ops) =>
+          for op in ops {
+            let (prev_exported, it) = get_or_default(&mut items, &op);
+            if let Some(loc) = locations.get(0) {
+              it.location = it.location.clone().or(loc.clone())
+            }
+            *prev_exported |= exported;
+            it.is_op = true;
+          },
+        MemberKind::Rule(r) => {
+          patterns.push(r.pattern.clone());
+          if exported {
+            for ex in r.pattern {
+              ex.search_all(&mut |ex| {
+                if let Clause::Name(vname) = &ex.value {
+                  if let Ok(name) = vname.iter().exactly_one() {
+                    get_or_default(&mut to_export, name)
+                      .push(ex.location.clone());
+                  }
+                }
+                None::<()>
+              });
+            }
+          }
+        },
       },
-      FileEntry::Exported(Member::Rule(rule)) => {
-        let names = rule.collect_single_names();
-        for name in names {
-          add_export(&mut items, name)
-        }
-      },
+      _ => (),
     }
   }
-  Module { imports, items, extra: () }
+  let mut entries = HashMap::with_capacity(items.len() + submods.len());
+  entries.extend(items.into_iter().map(|(name, (exported, it))| {
+    (name, ModEntry { member: ModMember::Item(it), exported })
+  }));
+  for (subname, (exported, locations, body)) in submods {
+    let mut name = path.clone();
+    entries
+      .try_insert(subname.clone(), ModEntry {
+        member: ModMember::Sub({
+          name.push(subname);
+          let FileReport { imports, entries: items, patterns } =
+            to_module(file, name.clone(), body, prelude)?;
+          Module {
+            entries: items,
+            extra: PreExtra::Submod(PreSubExt { imports, patterns }),
+          }
+        }),
+        exported,
+      })
+      .map_err(|_| ConflictingRoles { locations, name }.rc())?;
+  }
+  for (item, locations) in to_export {
+    get_or_make(&mut entries, &item, || ModEntry {
+      member: ModMember::Item(PreItem {
+        is_op: false,
+        has_value: false,
+        location: locations[0].clone(),
+      }),
+      exported: true,
+    })
+    .exported = true
+  }
+  Ok(FileReport { entries, imports, patterns })
 }
 
 /// Preparse the module. At this stage, only the imports and
 /// names defined by the module can be parsed
 pub fn preparse(
-  file: Vec<String>,
+  file: VName,
   source: &str,
   prelude: &[FileEntry],
   i: &Interner,
 ) -> ProjectResult<Preparsed> {
   // Parse with no operators
-  let ctx = ParsingContext::<&str>::new(&[], i, Rc::new(file.clone()));
+  let ctx = ParsingContext::new(&[], i, Rc::new(file.clone()));
   let entries = parse::parse2(source, ctx)?;
-  let normalized = normalize_namespaces(Box::new(entries.into_iter()))
-    .map_err(|namespace| {
-      VisibilityMismatch { namespace, file: Rc::new(file.clone()) }.rc()
-    })?;
-  Ok(Preparsed(to_module(&normalized, prelude)))
+  let FileReport { entries, imports, patterns } =
+    to_module(&file, file.clone(), entries, prelude)?;
+  let mut module = Module {
+    entries,
+    extra: PreExtra::File(PreFileExt {
+      details: PreSubExt { patterns, imports },
+      name: file.clone(),
+    }),
+  };
+  for name in file.iter().rev() {
+    module = Module {
+      extra: PreExtra::Dir,
+      entries: HashMap::from([(name.clone(), ModEntry {
+        exported: true,
+        member: ModMember::Sub(module),
+      })]),
+    };
+  }
+  Ok(Preparsed(module))
 }

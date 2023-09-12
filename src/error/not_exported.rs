@@ -25,16 +25,14 @@ impl ProjectError for NotExported {
     Box::new(
       [
         ErrorPosition {
-          location: Location::File(Rc::new(Interner::extern_all(&self.file))),
+          location: Location::File(Rc::new(self.file.clone())),
           message: Some(format!(
             "{} isn't exported",
             Interner::extern_all(&self.subpath).join("::")
           )),
         },
         ErrorPosition {
-          location: Location::File(Rc::new(Interner::extern_all(
-            &self.referrer_file,
-          ))),
+          location: Location::File(Rc::new(self.referrer_file.clone())),
           message: Some(format!(
             "{} cannot see this symbol",
             Interner::extern_all(&self.referrer_subpath).join("::")

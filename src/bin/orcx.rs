@@ -116,6 +116,7 @@ pub fn macro_debug(premacro: PreMacro, sym: Sym) {
         "Available commands:
         \t<blank>, n, next\t\ttake a step
         \tp, print\t\tprint the current state
+        \td, dump\t\tprint the rule table
         \tq, quit\t\texit
         \th, help\t\tprint this text"
       ),

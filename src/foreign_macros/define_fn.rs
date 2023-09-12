@@ -42,15 +42,17 @@ use crate::write_fn_step;
 /// ```
 /// use orchidlang::interpreted::Clause;
 /// use orchidlang::systems::cast_exprinst::with_str;
-/// use orchidlang::{define_fn, Literal, Primitive};
+/// use orchidlang::{define_fn, Literal, OrcString, Primitive};
 ///
 /// define_fn! {expr=x in
 ///   /// Append a string to another
 ///   pub Concatenate {
-///     a: String as with_str(x, |s| Ok(s.clone())),
-///     b: String as with_str(x, |s| Ok(s.clone()))
+///     a: OrcString as with_str(x, |s| Ok(s.clone())),
+///     b: OrcString as with_str(x, |s| Ok(s.clone()))
 ///   } => {
-///     Ok(Clause::P(Primitive::Literal(Literal::Str(a.to_owned() + &b))))
+///     Ok(Clause::P(Primitive::Literal(Literal::Str(
+///       OrcString::from(a.get_string() + &b)
+///     ))))
 ///   }
 /// }
 /// ```
@@ -58,6 +60,7 @@ use crate::write_fn_step;
 /// A simpler format is also offered for unary functions:
 ///
 /// ```
+/// use orchidlang::interpreted::Clause;
 /// use orchidlang::systems::cast_exprinst::with_lit;
 /// use orchidlang::{define_fn, Literal};
 ///
@@ -65,10 +68,10 @@ use crate::write_fn_step;
 ///   /// Convert a literal to a string using Rust's conversions for floats,
 ///   /// chars and uints respectively
 ///   ToString = |x| with_lit(x, |l| Ok(match l {
-///     Literal::Uint(i) => i.to_string(),
-///     Literal::Num(n) => n.to_string(),
-///     Literal::Str(s) => s.clone(),
-///   })).map(|s| Literal::Str(s).into())
+///     Literal::Uint(i) => Literal::Str(i.to_string().into()),
+///     Literal::Num(n) => Literal::Str(n.to_string().into()),
+///     s@Literal::Str(_) => s.clone(),
+///   })).map(Clause::from)
 /// }
 /// ```
 #[macro_export]

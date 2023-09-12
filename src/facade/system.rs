@@ -16,7 +16,7 @@ pub struct System<'a> {
   /// External functions and other constant values defined in AST form
   pub constants: HashMap<Tok<String>, ConstTree>,
   /// Orchid libraries defined by this system
-  pub code: HashMap<Vec<Tok<String>>, Loaded>,
+  pub code: HashMap<VName, Loaded>,
   /// Prelude lines to be added to **subsequent** systems and usercode to
   /// expose the functionality of this system. The prelude is not added during
   /// the loading of this system
@@ -27,7 +27,7 @@ pub struct System<'a> {
 impl<'a> System<'a> {
   /// Intern the name of the system so that it can be used as an Orchid
   /// namespace
-  pub fn vname(&self, i: &Interner) -> Vec<Tok<String>> {
+  pub fn vname(&self, i: &Interner) -> VName {
     self.name.iter().map(|s| i.i(s)).collect::<Vec<_>>()
   }
 

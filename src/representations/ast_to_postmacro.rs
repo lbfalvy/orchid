@@ -34,8 +34,8 @@ impl ProjectError for Error {
   fn description(&self) -> &str {
     match self.kind {
       ErrorKind::BadGroup(_) =>
-        "Only `(...)` may be converted to typed lambdas. `[...]` and `{{...}}` \
-         left in the code are signs of incomplete macro execution",
+        "Only `(...)` may be converted to postmacro. `[...]` and `{...}` left \
+         in the code are signs of incomplete macro execution",
       ErrorKind::EmptyS => "`()` as a clause is meaningless in lambda calculus",
       ErrorKind::InvalidArg => "Argument names can only be Name nodes",
       ErrorKind::Placeholder =>

@@ -8,19 +8,20 @@ use crate::error::{ProjectError, ProjectResult};
 use crate::sourcefile::Import;
 use crate::utils::iter::{box_chain, box_once};
 use crate::utils::BoxedIter;
-use crate::Tok;
+use crate::{Location, Tok};
 
 struct Subresult {
   glob: bool,
   deque: VecDeque<Tok<String>>,
+  location: Location,
 }
 impl Subresult {
-  fn new_glob() -> Self {
-    Self { glob: true, deque: VecDeque::new() }
+  fn new_glob(location: Location) -> Self {
+    Self { glob: true, deque: VecDeque::new(), location }
   }
 
-  fn new_named(name: Tok<String>) -> Self {
-    Self { glob: false, deque: VecDeque::from([name]) }
+  fn new_named(name: Tok<String>, location: Location) -> Self {
+    Self { location, glob: false, deque: VecDeque::from([name]) }
   }
 
   fn push_front(mut self, name: Tok<String>) -> Self {
@@ -29,10 +30,10 @@ impl Subresult {
   }
 
   fn finalize(self) -> Import {
-    let Self { mut deque, glob } = self;
+    let Self { mut deque, glob, location } = self;
     debug_assert!(glob || !deque.is_empty(), "The constructors forbid this");
     let name = if glob { None } else { deque.pop_back() };
-    Import { name, path: deque.into() }
+    Import { name, location, path: deque.into() }
   }
 }
 
@@ -75,7 +76,7 @@ fn parse_multiname_rec(
         let head;
         (head, cursor) = cursor.trim().pop()?;
         match &head.lexeme {
-          Lexeme::Name(n) => names.push(n),
+          Lexeme::Name(n) => names.push((n, head.location())),
           Lexeme::RP('[') => break,
           _ => {
             let err = Expected {
@@ -88,12 +89,14 @@ fn parse_multiname_rec(
         }
       }
       Ok((
-        Box::new(names.into_iter().map(|n| Subresult::new_named(n.clone()))),
+        Box::new(names.into_iter().map(|(name, location)| {
+          Subresult::new_named(name.clone(), location)
+        })),
         cursor,
       ))
     },
     Lexeme::Name(n) if *n == star =>
-      Ok((box_once(Subresult::new_glob()), cursor)),
+      Ok((box_once(Subresult::new_glob(head.location())), cursor)),
     Lexeme::Name(n) if ![comma, star].contains(n) => {
       let cursor = cursor.trim();
       if cursor.get(0).ok().map(|e| &e.lexeme) == Some(&Lexeme::NS) {
@@ -102,7 +105,7 @@ fn parse_multiname_rec(
         let out = Box::new(out.map(|sr| sr.push_front(n.clone())));
         Ok((out, cursor))
       } else {
-        Ok((box_once(Subresult::new_named(n.clone())), cursor))
+        Ok((box_once(Subresult::new_named(n.clone(), head.location())), cursor))
       }
     },
     _ => Err(

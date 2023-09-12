@@ -2,19 +2,19 @@ use std::hash::Hash;
 
 use hashbrown::{HashMap, HashSet};
 
-use crate::interner::Tok;
+use crate::{interner::Tok, VName};
 
 #[derive(Clone, Debug, Default)]
 pub struct AliasMap {
-  pub targets: HashMap<Vec<Tok<String>>, Vec<Tok<String>>>,
-  pub aliases: HashMap<Vec<Tok<String>>, HashSet<Vec<Tok<String>>>>,
+  pub targets: HashMap<VName, VName>,
+  pub aliases: HashMap<VName, HashSet<VName>>,
 }
 impl AliasMap {
   pub fn new() -> Self {
     Self::default()
   }
 
-  pub fn link(&mut self, alias: Vec<Tok<String>>, target: Vec<Tok<String>>) {
+  pub fn link(&mut self, alias: VName, target: VName) {
     let prev = self.targets.insert(alias.clone(), target.clone());
     debug_assert!(prev.is_none(), "Alias already has a target");
     multimap_entry(&mut self.aliases, &target).insert(alias.clone());
@@ -36,7 +36,7 @@ impl AliasMap {
     }
   }
 
-  pub fn resolve(&self, alias: &[Tok<String>]) -> Option<&Vec<Tok<String>>> {
+  pub fn resolve(&self, alias: &[Tok<String>]) -> Option<&VName> {
     self.targets.get(alias)
   }
 }

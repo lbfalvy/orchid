@@ -17,6 +17,7 @@ use super::location::Location;
 use super::namelike::{NameLike, VName};
 use super::primitive::Primitive;
 use crate::interner::Tok;
+use crate::parse::print_nat16;
 use crate::utils::map_rc;
 
 /// A [Clause] with associated metadata
@@ -365,7 +366,7 @@ impl Rule<VName> {
 
   /// Return a list of all names that don't contain a namespace separator `::`.
   /// These are exported when the rule is exported
-  pub fn collect_single_names(&self) -> Vec<Tok<String>> {
+  pub fn collect_single_names(&self) -> VName {
     let mut names = Vec::new();
     for e in self.pattern.iter() {
       e.search_all(&mut |e| {
@@ -385,9 +386,9 @@ impl<N: NameLike> Display for Rule<N> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(
       f,
-      "{} ={}=> {}",
+      "rule {} ={}=> {}",
       self.pattern.iter().join(" "),
-      self.prio,
+      print_nat16(self.prio),
       self.template.iter().join(" ")
     )
   }
@@ -404,6 +405,6 @@ pub struct Constant {
 
 impl Display for Constant {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{} := {}", *self.name, self.value)
+    write!(f, "const {} := {}", *self.name, self.value)
   }
 }

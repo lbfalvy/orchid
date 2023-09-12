@@ -1,5 +1,4 @@
-use std::fmt::Debug;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::rc::Rc;
 
 use crate::representations::location::Location;

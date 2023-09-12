@@ -16,7 +16,7 @@ impl ProjectError for UnexpectedDirectory {
      to a directory"
   }
   fn one_position(&self) -> crate::Location {
-    Location::File(Rc::new(Interner::extern_all(&self.path)))
+    Location::File(Rc::new(self.path.clone()))
   }
 
   fn message(&self) -> String {

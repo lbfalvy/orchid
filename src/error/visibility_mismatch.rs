@@ -10,7 +10,7 @@ pub struct VisibilityMismatch {
   /// The namespace with ambiguous visibility
   pub namespace: VName,
   /// The file containing the namespace
-  pub file: Rc<Vec<String>>,
+  pub file: VName,
 }
 impl ProjectError for VisibilityMismatch {
   fn description(&self) -> &str {
@@ -23,6 +23,6 @@ impl ProjectError for VisibilityMismatch {
     )
   }
   fn one_position(&self) -> Location {
-    Location::File(self.file.clone())
+    Location::File(Rc::new(self.file.clone()))
   }
 }

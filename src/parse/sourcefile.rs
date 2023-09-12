@@ -15,9 +15,9 @@ use super::Entry;
 use crate::ast::{Clause, Constant, Expr, Rule};
 use crate::error::{ProjectError, ProjectResult};
 use crate::representations::location::Location;
-use crate::representations::sourcefile::{FileEntry, Member, ModuleBlock};
+use crate::representations::sourcefile::{FileEntry, MemberKind, ModuleBlock};
 use crate::representations::VName;
-use crate::sourcefile::Import;
+use crate::sourcefile::{FileEntryKind, Import, Member};
 use crate::Primitive;
 
 pub fn split_lines(module: Stream<'_>) -> impl Iterator<Item = Stream<'_>> {
@@ -57,23 +57,31 @@ pub fn parse_module_body(
   split_lines(cursor)
     .map(Stream::trim)
     .filter(|l| !l.data.is_empty())
-    .map(|l| parse_line(l, ctx.clone()))
+    .map(|l| {
+      Ok(FileEntry {
+        locations: vec![l.location()],
+        kind: parse_line(l, ctx.clone())?,
+      })
+    })
     .collect()
 }
 
 pub fn parse_line(
   cursor: Stream<'_>,
   ctx: impl Context,
-) -> ProjectResult<FileEntry> {
+) -> ProjectResult<FileEntryKind> {
   match cursor.get(0)?.lexeme {
     Lexeme::BR | Lexeme::Comment(_) => parse_line(cursor.step()?, ctx),
     Lexeme::Export => parse_export_line(cursor.step()?, ctx),
-    Lexeme::Const | Lexeme::Macro | Lexeme::Module =>
-      Ok(FileEntry::Internal(parse_member(cursor, ctx)?)),
+    Lexeme::Const | Lexeme::Macro | Lexeme::Module | Lexeme::Operators(_) =>
+      Ok(FileEntryKind::Member(Member {
+        kind: parse_member(cursor, ctx)?,
+        exported: false,
+      })),
     Lexeme::Import => {
       let (imports, cont) = parse_multiname(cursor.step()?, ctx)?;
       cont.expect_empty()?;
-      Ok(FileEntry::Import(imports))
+      Ok(FileEntryKind::Import(imports))
     },
     _ => {
       let err = BadTokenInRegion {
@@ -88,23 +96,26 @@ pub fn parse_line(
 pub fn parse_export_line(
   cursor: Stream<'_>,
   ctx: impl Context,
-) -> ProjectResult<FileEntry> {
+) -> ProjectResult<FileEntryKind> {
   let cursor = cursor.trim();
   match cursor.get(0)?.lexeme {
     Lexeme::NS => {
       let (names, cont) = parse_multiname(cursor.step()?, ctx)?;
       cont.expect_empty()?;
       let names = (names.into_iter())
-        .map(|Import { name, path }| match (name, &path[..]) {
-          (Some(n), []) => Ok(n),
-          (None, _) => Err(GlobExport { location: cursor.location() }.rc()),
-          _ => Err(NamespacedExport { location: cursor.location() }.rc()),
+        .map(|Import { name, path, location }| match (name, &path[..]) {
+          (Some(n), []) => Ok((n, location)),
+          (None, _) => Err(GlobExport { location }.rc()),
+          _ => Err(NamespacedExport { location }.rc()),
         })
         .collect::<Result<Vec<_>, _>>()?;
-      Ok(FileEntry::Export(names))
+      Ok(FileEntryKind::Export(names))
     },
-    Lexeme::Const | Lexeme::Macro | Lexeme::Module =>
-      Ok(FileEntry::Exported(parse_member(cursor, ctx)?)),
+    Lexeme::Const | Lexeme::Macro | Lexeme::Module | Lexeme::Operators(_) =>
+      Ok(FileEntryKind::Member(Member {
+        kind: parse_member(cursor, ctx)?,
+        exported: true,
+      })),
     _ => {
       let err = BadTokenInRegion {
         entry: cursor.get(0)?.clone(),
@@ -118,20 +129,24 @@ pub fn parse_export_line(
 fn parse_member(
   cursor: Stream<'_>,
   ctx: impl Context,
-) -> ProjectResult<Member> {
+) -> ProjectResult<MemberKind> {
   let (typemark, cursor) = cursor.trim().pop()?;
-  match typemark.lexeme {
+  match &typemark.lexeme {
     Lexeme::Const => {
       let constant = parse_const(cursor, ctx)?;
-      Ok(Member::Constant(constant))
+      Ok(MemberKind::Constant(constant))
     },
     Lexeme::Macro => {
       let rule = parse_rule(cursor, ctx)?;
-      Ok(Member::Rule(rule))
+      Ok(MemberKind::Rule(rule))
     },
     Lexeme::Module => {
       let module = parse_module(cursor, ctx)?;
-      Ok(Member::Module(module))
+      Ok(MemberKind::Module(module))
+    },
+    Lexeme::Operators(ops) => {
+      cursor.trim().expect_empty()?;
+      Ok(MemberKind::Operators(ops[..].to_vec()))
     },
     _ => {
       let err =
@@ -234,8 +249,9 @@ fn parse_exprv(
         cursor = leftover;
       },
       Lexeme::BS => {
+        let dot = ctx.interner().i(".");
         let (arg, body) =
-          cursor.step()?.find("A '.'", |l| l == &Lexeme::Dot)?;
+          cursor.step()?.find("A '.'", |l| l == &Lexeme::Name(dot.clone()))?;
         let (arg, _) = parse_exprv(arg, None, ctx.clone())?;
         let (body, leftover) = parse_exprv(body, paren, ctx)?;
         output.push(Expr {

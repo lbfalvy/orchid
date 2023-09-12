@@ -6,7 +6,7 @@ use itertools::Itertools;
 use super::{Entry, Lexeme};
 use crate::error::{ErrorPosition, ProjectError};
 use crate::utils::BoxedIter;
-use crate::{Location, Tok};
+use crate::{Location, Tok, VName};
 
 #[derive(Debug)]
 pub struct LineNeedsPrefix {
@@ -234,7 +234,7 @@ impl ProjectError for GlobExport {
 pub struct LexError {
   pub errors: Vec<Simple<char>>,
   pub source: Rc<String>,
-  pub file: Rc<Vec<String>>,
+  pub file: VName,
 }
 impl ProjectError for LexError {
   fn description(&self) -> &str {
@@ -244,7 +244,7 @@ impl ProjectError for LexError {
     let file = self.file.clone();
     Box::new(self.errors.iter().map(move |s| ErrorPosition {
       location: Location::Range {
-        file: file.clone(),
+        file: Rc::new(file.clone()),
         range: s.span(),
         source: self.source.clone(),
       },

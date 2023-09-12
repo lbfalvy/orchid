@@ -1,16 +1,30 @@
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::Tok;
 
-#[derive(Clone, Debug, Eq)]
+/// An Orchid string which may or may not be interned
+#[derive(Clone, Eq)]
 pub enum OrcString {
+  /// An interned string. Equality-conpared by reference.
   Interned(Tok<String>),
+  /// An uninterned bare string. Equality-compared by character
   Runtime(Rc<String>),
 }
 
+impl Debug for OrcString {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Runtime(s) => write!(f, "r\"{s}\""),
+      Self::Interned(t) => write!(f, "i\"{t}\""),
+    }
+  }
+}
+
 impl OrcString {
+  /// Clone out the plain Rust [String]
   pub fn get_string(&self) -> String {
     self.as_str().to_owned()
   }

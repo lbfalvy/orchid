@@ -11,14 +11,14 @@ use crate::error::{ProjectError, ProjectResult};
 use crate::facade::System;
 use crate::interner::Interner;
 use crate::utils::Cache;
-use crate::{Location, Stok, VName};
+use crate::{Location, Stok, Tok, VName};
 
 /// All the data available about a failed source load call
 #[derive(Debug)]
 pub struct FileLoadingError {
   file: io::Error,
   dir: io::Error,
-  path: Vec<String>,
+  path: VName,
 }
 impl ProjectError for FileLoadingError {
   fn description(&self) -> &str {
@@ -54,8 +54,8 @@ pub type IOResult = ProjectResult<Loaded>;
 
 /// Load a file from a path expressed in Rust strings, but relative to
 /// a root expressed as an OS Path.
-pub fn load_file(root: &Path, path: &[impl AsRef<str>]) -> IOResult {
-  let full_path = path.iter().fold(root.to_owned(), |p, s| p.join(s.as_ref()));
+pub fn load_file(root: &Path, path: &[Tok<String>]) -> IOResult {
+  let full_path = path.iter().fold(root.to_owned(), |p, t| p.join(t.as_str()));
   let file_path = full_path.with_extension("orc");
   let file_error = match fs::read_to_string(file_path) {
     Ok(string) => return Ok(Loaded::Code(Rc::new(string))),
@@ -68,7 +68,7 @@ pub fn load_file(root: &Path, path: &[impl AsRef<str>]) -> IOResult {
         FileLoadingError {
           file: file_error,
           dir: dir_error,
-          path: path.iter().map(|s| s.as_ref().to_string()).collect(),
+          path: path.to_vec(),
         }
         .rc(),
       ),
@@ -90,10 +90,7 @@ pub fn load_file(root: &Path, path: &[impl AsRef<str>]) -> IOResult {
 
 /// Generates a cached file loader for a directory
 pub fn mk_dir_cache(root: PathBuf) -> Cache<'static, VName, IOResult> {
-  Cache::new(move |vname: VName, _this| -> IOResult {
-    let path = vname.iter().map(|t| t.as_str()).collect::<Vec<_>>();
-    load_file(&root, &path)
-  })
+  Cache::new(move |vname: VName, _this| load_file(&root, &vname))
 }
 
 /// Load a file from the specified path from an embed table

@@ -1,8 +1,10 @@
 mod cache;
 mod delete_cell;
 mod event_poller;
+mod get_or_default;
 mod iter_find;
-mod pushed;
+pub mod never;
+pub mod pushed;
 mod rc_to_owned;
 mod replace_first;
 mod side;
@@ -14,7 +16,6 @@ pub mod thread_pool;
 mod unwrap_or;
 
 pub use cache::Cache;
-pub use pushed::pushed;
 pub use rc_to_owned::{map_rc, rc_to_owned};
 pub use replace_first::replace_first;
 pub use side::Side;
@@ -24,6 +25,7 @@ pub(crate) use unwrap_or::unwrap_or;
 pub mod iter;
 pub use delete_cell::DeleteCell;
 pub use event_poller::{PollEvent, Poller};
+pub use get_or_default::{get_or_default, get_or_make};
 pub use iter::BoxedIter;
 pub use iter_find::iter_find;
 pub use string_from_charset::string_from_charset;

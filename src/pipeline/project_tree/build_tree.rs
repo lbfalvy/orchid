@@ -1,246 +1,144 @@
 use hashbrown::HashMap;
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 
-use super::collect_ops;
-use super::collect_ops::InjectedOperatorsFn;
-use super::parse_file::parse_file;
-use crate::ast::{Clause, Constant, Expr};
-use crate::error::{ProjectError, ProjectResult, TooManySupers};
-use crate::interner::{Interner, Tok};
-use crate::pipeline::source_loader::{LoadedSource, LoadedSourceTable};
-use crate::representations::project::{ProjectExt, ProjectTree};
-use crate::representations::sourcefile::{absolute_path, FileEntry, Member};
-use crate::representations::tree::{ModEntry, ModMember, Module};
-use crate::representations::{NameLike, VName};
-use crate::tree::{WalkError, WalkErrorKind};
-use crate::utils::iter::{box_empty, box_once};
-use crate::utils::{pushed, unwrap_or, Substack};
+use super::import_tree::ImpMod;
+use crate::ast::{Constant, Rule};
+use crate::error::{ConflictingRoles, ProjectError, ProjectResult};
+use crate::pipeline::source_loader::{PreItem, PreMod};
+use crate::representations::project::{
+  ImpReport, ItemKind, ProjectEntry, ProjectExt, ProjectItem,
+};
+use crate::sourcefile::{
+  FileEntry, FileEntryKind, Member, MemberKind, ModuleBlock,
+};
+use crate::tree::{ModEntry, ModMember, Module};
+use crate::utils::get_or_default;
+use crate::utils::pushed::pushed_ref;
+use crate::{Tok, VName};
 
-#[derive(Debug)]
-struct ParsedSource<'a> {
-  path: Vec<Tok<String>>,
-  loaded: &'a LoadedSource,
-  parsed: Vec<FileEntry>,
-}
-
-/// Split a path into file- and subpath in knowledge
-///
-/// # Errors
-///
-/// if the path is invalid
-#[allow(clippy::type_complexity)] // bit too sensitive here IMO
-pub fn split_path<'a>(
-  path: &'a [Tok<String>],
-  proj: &'a ProjectTree<impl NameLike>,
-) -> Result<(&'a [Tok<String>], &'a [Tok<String>]), WalkError> {
-  let (end, body) = unwrap_or!(path.split_last(); {
-    return Ok((&[], &[]))
-  });
-  let mut module = (proj.0.walk_ref(body, false))?;
-  let entry = (module.items.get(end))
-    .ok_or(WalkError { pos: path.len() - 1, kind: WalkErrorKind::Missing })?;
-  if let ModMember::Sub(m) = &entry.member {
-    module = m;
-  }
-  let file =
-    module.extra.file.as_ref().map(|s| &path[..s.len()]).unwrap_or(path);
-  let subpath = &path[file.len()..];
-  Ok((file, subpath))
-}
-
-/// Convert normalized, prefixed source into a module
-///
-/// # Panics
-///
-/// - if there are imports with too many "super" prefixes (this is normally
-///   detected in preparsing)
-/// - if the preparsed tree is missing a module that exists in the source
-fn source_to_module(
-  // level
-  path: Substack<Tok<String>>,
-  preparsed: &Module<impl Clone, impl Clone>,
-  // data
-  data: Vec<FileEntry>,
-  // context
-  i: &Interner,
-  filepath_len: usize,
-) -> ProjectResult<Module<Expr<VName>, ProjectExt<VName>>> {
-  let path_v = path.iter().rev_vec_clone();
-  let imports = (data.iter())
-    .filter_map(|ent| {
-      if let FileEntry::Import(impv) = ent { Some(impv.iter()) } else { None }
-    })
-    .flatten()
-    .cloned()
-    .collect::<Vec<_>>();
-  let imports_from = (imports.iter())
-    .map(|imp| -> ProjectResult<_> {
-      let mut imp_path_v = imp.path.clone();
-      imp_path_v
-        .push(imp.name.clone().expect("glob imports had just been resolved"));
-      let mut abs_path = absolute_path(&path_v, &imp_path_v, i)
-        .expect("should have failed in preparsing");
-      let name = abs_path.pop().ok_or_else(|| {
-        TooManySupers {
-          offender_file: path_v[..filepath_len].to_vec(),
-          offender_mod: path_v[filepath_len..].to_vec(),
-          path: imp_path_v,
-        }
-        .rc()
-      })?;
-      Ok((name, abs_path))
-    })
-    .collect::<Result<HashMap<_, _>, _>>()?;
-  let exports = (data.iter())
-    .flat_map(|ent| {
-      let mk_ent = |name: Tok<String>| (name.clone(), pushed(&path_v, name));
-      match ent {
-        FileEntry::Export(names) => Box::new(names.iter().cloned().map(mk_ent)),
-        FileEntry::Exported(mem) => match mem {
-          Member::Constant(constant) => box_once(mk_ent(constant.name.clone())),
-          Member::Module(ns) => box_once(mk_ent(ns.name.clone())),
-          Member::Rule(rule) => {
-            let mut names = Vec::new();
-            for e in rule.pattern.iter() {
-              e.search_all(&mut |e| {
-                if let Clause::Name(n) = &e.value {
-                  if let Some([name]) = n.strip_prefix(&path_v[..]) {
-                    names.push((name.clone(), n.clone()))
-                  }
-                }
-                None::<()>
-              });
-            }
-            Box::new(names.into_iter())
-          },
-        },
-        _ => box_empty(),
-      }
-    })
-    .collect::<HashMap<_, _>>();
-  let rules = (data.iter())
-    .filter_map(|ent| match ent {
-      FileEntry::Exported(Member::Rule(rule)) => Some(rule),
-      FileEntry::Internal(Member::Rule(rule)) => Some(rule),
-      _ => None,
-    })
-    .cloned()
-    .collect::<Vec<_>>();
-  let items = (data.into_iter())
-    .filter_map(|ent| {
-      let member_to_item = |exported, member| match member {
-        Member::Module(ns) => {
-          let new_prep = unwrap_or!(
-            &preparsed.items[&ns.name].member => ModMember::Sub;
-            panic!("Preparsed should include entries for all submodules")
-          );
-          let module = match source_to_module(
-            path.push(ns.name.clone()),
-            new_prep,
-            ns.body,
-            i,
-            filepath_len,
-          ) {
-            Err(e) => return Some(Err(e)),
-            Ok(t) => t,
-          };
-          let member = ModMember::Sub(module);
-          Some(Ok((ns.name.clone(), ModEntry { exported, member })))
-        },
-        Member::Constant(Constant { name, value }) => {
-          let member = ModMember::Item(value);
-          Some(Ok((name, ModEntry { exported, member })))
-        },
-        _ => None,
-      };
-      match ent {
-        FileEntry::Exported(member) => member_to_item(true, member),
-        FileEntry::Internal(member) => member_to_item(false, member),
-        _ => None,
-      }
-    })
-    .collect::<Result<HashMap<_, _>, _>>()?;
-  Ok(Module {
-    imports,
-    items,
-    extra: ProjectExt {
-      imports_from,
-      exports,
-      rules,
-      file: Some(path_v[..filepath_len].to_vec()),
-    },
-  })
-}
-
-fn files_to_module(
-  path: Substack<Tok<String>>,
-  files: Vec<ParsedSource>,
-  i: &Interner,
-) -> ProjectResult<Module<Expr<VName>, ProjectExt<VName>>> {
-  let lvl = path.len();
-  debug_assert!(
-    files.iter().map(|f| f.path.len()).max().unwrap() >= lvl,
-    "path is longer than any of the considered file paths"
-  );
-  let path_v = path.iter().rev_vec_clone();
-  if files.len() == 1 && files[0].path.len() == lvl {
-    return source_to_module(
-      path.clone(),
-      &files[0].loaded.preparsed.0,
-      files[0].parsed.clone(),
-      i,
-      path.len(),
-    );
-  }
-  let items = (files.into_iter())
-    .group_by(|f| f.path[lvl].clone())
-    .into_iter()
-    .map(|(namespace, files)| -> ProjectResult<_> {
-      let subpath = path.push(namespace.clone());
-      let files_v = files.collect::<Vec<_>>();
-      let module = files_to_module(subpath, files_v, i)?;
-      let member = ModMember::Sub(module);
-      Ok((namespace, ModEntry { exported: true, member }))
-    })
-    .collect::<Result<HashMap<_, _>, _>>()?;
-  let exports: HashMap<_, _> = (items.keys())
-    .map(|name| (name.clone(), pushed(&path_v, name.clone())))
-    .collect();
-  Ok(Module {
-    items,
-    imports: vec![],
-    extra: ProjectExt {
-      exports,
-      imports_from: HashMap::new(),
-      rules: vec![],
-      file: None,
-    },
-  })
+pub struct TreeReport {
+  pub entries: HashMap<Tok<String>, ProjectEntry<VName>>,
+  pub rules: Vec<Rule<VName>>,
+  /// Maps imported symbols to the absolute paths of the modules they are
+  /// imported from
+  pub imports_from: HashMap<Tok<String>, ImpReport<VName>>,
 }
 
 pub fn build_tree(
-  files: LoadedSourceTable,
-  i: &Interner,
+  path: &VName,
+  source: Vec<FileEntry>,
+  Module { entries, extra }: PreMod,
+  imports: ImpMod,
   prelude: &[FileEntry],
-  injected: &impl InjectedOperatorsFn,
-) -> ProjectResult<ProjectTree<VName>> {
-  assert!(!files.is_empty(), "A tree requires at least one module");
-  let ops_cache = collect_ops::mk_cache(&files, injected);
-  let mut entries = files
-    .iter()
-    .map(|(path, loaded)| {
-      Ok((path, loaded, parse_file(path, &files, &ops_cache, i, prelude)?))
+) -> ProjectResult<TreeReport> {
+  let source =
+    source.into_iter().chain(prelude.iter().cloned()).collect::<Vec<_>>();
+  let (imports_from, mut submod_imports) = (imports.entries.into_iter())
+    .partition_map::<HashMap<_, _>, HashMap<_, _>, _, _, _>(
+      |(n, ent)| match ent.member {
+        ModMember::Item(it) => Either::Left((n, it)),
+        ModMember::Sub(s) => Either::Right((n, s)),
+      },
+    );
+  let mut rule_fragments = Vec::new();
+  let mut submodules = HashMap::<_, Vec<_>>::new();
+  let mut consts = HashMap::new();
+  for FileEntry { kind, locations: _ } in source {
+    match kind {
+      FileEntryKind::Import(_) => (),
+      FileEntryKind::Comment(_) => (),
+      FileEntryKind::Export(_) => (),
+      FileEntryKind::Member(Member { kind, .. }) => match kind {
+        MemberKind::Module(ModuleBlock { body, name }) => {
+          get_or_default(&mut submodules, &name).extend(body.into_iter());
+        },
+        MemberKind::Constant(Constant { name, value }) => {
+          consts.insert(name, value /* .prefix(path, &|_| false) */);
+        },
+        MemberKind::Operators(_) => (),
+        MemberKind::Rule(rule) => rule_fragments.push(rule),
+      },
+    }
+  }
+  let mod_details = extra.details().expect("Directories handled elsewhere");
+  let rules = (mod_details.patterns.iter())
+    .zip(rule_fragments.into_iter())
+    .map(|(p, Rule { prio, template: t, .. })| {
+      // let p = p.iter().map(|e| e.prefix(path, &|_| false)).collect();
+      // let t = t.into_iter().map(|e| e.prefix(path, &|_| false)).collect();
+      Rule { pattern: p.clone(), prio, template: t }
     })
-    .collect::<ProjectResult<Vec<_>>>()?;
-  // sort by similarity, then longest-first
-  entries.sort_unstable_by(|a, b| a.0.cmp(b.0).reverse());
-  let files = entries
-    .into_iter()
-    .map(|(path, loaded, parsed)| ParsedSource {
-      loaded,
-      parsed,
-      path: path.clone(),
+    .collect();
+  let (pre_subs, pre_items) = (entries.into_iter())
+    .partition_map::<HashMap<_, _>, HashMap<_, _>, _, _, _>(
+      |(k, ModEntry { exported, member })| match member {
+        ModMember::Sub(s) => Either::Left((k, (exported, s))),
+        ModMember::Item(it) => Either::Right((k, (exported, it))),
+      },
+    );
+  let mut entries = (pre_subs.into_iter())
+    .map(|(k, (exported, pre_member))| {
+      let impmod = (submod_imports.remove(&k))
+        .expect("Imports and preparsed should line up");
+      (k, exported, pre_member, impmod)
     })
-    .collect::<Vec<_>>();
-  Ok(ProjectTree(files_to_module(Substack::Bottom, files, i)?))
+    .map(|(k, exported, pre, imp)| {
+      let source = submodules
+        .remove(&k)
+        .expect("Submodules should not disappear after reparsing");
+      (k, exported, pre, imp, source)
+    })
+    .map(|(k, exported, pre, imp, source)| {
+      let path = pushed_ref(path, k.clone());
+      let TreeReport { entries, imports_from, rules } =
+        build_tree(&path, source, pre, imp, prelude)?;
+      let extra = ProjectExt { path, file: None, imports_from, rules };
+      let member = ModMember::Sub(Module { entries, extra });
+      Ok((k, ModEntry { exported, member }))
+    })
+    .chain((pre_items.into_iter()).map(
+      |(k, (exported, PreItem { has_value, is_op, location }))| {
+        let item = match imports_from.get(&k) {
+          Some(_) if has_value => {
+            // Local value cannot be assigned to imported key
+            let const_loc =
+              consts.remove(&k).expect("has_value is true").location;
+            let err = ConflictingRoles {
+              locations: vec![location, const_loc],
+              name: pushed_ref(path, k),
+            };
+            return Err(err.rc());
+          },
+          None => {
+            let k = consts.remove(&k).map_or(ItemKind::None, ItemKind::Const);
+            ProjectItem { is_op, kind: k }
+          },
+          Some(report) => ProjectItem {
+            is_op: is_op | report.is_op,
+            kind: ItemKind::Alias(report.source.clone()),
+          },
+        };
+        Ok((k, ModEntry { exported, member: ModMember::Item(item) }))
+      },
+    ))
+    .collect::<Result<HashMap<_, _>, _>>()?;
+  for (k, from) in imports_from.iter() {
+    let (_, ent) = entries.raw_entry_mut().from_key(k).or_insert_with(|| {
+      (k.clone(), ModEntry {
+        exported: false,
+        member: ModMember::Item(ProjectItem {
+          kind: ItemKind::Alias(from.source.clone()),
+          is_op: from.is_op,
+        }),
+      })
+    });
+    debug_assert!(
+      matches!(
+        ent.member,
+        ModMember::Item(ProjectItem { kind: ItemKind::Alias(_), .. })
+      ),
+      "Should have emerged in the processing of pre_items"
+    )
+  }
+  Ok(TreeReport { entries, rules, imports_from })
 }

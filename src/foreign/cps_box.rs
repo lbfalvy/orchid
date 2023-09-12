@@ -1,13 +1,13 @@
 //! Automated wrappers to make working with CPS commands easier.
 
 use std::fmt::Debug;
-use std::iter;
 
 use trait_set::trait_set;
 
 use super::{Atomic, AtomicResult, AtomicReturn, ExternFn, XfnResult};
 use crate::interpreted::{Clause, ExprInst};
 use crate::interpreter::{Context, HandlerRes};
+use crate::utils::pushed::pushed_ref;
 use crate::{atomic_defaults, ConstTree};
 
 trait_set! {
@@ -39,10 +39,7 @@ impl<T: CPSPayload> ExternFn for CPSFn<T> {
   }
   fn apply(&self, arg: ExprInst, _ctx: Context) -> XfnResult {
     let payload = self.payload.clone();
-    let continuations = (self.continuations.iter())
-      .cloned()
-      .chain(iter::once(arg))
-      .collect::<Vec<_>>();
+    let continuations = pushed_ref(&self.continuations, arg);
     if self.argc == 1 {
       Ok(CPSBox { payload, continuations }.atom_cls())
     } else {

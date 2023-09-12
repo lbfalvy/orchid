@@ -15,8 +15,6 @@ use super::primitive::Primitive;
 use super::Literal;
 use crate::Sym;
 
-// TODO: implement Debug, Eq and Hash with cycle detection
-
 /// An expression with metadata
 pub struct Expr {
   /// The actual value

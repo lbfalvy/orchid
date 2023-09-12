@@ -10,7 +10,7 @@ use crate::VName;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ImportAll {
   /// The file containing the offending import
-  pub offender_file: Rc<Vec<String>>,
+  pub offender_file: Rc<VName>,
   /// The module containing the offending import
   pub offender_mod: Rc<VName>,
 }

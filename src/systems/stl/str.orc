@@ -1,5 +1,7 @@
 import super::(proc::*, bool::*, panic)
 
+export operators[++]
+
 export macro ...$a ++ ...$b =0x4p36=> (concat (...$a) (...$b))
 
 export const char_at := \s.\i. do{

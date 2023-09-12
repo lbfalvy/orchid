@@ -2,14 +2,15 @@ use std::ops::Add;
 
 use hashbrown::HashMap;
 
+use super::project::{ItemKind, ProjectItem};
 use crate::ast::{Clause, Expr};
 use crate::foreign::{Atom, Atomic, ExternFn};
 use crate::interner::Tok;
 use crate::representations::location::Location;
-use crate::representations::project::{ProjectExt, ProjectModule, ProjectTree};
+use crate::representations::project::{ProjectExt, ProjectMod, ProjectTree};
 use crate::representations::tree::{ModEntry, ModMember, Module};
 use crate::representations::{Primitive, VName};
-use crate::utils::{pushed, Substack};
+use crate::utils::Substack;
 
 /// A lightweight module tree that can be built declaratively by hand to
 /// describe libraries of external functions in Rust. It implements [Add] for
@@ -90,29 +91,28 @@ fn from_const_tree_rec(
   path: Substack<Tok<String>>,
   consts: HashMap<Tok<String>, ConstTree>,
   file: &[Tok<String>],
-) -> ProjectModule<VName> {
+) -> ProjectMod<VName> {
   let mut items = HashMap::new();
-  let path_v = path.iter().rev_vec_clone();
   for (name, item) in consts {
     items.insert(name.clone(), ModEntry {
       exported: true,
       member: match item {
-        ConstTree::Const(c) => ModMember::Item(c),
+        ConstTree::Const(c) => ModMember::Item(ProjectItem {
+          kind: ItemKind::Const(c),
+          is_op: false,
+        }),
         ConstTree::Tree(t) =>
           ModMember::Sub(from_const_tree_rec(path.push(name), t, file)),
       },
     });
   }
-  let exports = (items.keys())
-    .map(|name| (name.clone(), pushed(&path_v, name.clone())))
-    .collect();
   Module {
-    items,
-    imports: vec![],
+    entries: items,
     extra: ProjectExt {
-      exports,
       file: Some(file.to_vec()),
-      ..Default::default()
+      imports_from: HashMap::new(),
+      rules: Vec::new(),
+      path: path.iter().rev_vec_clone(),
     },
   }
 }

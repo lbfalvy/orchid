@@ -16,9 +16,9 @@ use crate::foreign::cps_box::CPSBox;
 use crate::foreign::{Atomic, ExternError};
 use crate::interpreter::HandlerTable;
 use crate::pipeline::file_loader::embed_to_map;
-use crate::sourcefile::{FileEntry, Import};
+use crate::sourcefile::{FileEntry, FileEntryKind, Import};
 use crate::systems::asynch::{Asynch, MessagePort};
-use crate::Interner;
+use crate::{Interner, Location};
 
 trait_set! {
   pub trait StreamTable = IntoIterator<Item = (&'static str, IOStream)>
@@ -144,10 +144,14 @@ impl<'a, P: MessagePort, ST: StreamTable + 'a> IntoSystem<'a>
       name: vec!["system".to_string(), "io".to_string()],
       constants: io_bindings(i, streams).unwrap_tree(),
       code: embed_to_map::<IOEmbed>(".orc", i),
-      prelude: vec![FileEntry::Import(vec![Import {
-        path: vec![i.i("system"), i.i("io"), i.i("prelude")],
-        name: None,
-      }])],
+      prelude: vec![FileEntry {
+        locations: vec![Location::Unknown],
+        kind: FileEntryKind::Import(vec![Import {
+          location: Location::Unknown,
+          path: vec![i.i("system"), i.i("io"), i.i("prelude")],
+          name: None,
+        }]),
+      }],
       handlers,
     }
   }

@@ -14,8 +14,9 @@ use super::number::print_nat16;
 use super::{comment, name, number, placeholder, string};
 use crate::ast::{PHClass, Placeholder};
 use crate::interner::Tok;
+use crate::parse::operators::operators_parser;
 use crate::representations::Literal;
-use crate::Location;
+use crate::{Interner, Location, VName};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Entry {
@@ -47,7 +48,7 @@ impl Entry {
     self.location.range().expect("An Entry can only have a known location")
   }
 
-  pub fn file(&self) -> Rc<Vec<String>> {
+  pub fn file(&self) -> Rc<VName> {
     self.location.file().expect("An Entry can only have a range location")
   }
 }
@@ -106,14 +107,15 @@ pub enum Lexeme {
   /// Backslash
   BS,
   At,
-  Dot,
+  // Dot,
   Type, // type operator
-  Comment(String),
+  Comment(Rc<String>),
   Export,
   Import,
   Module,
   Macro,
   Const,
+  Operators(Rc<VName>),
   Placeh(Placeholder),
 }
 
@@ -135,7 +137,6 @@ impl Display for Lexeme {
       Self::BR => writeln!(f),
       Self::BS => write!(f, "\\"),
       Self::At => write!(f, "@"),
-      Self::Dot => write!(f, "."),
       Self::Type => write!(f, ":"),
       Self::Comment(text) => write!(f, "--[{}]--", text),
       Self::Export => write!(f, "export"),
@@ -143,6 +144,8 @@ impl Display for Lexeme {
       Self::Module => write!(f, "module"),
       Self::Const => write!(f, "const"),
       Self::Macro => write!(f, "macro"),
+      Self::Operators(ops) =>
+        write!(f, "operators[{}]", Interner::extern_all(ops).join(" ")),
       Self::Placeh(Placeholder { name, class }) => match *class {
         PHClass::Scalar => write!(f, "${}", **name),
         PHClass::Vec { nonzero, prio } => {
@@ -185,16 +188,19 @@ fn paren_parser(lp: char, rp: char) -> impl SimpleParser<char, Lexeme> {
   just(lp).to(Lexeme::LP(lp)).or(just(rp).to(Lexeme::RP(lp)))
 }
 
-pub fn literal_parser<'a>(ctx: impl Context + 'a) -> impl SimpleParser<char, Literal> + 'a {
+pub fn literal_parser<'a>(
+  ctx: impl Context + 'a,
+) -> impl SimpleParser<char, Literal> + 'a {
   choice((
     // all ints are valid floats so it takes precedence
     number::int_parser().map(Literal::Uint),
     number::float_parser().map(Literal::Num),
-    string::str_parser().map(move |s| Literal::Str(ctx.interner().i(&s).into())),
+    string::str_parser()
+      .map(move |s| Literal::Str(ctx.interner().i(&s).into())),
   ))
 }
 
-pub static BASE_OPS: &[&str] = &[",", ".", "..", "..."];
+pub static BASE_OPS: &[&str] = &[",", ".", "..", "...", "*"];
 
 pub fn lexer<'a>(
   ctx: impl Context + 'a,
@@ -213,6 +219,11 @@ pub fn lexer<'a>(
     keyword("import").to(Lexeme::Import),
     keyword("macro").to(Lexeme::Macro),
     keyword("const").to(Lexeme::Const),
+    operators_parser({
+      let ctx = ctx.clone();
+      move |s| ctx.interner().i(&s)
+    })
+    .map(|v| Lexeme::Operators(Rc::new(v))),
     paren_parser('(', ')'),
     paren_parser('[', ']'),
     paren_parser('{', '}'),
@@ -221,14 +232,14 @@ pub fn lexer<'a>(
       .ignore_then(number::float_parser())
       .then_ignore(just("=>"))
       .map(Lexeme::rule),
-    comment::comment_parser().map(Lexeme::Comment),
+    comment::comment_parser().map(|s| Lexeme::Comment(Rc::new(s))),
     placeholder::placeholder_parser(ctx.clone()).map(Lexeme::Placeh),
     just("::").to(Lexeme::NS),
     just('\\').to(Lexeme::BS),
     just('@').to(Lexeme::At),
     just(':').to(Lexeme::Type),
     just('\n').to(Lexeme::BR),
-    just('.').to(Lexeme::Dot),
+    // just('.').to(Lexeme::Dot),
     literal_parser(ctx.clone()).map(Lexeme::Literal),
     name::name_parser(&all_ops).map({
       let ctx = ctx.clone();

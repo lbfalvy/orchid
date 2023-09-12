@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use super::ProjectError;
 use crate::representations::location::Location;
 use crate::{Interner, VName};
@@ -10,10 +8,8 @@ use crate::{Interner, VName};
 pub struct TooManySupers {
   /// The offending import path
   pub path: VName,
-  /// The file containing the offending import
-  pub offender_file: VName,
-  /// The module containing the offending import
-  pub offender_mod: VName,
+  /// The faulty import statement
+  pub location: Location,
 }
 impl ProjectError for TooManySupers {
   fn description(&self) -> &str {
@@ -22,13 +18,12 @@ impl ProjectError for TooManySupers {
   }
   fn message(&self) -> String {
     format!(
-      "path {} in {} contains too many `super` steps.",
+      "path {} contains too many `super` steps.",
       Interner::extern_all(&self.path).join("::"),
-      Interner::extern_all(&self.offender_mod).join("::")
     )
   }
 
   fn one_position(&self) -> Location {
-    Location::File(Rc::new(Interner::extern_all(&self.offender_file)))
+    self.location.clone()
   }
 }

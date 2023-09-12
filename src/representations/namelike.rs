@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::interner::{Interner, Tok};
@@ -14,11 +15,11 @@ pub type VName = Vec<Tok<String>>;
 /// These names are always absolute.
 ///
 /// See also [VName]
-pub type Sym = Tok<Vec<Tok<String>>>;
+pub type Sym = Tok<VName>;
 
 /// An abstraction over tokenized vs non-tokenized names so that they can be
 /// handled together in datastructures
-pub trait NameLike: 'static + Clone + Eq + Hash {
+pub trait NameLike: 'static + Clone + Eq + Hash + Debug {
   /// Fully resolve the name for printing
   fn to_strv(&self) -> Vec<String>;
 }

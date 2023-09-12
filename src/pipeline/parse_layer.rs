@@ -1,11 +1,11 @@
-use std::rc::Rc;
-
+use super::dealias::resolve_aliases;
 use super::file_loader::IOResult;
-use super::{import_resolution, project_tree, source_loader};
+use super::{project_tree, source_loader};
 use crate::error::ProjectResult;
 use crate::interner::{Interner, Tok};
 use crate::representations::sourcefile::FileEntry;
 use crate::representations::VName;
+use crate::utils::never;
 use crate::ProjectTree;
 
 /// Using an IO callback, produce a project tree that includes the given
@@ -23,26 +23,17 @@ pub fn parse_layer<'a>(
   prelude: &[FileEntry],
   i: &Interner,
 ) -> ProjectResult<ProjectTree<VName>> {
-  // A path is injected if it is walkable in the injected tree
-  let injected_as = |path: &[Tok<String>]| {
-    let (item, modpath) = path.split_last()?;
-    let module = environment.0.walk_ref(modpath, false).ok()?;
-    module.extra.exports.get(item).cloned()
-  };
-  let injected_names = |path: Tok<Vec<Tok<String>>>| {
-    let module = environment.0.walk_ref(&path, false).ok()?;
-    Some(Rc::new(module.extra.exports.keys().cloned().collect()))
-  };
-  let source =
+  let (preparsed, source) =
     source_loader::load_source(targets, prelude, i, loader, &|path| {
-      environment.0.walk_ref(path, false).is_ok()
+      environment.0.walk_ref(&[], path, false).is_ok()
     })?;
-  let tree = project_tree::build_tree(source, i, prelude, &injected_names)?;
-  let sum = ProjectTree(environment.0.clone().overlay(tree.0.clone()));
+  let tree =
+    project_tree::rebuild_tree(&source, preparsed, environment, prelude, i)?;
+  let sum = ProjectTree(never::unwrap_always(
+    environment.0.clone().overlay(tree.0.clone()),
+  ));
   let resolvd =
-    import_resolution::resolve_imports(sum, &injected_as, &|path| {
-      tree.0.walk_ref(path, false).is_ok()
-    })?;
+    resolve_aliases(sum, &|path| tree.0.walk1_ref(&[], path, false).is_ok());
   // Addition among modules favours the left hand side.
   Ok(resolvd)
 }

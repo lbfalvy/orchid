@@ -55,15 +55,15 @@ impl<T: Eq + Hash + Clone + 'static> Deref for Tok<T> {
   }
 }
 
-impl<T: Eq + Hash + Clone + 'static> Debug for Tok<T> {
+impl<T: Eq + Hash + Clone + 'static + Debug> Debug for Tok<T> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "Token({})", self.id())
+    write!(f, "Token({} -> {:?})", self.id(), self.data.as_ref())
   }
 }
 
 impl<T: Eq + Hash + Clone + Display + 'static> Display for Tok<T> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{}", *self)
+    write!(f, "{}", **self)
   }
 }
 

@@ -13,7 +13,8 @@ use super::str::str;
 use crate::facade::{IntoSystem, System};
 use crate::interner::Interner;
 use crate::pipeline::file_loader::embed_to_map;
-use crate::sourcefile::{FileEntry, Import};
+use crate::sourcefile::{FileEntry, FileEntryKind, Import};
+use crate::Location;
 
 /// Feature flags for the STL.
 #[derive(Default)]
@@ -29,8 +30,6 @@ pub struct StlConfig {
 #[include = "*.orc"]
 struct StlEmbed;
 
-// TODO: fix all orc modules to not rely on prelude
-
 impl IntoSystem<'static> for StlConfig {
   fn into_system(self, i: &Interner) -> System<'static> {
     let pure_fns =
@@ -41,10 +40,14 @@ impl IntoSystem<'static> for StlConfig {
       name: vec!["std".to_string()],
       constants: HashMap::from([(i.i("std"), fns)]),
       code: embed_to_map::<StlEmbed>(".orc", i),
-      prelude: vec![FileEntry::Import(vec![Import {
-        path: vec![i.i("std"), i.i("prelude")],
-        name: None,
-      }])],
+      prelude: vec![FileEntry {
+        locations: vec![Location::Unknown],
+        kind: FileEntryKind::Import(vec![Import {
+          location: Location::Unknown,
+          path: vec![i.i("std"), i.i("prelude")],
+          name: None,
+        }]),
+      }],
       handlers: state_handlers(),
     }
   }

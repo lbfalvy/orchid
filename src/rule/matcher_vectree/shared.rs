@@ -10,7 +10,7 @@ use crate::representations::Primitive;
 use crate::rule::matcher::{Matcher, RuleExpr};
 use crate::rule::state::State;
 use crate::utils::Side;
-use crate::Sym;
+use crate::{Sym, VName};
 
 pub enum ScalMatcher {
   P(Primitive),
@@ -47,7 +47,7 @@ pub enum VecMatcher {
     /// the length of matches on either side.
     ///
     /// Vectorial keys that appear on either side, in priority order
-    key_order: Vec<Tok<String>>,
+    key_order: VName,
   },
 }
 

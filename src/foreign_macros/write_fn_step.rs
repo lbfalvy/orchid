@@ -19,10 +19,9 @@ use crate::interpreted::ExprInst;
 /// also receive type annotations.
 ///
 /// ```
-/// // FIXME this is a very old example that wouldn't compile now
 /// use unicode_segmentation::UnicodeSegmentation;
 ///
-/// use orchidlang::{write_fn_step, Literal, Primitive};
+/// use orchidlang::{write_fn_step, Literal, Primitive, OrcString};
 /// use orchidlang::interpreted::Clause;
 /// use orchidlang::systems::cast_exprinst::{with_str, with_uint};
 /// use orchidlang::systems::RuntimeError;
@@ -32,20 +31,20 @@ use crate::interpreted::ExprInst;
 /// // Middle state
 /// write_fn_step!(
 ///   CharAt1 {}
-///   CharAt0 where s: String = x => with_str(x, |s| Ok(s.clone()));
+///   CharAt0 where s: OrcString = x => with_str(x, |s| Ok(s.clone()));
 /// );
 /// // Exit state
 /// write_fn_step!(
-///   CharAt0 { s: String }
+///   CharAt0 { s: OrcString }
 ///   i = x => with_uint(x, Ok);
 ///   {
 ///     if let Some(c) = s.graphemes(true).nth(*i as usize) {
-///       Ok(Literal::Str(c.to_string()).into())
+///       Ok(Literal::Str(OrcString::from(c.to_string())).into())
 ///     } else {
 ///       RuntimeError::fail(
 ///         "Character index out of bounds".to_string(),
 ///         "indexing string",
-///       )?
+///       )
 ///     }
 ///   }
 /// );

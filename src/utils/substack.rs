@@ -44,12 +44,13 @@ impl<'a, T> Substack<'a, T> {
     Stackframe { item, prev: self, len: self.opt().map_or(1, |s| s.len + 1) }
   }
   /// obtain the previous stackframe if one exists
-  /// TODO: this should return a [Substack]
-  pub fn pop(&'a self, count: usize) -> Option<&'a Stackframe<'a, T>> {
-    if let Self::Frame(p) = self {
-      if count == 0 { Some(p) } else { p.prev.pop(count - 1) }
+  pub fn pop(&'a self, count: usize) -> &'a Substack<'a, T> {
+    if count == 0 {
+      self
+    } else if let Self::Frame(p) = self {
+      p.prev.pop(count - 1)
     } else {
-      None
+      &Substack::Bottom
     }
   }
   /// number of stackframes

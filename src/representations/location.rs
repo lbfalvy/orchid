@@ -1,21 +1,23 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::ops::Range;
 use std::rc::Rc;
 
 use itertools::Itertools;
 
+use crate::VName;
+
 /// A location in a file, identifies a sequence of suspect characters for any
 /// error. Meaningful within the context of a project.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Location {
   /// Location information lost or code generated on the fly
   Unknown,
   /// Only the file is known
-  File(Rc<Vec<String>>),
+  File(Rc<VName>),
   /// Character slice of the code
   Range {
     /// Argument to the file loading callback that produced this code
-    file: Rc<Vec<String>>,
+    file: Rc<VName>,
     /// Index of the unicode code points associated with the code
     range: Range<usize>,
     /// The full source code as received by the parser
@@ -34,7 +36,7 @@ impl Location {
   }
 
   /// File, if known
-  pub fn file(&self) -> Option<Rc<Vec<String>>> {
+  pub fn file(&self) -> Option<Rc<VName>> {
     if let Self::File(file) | Self::Range { file, .. } = self {
       Some(file.clone())
     } else {
@@ -99,6 +101,12 @@ impl Display for Location {
         }
       },
     }
+  }
+}
+
+impl Debug for Location {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{self}")
   }
 }
 
