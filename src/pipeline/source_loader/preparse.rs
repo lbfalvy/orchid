@@ -14,8 +14,8 @@ use crate::parse::{self, ParsingContext};
 use crate::representations::sourcefile::{FileEntry, MemberKind};
 use crate::representations::tree::{ModEntry, ModMember, Module};
 use crate::sourcefile::{FileEntryKind, Import, Member, ModuleBlock};
-use crate::utils::pushed::pushed;
-use crate::utils::{get_or_default, get_or_make};
+use crate::utils::pure_push::pushed;
+use crate::utils::get_or::{get_or_default, get_or_make};
 use crate::{Location, Tok, VName};
 
 struct FileReport {

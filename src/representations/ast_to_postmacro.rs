@@ -3,7 +3,7 @@ use std::rc::Rc;
 use super::location::Location;
 use super::{ast, postmacro};
 use crate::error::ProjectError;
-use crate::utils::Substack;
+use crate::utils::substack::Substack;
 use crate::Sym;
 
 #[derive(Debug, Clone)]

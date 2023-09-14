@@ -7,10 +7,10 @@ export const print := \text.\ok. (
     (io::flush io::stdout
       ok
       (\e. panic "println threw on flush")
-      yield
+      \_. yield
     )
     (\e. panic "print threw on write")
-    yield
+    \_. yield
 )
 
 export const println := \line.\ok. (
@@ -21,7 +21,7 @@ export const readln := \ok. (
   io::read_line io::stdin
     ok
     (\e. panic "readln threw")
-    yield
+    \_. yield
 )
 
 export module prelude (

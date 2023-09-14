@@ -9,7 +9,7 @@ use crate::representations::tree::{ModMember, Module};
 use crate::representations::NameLike;
 use crate::tree::ModEntry;
 use crate::utils::never::{always, Always};
-use crate::utils::Substack;
+use crate::utils::substack::Substack;
 use crate::{Sym, VName};
 
 #[derive(Debug, Clone)]

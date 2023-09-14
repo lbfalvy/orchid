@@ -1,5 +1,6 @@
 use std::any::{type_name, Any, TypeId};
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::fmt::{Debug, Display};
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
@@ -8,16 +9,15 @@ use std::time::Duration;
 use hashbrown::HashMap;
 use ordered_float::NotNan;
 
-use super::types::MessagePort;
-use super::Asynch;
 use crate::facade::{IntoSystem, System};
 use crate::foreign::cps_box::{init_cps, CPSBox};
-use crate::foreign::ExternError;
+use crate::foreign::{Atomic, ExternError};
 use crate::interpreted::ExprInst;
 use crate::interpreter::HandlerTable;
 use crate::systems::codegen::call;
 use crate::systems::stl::Boolean;
-use crate::utils::{unwrap_or, PollEvent, Poller};
+use crate::utils::poller::{PollEvent, Poller};
+use crate::utils::unwrap_or;
 use crate::{atomic_inert, define_fn, ConstTree, Interner};
 
 #[derive(Debug, Clone)]
@@ -45,7 +45,7 @@ impl Debug for CancelTimer {
 
 #[derive(Clone, Debug)]
 struct Yield;
-atomic_inert!(Yield, "a yield command");
+atomic_inert!(Yield, typestr = "a yield command");
 
 /// Error indicating a yield command when all event producers and timers had
 /// exited
@@ -59,43 +59,43 @@ impl Display for InfiniteBlock {
   }
 }
 
-impl MessagePort for Sender<Box<dyn Any + Send>> {
-  fn send<T: Send + 'static>(&mut self, message: T) {
-    let _ = Self::send(self, Box::new(message));
+/// A thread-safe handle that can be used to send events of any type
+#[derive(Clone)]
+pub struct MessagePort(Sender<Box<dyn Any + Send>>);
+impl MessagePort {
+  /// Send an event. Any type is accepted, handlers are dispatched by type ID
+  pub fn send<T: Send + 'static>(&mut self, message: T) {
+    let _ = self.0.send(Box::new(message));
   }
 }
 
-impl<F> MessagePort for F
-where
-  F: FnMut(Box<dyn Any + Send>) + Send + Clone + 'static,
-{
-  fn send<T: Send + 'static>(&mut self, message: T) {
-    self(Box::new(message))
-  }
-}
+type AnyHandler<'a> = Box<dyn FnMut(Box<dyn Any>) -> Vec<ExprInst> + 'a>;
 
-type AnyHandler<'a> = Box<dyn FnMut(Box<dyn Any>) -> Option<ExprInst> + 'a>;
-
-/// Datastructures the asynch system will eventually be constructed from
-pub struct AsynchConfig<'a> {
+/// Datastructures the asynch system will eventually be constructed from.
+pub struct AsynchSystem<'a> {
   poller: Poller<Box<dyn Any + Send>, ExprInst, ExprInst>,
   sender: Sender<Box<dyn Any + Send>>,
   handlers: HashMap<TypeId, AnyHandler<'a>>,
 }
-impl<'a> AsynchConfig<'a> {
+
+impl<'a> AsynchSystem<'a> {
   /// Create a new async event loop that allows registering handlers and taking
   /// references to the port before it's converted into a [System]
   pub fn new() -> Self {
     let (sender, poller) = Poller::new();
     Self { poller, sender, handlers: HashMap::new() }
   }
-}
-impl<'a> Asynch for AsynchConfig<'a> {
-  type Port = Sender<Box<dyn Any + Send>>;
 
-  fn register<T: 'static>(
+  /// Register a callback to be called on the owning thread when an object of
+  /// the given type is found on the queue. Each type should signify a single
+  /// command so each type should have exactly one handler.
+  ///
+  /// # Panics
+  ///
+  /// if the given type is already handled.
+  pub fn register<T: 'static>(
     &mut self,
-    mut f: impl FnMut(Box<T>) -> Option<ExprInst> + 'a,
+    mut f: impl FnMut(Box<T>) -> Vec<ExprInst> + 'a,
   ) {
     let cb = move |a: Box<dyn Any>| f(a.downcast().expect("keyed by TypeId"));
     let prev = self.handlers.insert(TypeId::of::<T>(), Box::new(cb));
@@ -106,18 +106,21 @@ impl<'a> Asynch for AsynchConfig<'a> {
     )
   }
 
-  fn get_port(&self) -> Self::Port {
-    self.sender.clone()
+  /// Obtain a message port for sending messages to the main thread. If an
+  /// object is passed to the MessagePort that does not have a handler, the
+  /// main thread panics.
+  pub fn get_port(&self) -> MessagePort {
+    MessagePort(self.sender.clone())
   }
 }
 
-impl<'a> Default for AsynchConfig<'a> {
+impl<'a> Default for AsynchSystem<'a> {
   fn default() -> Self {
     Self::new()
   }
 }
 
-impl<'a> IntoSystem<'a> for AsynchConfig<'a> {
+impl<'a> IntoSystem<'a> for AsynchSystem<'a> {
   fn into_system(self, i: &Interner) -> System<'a> {
     let Self { mut handlers, poller, .. } = self;
     let mut handler_table = HandlerTable::new();
@@ -143,7 +146,11 @@ impl<'a> IntoSystem<'a> for AsynchConfig<'a> {
     });
     handler_table.register({
       let polly = polly.clone();
+      let mut microtasks = VecDeque::new();
       move |_: &Yield| {
+        if let Some(expr) = microtasks.pop_front() {
+          return Ok(expr);
+        }
         let mut polly = polly.borrow_mut();
         loop {
           let next = unwrap_or!(polly.run();
@@ -157,8 +164,12 @@ impl<'a> IntoSystem<'a> for AsynchConfig<'a> {
                 .unwrap_or_else(|| {
                   panic!("Unhandled messgae type: {:?}", ev.type_id())
                 });
-              if let Some(expr) = handler(ev) {
-                return Ok(expr);
+              let events = handler(ev);
+              // we got new microtasks
+              if !events.is_empty() {
+                microtasks = VecDeque::from(events);
+                // trampoline
+                return Ok(Yield.atom_exi());
               }
             },
           }

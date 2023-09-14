@@ -8,7 +8,7 @@ use super::namelike::VName;
 use crate::ast::{Constant, Rule};
 use crate::error::{ProjectError, ProjectResult, TooManySupers};
 use crate::interner::{Interner, Tok};
-use crate::utils::pushed::pushed;
+use crate::utils::pure_push::pushed;
 use crate::utils::{unwrap_or, BoxedIter};
 use crate::Location;
 

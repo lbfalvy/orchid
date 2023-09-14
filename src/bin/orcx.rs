@@ -8,8 +8,9 @@ use std::process;
 use clap::Parser;
 use itertools::Itertools;
 use orchidlang::facade::{Environment, PreMacro};
+use orchidlang::systems::asynch::AsynchSystem;
 use orchidlang::systems::stl::StlConfig;
-use orchidlang::systems::{io_system, AsynchConfig, IOStream};
+use orchidlang::systems::{io, scheduler};
 use orchidlang::{ast, interpreted, interpreter, Interner, Sym, VName};
 
 use crate::cli::cmd_prompt;
@@ -134,15 +135,17 @@ pub fn main() {
   let dir = PathBuf::try_from(args.dir).unwrap();
   let i = Interner::new();
   let main = to_vname(&args.main, &i);
-  let mut asynch = AsynchConfig::new();
-  let io = io_system(&mut asynch, None, None, [
-    ("stdin", IOStream::Source(BufReader::new(Box::new(std::io::stdin())))),
-    ("stdout", IOStream::Sink(Box::new(std::io::stdout()))),
-    ("stderr", IOStream::Sink(Box::new(std::io::stderr()))),
+  let mut asynch = AsynchSystem::new();
+  let scheduler = scheduler::SeqScheduler::new(&mut asynch);
+  let io = io::Service::new(scheduler.clone(), [
+    ("stdin", io::Stream::Source(BufReader::new(Box::new(std::io::stdin())))),
+    ("stdout", io::Stream::Sink(Box::new(std::io::stdout()))),
+    ("stderr", io::Stream::Sink(Box::new(std::io::stderr()))),
   ]);
   let env = Environment::new(&i)
     .add_system(StlConfig { impure: true })
     .add_system(asynch)
+    .add_system(scheduler)
     .add_system(io);
   let premacro = env.load_dir(&dir, &main).unwrap();
   if args.dump_repo {

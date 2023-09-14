@@ -4,7 +4,6 @@ use std::sync::Arc;
 use itertools::Itertools;
 
 use super::Boolean;
-use crate::interpreted::ExprInst;
 use crate::systems::cast_exprinst::with_uint;
 use crate::systems::codegen::{orchid_opt, tuple};
 use crate::systems::RuntimeError;
@@ -14,7 +13,7 @@ use crate::{atomic_inert, define_fn, ConstTree, Interner, Literal};
 /// A block of binary data
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct Binary(pub Arc<Vec<u8>>);
-atomic_inert!(Binary, "a binary blob");
+atomic_inert!(Binary, typestr = "a binary blob");
 
 impl Debug for Binary {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

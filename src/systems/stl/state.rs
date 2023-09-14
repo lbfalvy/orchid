@@ -10,7 +10,7 @@ use crate::{atomic_inert, define_fn, ConstTree, Interner};
 
 #[derive(Debug, Clone)]
 pub struct State(Rc<RefCell<ExprInst>>);
-atomic_inert!(State, "a state");
+atomic_inert!(State, typestr = "a state");
 
 #[derive(Debug, Clone)]
 struct NewStateCmd;

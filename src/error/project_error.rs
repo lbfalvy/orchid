@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display};
 use std::rc::Rc;
 
 use crate::representations::location::Location;
-use crate::utils::iter::box_once;
+use crate::utils::boxed_iter::box_once;
 use crate::utils::BoxedIter;
 
 /// A point of interest in resolving the error, such as the point where

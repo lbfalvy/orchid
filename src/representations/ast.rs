@@ -18,7 +18,7 @@ use super::namelike::{NameLike, VName};
 use super::primitive::Primitive;
 use crate::interner::Tok;
 use crate::parse::print_nat16;
-use crate::utils::map_rc;
+use crate::utils::rc_tools::map_rc;
 
 /// A [Clause] with associated metadata
 #[derive(Clone, Debug, PartialEq)]

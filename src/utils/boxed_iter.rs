@@ -20,7 +20,7 @@ macro_rules! box_chain {
     Box::new($curr) as BoxedIter<_>
   };
   ($curr:expr, $($rest:expr),*) => {
-    Box::new($curr$(.chain($rest))*) as $crate::utils::iter::BoxedIter<_>
+    Box::new($curr$(.chain($rest))*) as $crate::utils::boxed_iter::BoxedIter<_>
   };
 }
 

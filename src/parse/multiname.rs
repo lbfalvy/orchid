@@ -6,7 +6,7 @@ use super::stream::Stream;
 use super::Lexeme;
 use crate::error::{ProjectError, ProjectResult};
 use crate::sourcefile::Import;
-use crate::utils::iter::{box_chain, box_once};
+use crate::utils::boxed_iter::{box_chain, box_once};
 use crate::utils::BoxedIter;
 use crate::{Location, Tok};
 

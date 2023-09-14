@@ -1,7 +1,7 @@
 use crate::error::ProjectResult;
 use crate::interner::{Interner, Tok};
 use crate::representations::sourcefile::absolute_path;
-use crate::utils::Substack;
+use crate::utils::substack::Substack;
 use crate::{Location, VName};
 
 pub fn import_abs_path(

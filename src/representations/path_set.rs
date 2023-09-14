@@ -2,7 +2,8 @@ use std::fmt::Debug;
 use std::ops::Add;
 use std::rc::Rc;
 
-use crate::utils::{rc_to_owned, Side};
+use crate::utils::rc_tools::rc_to_owned;
+use crate::utils::Side;
 
 /// A branching path selecting some placeholders (but at least one) in a Lambda
 /// expression

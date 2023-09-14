@@ -1,7 +1,7 @@
 use super::{ErrorPosition, ProjectError};
 #[allow(unused)] // for doc
 use crate::parse_layer;
-use crate::utils::iter::box_empty;
+use crate::utils::boxed_iter::box_empty;
 use crate::utils::BoxedIter;
 
 /// Error produced when [parse_layer] is called without targets. This function

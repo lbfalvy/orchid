@@ -34,6 +34,12 @@ pub trait Atomic: Any + Debug + DynClone
 where
   Self: 'static,
 {
+  /// A fully type-erased interface to issue a command to the unknown type
+  /// and see if it supports it
+  fn request(&self, _request: Box<dyn Any>) -> Option<Box<dyn Any>> {
+    None
+  }
+
   /// Casts this value to [Any] so that its original value can be salvaged
   /// during introspection by other external code. There is no other way to
   /// interact with values of unknown types at the moment.

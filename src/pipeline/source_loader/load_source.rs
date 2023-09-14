@@ -11,7 +11,7 @@ use crate::pipeline::file_loader::{IOResult, Loaded};
 use crate::pipeline::import_abs_path::import_abs_path;
 use crate::representations::sourcefile::FileEntry;
 use crate::tree::Module;
-use crate::utils::pushed::pushed_ref;
+use crate::utils::pure_push::pushed_ref;
 use crate::utils::{split_max_prefix, unwrap_or};
 use crate::Location;
 

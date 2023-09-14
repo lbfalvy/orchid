@@ -4,11 +4,11 @@ use std::fmt::Debug;
 
 use trait_set::trait_set;
 
-use super::{Atomic, AtomicResult, AtomicReturn, ExternFn, XfnResult};
+use super::{Atomic, ExternFn, XfnResult};
 use crate::interpreted::{Clause, ExprInst};
 use crate::interpreter::{Context, HandlerRes};
-use crate::utils::pushed::pushed_ref;
-use crate::{atomic_defaults, ConstTree};
+use crate::utils::pure_push::pushed_ref;
+use crate::{ConstTree, atomic_inert};
 
 trait_set! {
   /// A "well behaved" type that can be used as payload in a CPS box
@@ -93,16 +93,7 @@ impl<T: CPSPayload> CPSBox<T> {
   }
 }
 
-impl<T: CPSPayload> Atomic for CPSBox<T> {
-  atomic_defaults!();
-  fn run(&self, ctx: Context) -> AtomicResult {
-    Ok(AtomicReturn {
-      clause: self.clone().atom_cls(),
-      gas: ctx.gas,
-      inert: true,
-    })
-  }
-}
+atomic_inert!(CPSBox(T:(CPSPayload)), typestr = "a CPS box");
 
 /// Like [init_cps] but wrapped in a [ConstTree] for init-time usage
 pub fn const_cps<T: CPSPayload>(argc: usize, payload: T) -> ConstTree {

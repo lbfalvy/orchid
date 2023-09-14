@@ -13,7 +13,7 @@ use crate::representations::project::{ImpReport, ProjectExt, ProjectMod};
 use crate::sourcefile::FileEntry;
 use crate::tree::{ModEntry, ModMember, Module};
 use crate::utils::never::{always, unwrap_always};
-use crate::utils::pushed::pushed_ref;
+use crate::utils::pure_push::pushed_ref;
 use crate::utils::unwrap_or;
 use crate::{parse, Interner, ProjectTree, Tok, VName};
 

@@ -4,7 +4,7 @@ use crate::error::{ErrorPosition, ProjectError};
 use crate::interpreter::HandlerTable;
 use crate::pipeline::file_loader::{IOResult, Loaded};
 use crate::sourcefile::FileEntry;
-use crate::utils::iter::box_empty;
+use crate::utils::boxed_iter::box_empty;
 use crate::utils::BoxedIter;
 use crate::{ConstTree, Interner, Tok, VName};
 
@@ -66,7 +66,7 @@ impl ProjectError for MissingSystemCode {
 
 /// Trait for objects that can be converted into a [System] in the presence
 /// of an [Interner].
-pub trait IntoSystem<'a>: 'a {
+pub trait IntoSystem<'a> {
   /// Convert this object into a system using an interner
   fn into_system(self, i: &Interner) -> System<'a>;
 }

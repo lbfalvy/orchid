@@ -8,7 +8,7 @@ use crate::representations::project::{
   ItemKind, ProjectExt, ProjectItem, ProjectMod,
 };
 use crate::tree::{ModEntry, ModMember, Module};
-use crate::utils::pushed::pushed;
+use crate::utils::pure_push::pushed;
 use crate::{Interner, ProjectTree, Tok, VName};
 
 fn resolve_aliases_rec(

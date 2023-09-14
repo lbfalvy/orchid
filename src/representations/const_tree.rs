@@ -10,7 +10,7 @@ use crate::representations::location::Location;
 use crate::representations::project::{ProjectExt, ProjectMod, ProjectTree};
 use crate::representations::tree::{ModEntry, ModMember, Module};
 use crate::representations::{Primitive, VName};
-use crate::utils::Substack;
+use crate::utils::substack::Substack;
 
 /// A lightweight module tree that can be built declaratively by hand to
 /// describe libraries of external functions in Rust. It implements [Add] for

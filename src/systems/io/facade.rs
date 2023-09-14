@@ -17,7 +17,7 @@ use crate::foreign::{Atomic, ExternError};
 use crate::interpreter::HandlerTable;
 use crate::pipeline::file_loader::embed_to_map;
 use crate::sourcefile::{FileEntry, FileEntryKind, Import};
-use crate::systems::asynch::{Asynch, MessagePort};
+use crate::systems::asynch::AsynchSystem;
 use crate::{Interner, Location};
 
 trait_set! {
@@ -32,25 +32,25 @@ struct IOEmbed;
 
 /// A registry that stores IO streams and executes blocking operations on them
 /// in a distinct thread pool
-pub struct IOSystem<P: MessagePort, ST: StreamTable> {
-  read_system: Rc<RefCell<ReadManager<P>>>,
-  write_system: Rc<RefCell<WriteManager<P>>>,
+pub struct IOSystem<ST: StreamTable> {
+  read_system: Rc<RefCell<ReadManager>>,
+  write_system: Rc<RefCell<WriteManager>>,
   global_streams: ST,
 }
-impl<P: MessagePort, ST: StreamTable> IOSystem<P, ST> {
+impl<ST: StreamTable> IOSystem<ST> {
   fn new(
-    mut get_port: impl FnMut() -> P,
+    asynch: &AsynchSystem,
     on_sink_close: Option<Box<dyn FnMut(Sink)>>,
     on_source_close: Option<Box<dyn FnMut(Source)>>,
     global_streams: ST,
   ) -> Self {
     Self {
       read_system: Rc::new(RefCell::new(IOManager::new(
-        get_port(),
+        asynch.get_port(),
         on_source_close,
       ))),
       write_system: Rc::new(RefCell::new(IOManager::new(
-        get_port(),
+        asynch.get_port(),
         on_sink_close,
       ))),
       global_streams,
@@ -93,26 +93,19 @@ pub enum IOStream {
 /// takes a generic parameter which is initialized from an existential in the
 /// [AsynchConfig].
 pub fn io_system(
-  asynch: &'_ mut impl Asynch,
+  asynch: &'_ mut AsynchSystem,
   on_sink_close: Option<Box<dyn FnMut(Sink)>>,
   on_source_close: Option<Box<dyn FnMut(Source)>>,
   std_streams: impl IntoIterator<Item = (&'static str, IOStream)>,
-) -> IOSystem<impl MessagePort, impl StreamTable> {
-  let this = IOSystem::new(
-    || asynch.get_port(),
-    on_sink_close,
-    on_source_close,
-    std_streams,
-  );
+) -> IOSystem<impl StreamTable> {
+  let this = IOSystem::new(asynch, on_sink_close, on_source_close, std_streams);
   let (r, w) = (this.read_system.clone(), this.write_system.clone());
-  asynch.register(move |event| r.borrow_mut().dispatch(*event));
-  asynch.register(move |event| w.borrow_mut().dispatch(*event));
+  asynch.register(move |event| vec![r.borrow_mut().dispatch(*event)]);
+  asynch.register(move |event| vec![w.borrow_mut().dispatch(*event)]);
   this
 }
 
-impl<'a, P: MessagePort, ST: StreamTable + 'a> IntoSystem<'a>
-  for IOSystem<P, ST>
-{
+impl<'a, ST: StreamTable + 'a> IntoSystem<'a> for IOSystem<ST> {
   fn into_system(self, i: &Interner) -> System<'a> {
     let (r, w) = (self.read_system.clone(), self.write_system.clone());
     let mut handlers = HandlerTable::new();

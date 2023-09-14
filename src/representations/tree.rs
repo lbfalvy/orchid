@@ -10,7 +10,8 @@ use hashbrown::HashMap;
 use super::Location;
 use crate::error::ProjectError;
 use crate::interner::Tok;
-use crate::utils::{BoxedIter, Substack};
+use crate::utils::substack::Substack;
+use crate::utils::BoxedIter;
 use crate::{Interner, VName};
 
 /// The member in a [ModEntry] which is associated with a name in a [Module]

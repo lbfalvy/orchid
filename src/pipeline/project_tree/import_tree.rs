@@ -10,8 +10,8 @@ use crate::pipeline::source_loader::{PreMod, Preparsed};
 use crate::representations::project::ImpReport;
 use crate::sourcefile::{absolute_path, Import};
 use crate::tree::{ErrKind, ModEntry, ModMember, Module, WalkError};
-use crate::utils::iter::{box_chain, box_once};
-use crate::utils::pushed::pushed_ref;
+use crate::utils::boxed_iter::{box_chain, box_once};
+use crate::utils::pure_push::pushed_ref;
 use crate::utils::{unwrap_or, BoxedIter};
 use crate::{Interner, ProjectTree, Tok, VName};
 

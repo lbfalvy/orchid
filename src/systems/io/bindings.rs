@@ -33,7 +33,7 @@ define_fn! {
     n: u64
   } => Ok(init_cps(3, IOCmdHandlePack{
     cmd: ReadCmd::RBytes(BRead::N((*n).try_into().unwrap())),
-    handle: *stream
+    handle: stream.clone()
   }))
 }
 define_fn! {
@@ -47,7 +47,7 @@ define_fn! {
     ))?;
     Ok(init_cps(3, IOCmdHandlePack{
       cmd: ReadCmd::RBytes(BRead::Until(delim)),
-      handle: *stream
+      handle: stream.clone()
     }))
   }
 }
@@ -57,7 +57,7 @@ define_fn! {
     string: OrcString
   } => Ok(init_cps(3, IOCmdHandlePack {
     cmd: WriteCmd::WStr(string.get_string()),
-    handle: *stream,
+    handle: stream.clone(),
   }))
 }
 define_fn! {
@@ -66,7 +66,7 @@ define_fn! {
     bytes: Binary
   } => Ok(init_cps(3, IOCmdHandlePack {
     cmd: WriteCmd::WBytes(bytes.clone()),
-    handle: *stream
+    handle: stream.clone(),
   }))
 }
 define_fn! {
@@ -76,9 +76,9 @@ define_fn! {
   }))
 }
 
-pub fn io_bindings(
+pub fn io_bindings<'a>(
   i: &Interner,
-  std_streams: impl IntoIterator<Item = (&'static str, Box<dyn Atomic>)>,
+  std_streams: impl IntoIterator<Item = (&'a str, Box<dyn Atomic>)>,
 ) -> ConstTree {
   ConstTree::namespace(
     [i.i("system"), i.i("io")],

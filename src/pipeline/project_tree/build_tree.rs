@@ -12,8 +12,8 @@ use crate::sourcefile::{
   FileEntry, FileEntryKind, Member, MemberKind, ModuleBlock,
 };
 use crate::tree::{ModEntry, ModMember, Module};
-use crate::utils::get_or_default;
-use crate::utils::pushed::pushed_ref;
+use crate::utils::get_or::get_or_default;
+use crate::utils::pure_push::pushed_ref;
 use crate::{Tok, VName};
 
 pub struct TreeReport {

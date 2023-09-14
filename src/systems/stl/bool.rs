@@ -1,14 +1,14 @@
 use std::rc::Rc;
 
 use crate::interner::Interner;
-use crate::representations::interpreted::{Clause, ExprInst};
+use crate::representations::interpreted::Clause;
 use crate::systems::AssertionError;
 use crate::{atomic_inert, define_fn, ConstTree, Literal, PathSet};
 
 /// Booleans exposed to Orchid
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Boolean(pub bool);
-atomic_inert!(Boolean, "a boolean");
+atomic_inert!(Boolean, typestr = "a boolean");
 
 impl From<bool> for Boolean {
   fn from(value: bool) -> Self {
