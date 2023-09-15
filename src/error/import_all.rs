@@ -15,9 +15,7 @@ pub struct ImportAll {
   pub offender_mod: Rc<VName>,
 }
 impl ProjectError for ImportAll {
-  fn description(&self) -> &str {
-    "a top-level glob import was used"
-  }
+  fn description(&self) -> &str { "a top-level glob import was used" }
   fn message(&self) -> String {
     format!("{} imports *", self.offender_mod.iter().join("::"))
   }

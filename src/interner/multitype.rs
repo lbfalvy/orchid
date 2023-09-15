@@ -18,9 +18,7 @@ pub struct Interner {
 }
 impl Interner {
   /// Create a new interner
-  pub fn new() -> Self {
-    Self { interners: RefCell::new(HashMap::new()) }
-  }
+  pub fn new() -> Self { Self { interners: RefCell::new(HashMap::new()) } }
 
   /// Intern something
   pub fn i<Q: ?Sized + Eq + Hash + ToOwned>(&self, q: &Q) -> Tok<Q::Owned>
@@ -62,9 +60,7 @@ impl Interner {
 }
 
 impl Default for Interner {
-  fn default() -> Self {
-    Self::new()
-  }
+  fn default() -> Self { Self::new() }
 }
 
 /// Get or create an interner for a given type.

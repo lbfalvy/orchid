@@ -69,8 +69,9 @@ impl Add for PreExtra {
   fn add(self, rhs: Self) -> Self::Output {
     match (self, rhs) {
       (alt, Self::Dir) | (Self::Dir, alt) => Ok(alt),
-      (Self::File(_) | Self::Submod(_), Self::File(_) | Self::Submod(_)) =>
-        panic!("Each file should be parsed once."),
+      (Self::File(_) | Self::Submod(_), Self::File(_) | Self::Submod(_)) => {
+        panic!("Each file should be parsed once.")
+      },
     }
   }
 }
@@ -79,8 +80,9 @@ impl Display for PreExtra {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Dir => write!(f, "Directory"),
-      Self::File(PreFileExt { name, .. }) =>
-        write!(f, "File({}.orc)", Interner::extern_all(name).join("/")),
+      Self::File(PreFileExt { name, .. }) => {
+        write!(f, "File({}.orc)", Interner::extern_all(name).join("/"))
+      },
       Self::Submod(_) => write!(f, "Submodule"),
     }
   }

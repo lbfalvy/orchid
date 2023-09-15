@@ -1,17 +1,14 @@
 use std::any::Any;
 use std::collections::VecDeque;
 
-use crate::interpreted::ExprInst;
-
 use super::Canceller;
+use crate::interpreted::ExprInst;
 
 pub type SyncResult<T> = (T, Box<dyn Any + Send>);
 pub type SyncOperation<T> =
   Box<dyn FnOnce(T, Canceller) -> SyncResult<T> + Send>;
-pub type SyncOpResultHandler<T> = Box<
-  dyn FnOnce(T, Box<dyn Any + Send>, Canceller) -> (T, Vec<ExprInst>),
->;
-
+pub type SyncOpResultHandler<T> =
+  Box<dyn FnOnce(T, Box<dyn Any + Send>, Canceller) -> (T, Vec<ExprInst>)>;
 
 struct SyncQueueItem<T> {
   cancelled: Canceller,
@@ -89,9 +86,7 @@ impl<T> BusyState<T> {
     self.seal = Some(Box::new(recipient))
   }
 
-  pub fn is_sealed(&self) -> bool {
-    self.seal.is_some()
-  }
+  pub fn is_sealed(&self) -> bool { self.seal.is_some() }
 
   pub fn rotate<U: Send + 'static>(
     mut self,

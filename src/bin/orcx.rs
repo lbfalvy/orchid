@@ -61,9 +61,7 @@ impl Args {
     Ok(())
   }
 
-  pub fn chk_proj(&self) -> Result<(), String> {
-    self.chk_dir_main()
-  }
+  pub fn chk_proj(&self) -> Result<(), String> { self.chk_dir_main() }
 }
 
 pub fn to_vname(data: &str, i: &Interner) -> VName {

@@ -37,10 +37,12 @@ impl Display for RuleError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Missing(key) => write!(f, "Key {key} not in match pattern"),
-      Self::ArityMismatch(key) =>
-        write!(f, "Key {key} used inconsistently with and without ellipsis"),
-      Self::Multiple(key) =>
-        write!(f, "Key {key} appears multiple times in match pattern"),
+      Self::ArityMismatch(key) => {
+        write!(f, "Key {key} used inconsistently with and without ellipsis")
+      },
+      Self::Multiple(key) => {
+        write!(f, "Key {key} appears multiple times in match pattern")
+      },
       Self::VecNeighbors(left, right) => write!(
         f,
         "Keys {left} and {right} are two vectorials right next to each other"

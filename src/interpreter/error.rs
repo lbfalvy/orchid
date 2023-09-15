@@ -17,9 +17,7 @@ pub enum RuntimeError {
 }
 
 impl From<Rc<dyn ExternError>> for RuntimeError {
-  fn from(value: Rc<dyn ExternError>) -> Self {
-    Self::Extern(value)
-  }
+  fn from(value: Rc<dyn ExternError>) -> Self { Self::Extern(value) }
 }
 
 impl Display for RuntimeError {

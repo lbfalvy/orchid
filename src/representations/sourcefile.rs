@@ -84,8 +84,9 @@ pub enum MemberKind {
 impl Display for MemberKind {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Self::Operators(opv) =>
-        write!(f, "operators[{}]", opv.iter().map(|t| &**t).join(" ")),
+      Self::Operators(opv) => {
+        write!(f, "operators[{}]", opv.iter().map(|t| &**t).join(" "))
+      },
       Self::Constant(c) => c.fmt(f),
       Self::Module(m) => m.fmt(f),
       Self::Rule(r) => r.fmt(f),
@@ -130,11 +131,13 @@ impl Display for FileEntryKind {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Comment(s) => write!(f, "--[{s}]--"),
-      Self::Export(s) =>
-        write!(f, "export ::({})", s.iter().map(|t| &**t.0).join(", ")),
+      Self::Export(s) => {
+        write!(f, "export ::({})", s.iter().map(|t| &**t.0).join(", "))
+      },
       Self::Member(member) => write!(f, "{member}"),
-      Self::Import(i) =>
-        write!(f, "import ({})", i.iter().map(|i| i.to_string()).join(", ")),
+      Self::Import(i) => {
+        write!(f, "import ({})", i.iter().map(|i| i.to_string()).join(", "))
+      },
     }
   }
 }

@@ -14,14 +14,10 @@ pub struct IdMap<T> {
 }
 impl<T> IdMap<T> {
   /// Create a new empty set
-  pub fn new() -> Self {
-    Self { next_id: 0, data: HashMap::new() }
-  }
+  pub fn new() -> Self { Self { next_id: 0, data: HashMap::new() } }
 
   /// Obtain a reference to the underlying map for iteration
-  pub fn map(&self) -> &HashMap<u64, T> {
-    &self.data
-  }
+  pub fn map(&self) -> &HashMap<u64, T> { &self.data }
 
   /// Insert an element with a new ID and return the ID
   pub fn insert(&mut self, t: T) -> u64 {
@@ -33,9 +29,7 @@ impl<T> IdMap<T> {
   }
 
   /// Obtain a reference to the element with the given ID
-  pub fn get(&self, id: u64) -> Option<&T> {
-    self.data.get(&id)
-  }
+  pub fn get(&self, id: u64) -> Option<&T> { self.data.get(&id) }
 
   /// Obtain a mutable reference to the element with the given ID
   pub fn get_mut(&mut self, id: u64) -> Option<&mut T> {
@@ -44,15 +38,11 @@ impl<T> IdMap<T> {
 
   /// Remove the element with the given ID from the set. The ID will not be
   /// reused.
-  pub fn remove(&mut self, id: u64) -> Option<T> {
-    self.data.remove(&id)
-  }
+  pub fn remove(&mut self, id: u64) -> Option<T> { self.data.remove(&id) }
 }
 
 impl<T> Default for IdMap<T> {
-  fn default() -> Self {
-    Self::new()
-  }
+  fn default() -> Self { Self::new() }
 }
 
 #[cfg(test)]

@@ -79,7 +79,7 @@ macro_rules! atomic_impl {
   };
   ($typ:ident, $next_phase:expr) => {
     impl $crate::foreign::Atomic for $typ {
-      $crate::atomic_defaults! {}
+      fn as_any(&self) -> &dyn std::any::Any { self }
 
       fn run(
         &self,

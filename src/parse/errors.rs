@@ -13,15 +13,11 @@ pub struct LineNeedsPrefix {
   pub entry: Entry,
 }
 impl ProjectError for LineNeedsPrefix {
-  fn description(&self) -> &str {
-    "This linetype requires a prefix"
-  }
+  fn description(&self) -> &str { "This linetype requires a prefix" }
   fn message(&self) -> String {
     format!("{} cannot appear at the beginning of a line", self.entry)
   }
-  fn one_position(&self) -> Location {
-    self.entry.location()
-  }
+  fn one_position(&self) -> Location { self.entry.location() }
 }
 
 #[derive(Debug)]
@@ -30,9 +26,7 @@ pub struct UnexpectedEOL {
   pub entry: Entry,
 }
 impl ProjectError for UnexpectedEOL {
-  fn description(&self) -> &str {
-    "The line ended abruptly"
-  }
+  fn description(&self) -> &str { "The line ended abruptly" }
 
   fn message(&self) -> String {
     "The line ends unexpectedly here. In Orchid, all line breaks outside \
@@ -40,21 +34,15 @@ impl ProjectError for UnexpectedEOL {
       .to_string()
   }
 
-  fn one_position(&self) -> Location {
-    self.entry.location()
-  }
+  fn one_position(&self) -> Location { self.entry.location() }
 }
 
 pub struct ExpectedEOL {
   pub location: Location,
 }
 impl ProjectError for ExpectedEOL {
-  fn description(&self) -> &str {
-    "Expected the end of the line"
-  }
-  fn one_position(&self) -> Location {
-    self.location.clone()
-  }
+  fn description(&self) -> &str { "Expected the end of the line" }
+  fn one_position(&self) -> Location { self.location.clone() }
 }
 
 #[derive(Debug)]
@@ -85,9 +73,7 @@ impl ProjectError for ExpectedName {
     }
   }
 
-  fn one_position(&self) -> Location {
-    self.entry.location()
-  }
+  fn one_position(&self) -> Location { self.entry.location() }
 }
 
 #[derive()]
@@ -115,16 +101,15 @@ impl ProjectError for Expected {
       &[] => return "Unsatisfiable expectation".to_string(),
       [only] => only.to_string(),
       [a, b] => format!("either {a} or {b}"),
-      [variants @ .., last] =>
-        format!("any of {} or {last}", variants.iter().join(", ")),
+      [variants @ .., last] => {
+        format!("any of {} or {last}", variants.iter().join(", "))
+      },
     };
     let or_name = if self.or_name { " or a name" } else { "" };
     format!("Expected {list}{or_name} but found {}", self.found)
   }
 
-  fn one_position(&self) -> Location {
-    self.found.location()
-  }
+  fn one_position(&self) -> Location { self.found.location() }
 }
 
 pub struct ReservedToken {
@@ -135,13 +120,9 @@ impl ProjectError for ReservedToken {
     "A token reserved for future use was found in the code"
   }
 
-  fn message(&self) -> String {
-    format!("{} is a reserved token", self.entry)
-  }
+  fn message(&self) -> String { format!("{} is a reserved token", self.entry) }
 
-  fn one_position(&self) -> Location {
-    self.entry.location()
-  }
+  fn one_position(&self) -> Location { self.entry.location() }
 }
 
 pub struct BadTokenInRegion {
@@ -157,9 +138,7 @@ impl ProjectError for BadTokenInRegion {
     format!("{} cannot appear in {}", self.entry, self.region)
   }
 
-  fn one_position(&self) -> Location {
-    self.entry.location()
-  }
+  fn one_position(&self) -> Location { self.entry.location() }
 }
 
 pub struct NotFound {
@@ -171,25 +150,17 @@ impl ProjectError for NotFound {
     "A specific lexeme was expected but not found in the given range"
   }
 
-  fn message(&self) -> String {
-    format!("{} was expected", self.expected)
-  }
+  fn message(&self) -> String { format!("{} was expected", self.expected) }
 
-  fn one_position(&self) -> Location {
-    self.location.clone()
-  }
+  fn one_position(&self) -> Location { self.location.clone() }
 }
 
 pub struct LeadingNS {
   pub location: Location,
 }
 impl ProjectError for LeadingNS {
-  fn description(&self) -> &str {
-    ":: can only follow a name token"
-  }
-  fn one_position(&self) -> Location {
-    self.location.clone()
-  }
+  fn description(&self) -> &str { ":: can only follow a name token" }
+  fn one_position(&self) -> Location { self.location.clone() }
 }
 
 pub struct MisalignedParen {
@@ -199,12 +170,8 @@ impl ProjectError for MisalignedParen {
   fn description(&self) -> &str {
     "Parentheses (), [] and {} must always pair up"
   }
-  fn message(&self) -> String {
-    format!("This {} has no pair", self.entry)
-  }
-  fn one_position(&self) -> Location {
-    self.entry.location()
-  }
+  fn message(&self) -> String { format!("This {} has no pair", self.entry) }
+  fn one_position(&self) -> Location { self.entry.location() }
 }
 
 pub struct NamespacedExport {
@@ -214,9 +181,7 @@ impl ProjectError for NamespacedExport {
   fn description(&self) -> &str {
     "Exports can only refer to unnamespaced names in the local namespace"
   }
-  fn one_position(&self) -> Location {
-    self.location.clone()
-  }
+  fn one_position(&self) -> Location { self.location.clone() }
 }
 
 pub struct GlobExport {
@@ -226,9 +191,7 @@ impl ProjectError for GlobExport {
   fn description(&self) -> &str {
     "Exports can only refer to concrete names, globstars are not allowed"
   }
-  fn one_position(&self) -> Location {
-    self.location.clone()
-  }
+  fn one_position(&self) -> Location { self.location.clone() }
 }
 
 pub struct LexError {
@@ -237,9 +200,7 @@ pub struct LexError {
   pub file: VName,
 }
 impl ProjectError for LexError {
-  fn description(&self) -> &str {
-    "An error occured during tokenization"
-  }
+  fn description(&self) -> &str { "An error occured during tokenization" }
   fn positions(&self) -> BoxedIter<ErrorPosition> {
     let file = self.file.clone();
     Box::new(self.errors.iter().map(move |s| ErrorPosition {

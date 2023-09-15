@@ -4,6 +4,7 @@ use ordered_float::NotNan;
 
 use super::ArithmeticError;
 use crate::foreign::ExternError;
+use crate::interpreted::TryFromExprInst;
 use crate::representations::interpreted::{Clause, ExprInst};
 use crate::representations::{Literal, Primitive};
 use crate::systems::cast_exprinst::with_lit;
@@ -40,14 +41,12 @@ impl Numeric {
     }
   }
 }
-
-impl TryFrom<&ExprInst> for Numeric {
-  type Error = Rc<dyn ExternError>;
-  fn try_from(value: &ExprInst) -> Result<Self, Self::Error> {
-    with_lit(value, |l| match l {
+impl TryFromExprInst for Numeric {
+  fn from_exi(exi: &ExprInst) -> Result<Self, Rc<dyn ExternError>> {
+    with_lit(exi, |l| match l {
       Literal::Uint(i) => Ok(Numeric::Uint(*i)),
       Literal::Num(n) => Ok(Numeric::Num(*n)),
-      _ => AssertionError::fail(value.clone(), "an integer or number")?,
+      _ => AssertionError::fail(exi.clone(), "an integer or number")?,
     })
   }
 }

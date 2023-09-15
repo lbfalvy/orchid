@@ -87,8 +87,9 @@ fn load_abs_path_rec(
     // If the path is not within a file, load it as directory
     let coll = match get_source(abs_path) {
       Ok(Loaded::Collection(coll)) => coll,
-      Ok(Loaded::Code(_)) =>
-        unreachable!("split_name returned None but the path is a file"),
+      Ok(Loaded::Code(_)) => {
+        unreachable!("split_name returned None but the path is a file")
+      },
       Err(e) => {
         // todo: if this can actually be produced, return Err(ImportAll) instead
         let parent = abs_path.split_last().expect("import path nonzero").1;

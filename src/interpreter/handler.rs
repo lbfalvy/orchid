@@ -20,9 +20,7 @@ pub struct HandlerTable<'a> {
 }
 impl<'a> HandlerTable<'a> {
   /// Create a new [HandlerTable]
-  pub fn new() -> Self {
-    Self { handlers: HashMap::new() }
-  }
+  pub fn new() -> Self { Self { handlers: HashMap::new() } }
 
   /// Add a handler function to interpret a type of atom and decide what happens
   /// next. This function can be impure.

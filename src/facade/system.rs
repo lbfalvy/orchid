@@ -59,9 +59,7 @@ impl ProjectError for MissingSystemCode {
       self.system.join("::")
     )
   }
-  fn positions(&self) -> BoxedIter<ErrorPosition> {
-    box_empty()
-  }
+  fn positions(&self) -> BoxedIter<ErrorPosition> { box_empty() }
 }
 
 /// Trait for objects that can be converted into a [System] in the presence

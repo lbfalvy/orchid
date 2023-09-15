@@ -27,9 +27,7 @@ impl<T: Eq + Hash + Clone + 'static> Tok<T> {
       .expect("Pointer can always be cast to nonzero")
   }
   /// Cast into usize
-  pub fn usize(&self) -> usize {
-    self.id().into()
-  }
+  pub fn usize(&self) -> usize { self.id().into() }
   ///
   pub fn assert_comparable(&self, other: &Self) {
     let iref = self.interner.as_ptr() as usize;
@@ -50,9 +48,7 @@ impl<T: Eq + Hash + Clone + 'static> Tok<Vec<Tok<T>>> {
 impl<T: Eq + Hash + Clone + 'static> Deref for Tok<T> {
   type Target = T;
 
-  fn deref(&self) -> &Self::Target {
-    self.data.as_ref()
-  }
+  fn deref(&self) -> &Self::Target { self.data.as_ref() }
 }
 
 impl<T: Eq + Hash + Clone + 'static + Debug> Debug for Tok<T> {

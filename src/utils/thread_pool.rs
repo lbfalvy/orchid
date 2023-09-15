@@ -16,9 +16,7 @@ pub trait Task: Send + 'static {
 }
 
 impl<F: FnOnce() + Send + 'static> Task for F {
-  fn run(self) {
-    self()
-  }
+  fn run(self) { self() }
 }
 
 /// An async unit of work that produces some result, see [Task]. This can be
@@ -49,9 +47,7 @@ pub trait Query: Send + 'static {
 impl<F: FnOnce() -> R + Send + 'static, R: Send + 'static> Query for F {
   type Result = R;
 
-  fn run(self) -> Self::Result {
-    self()
-  }
+  fn run(self) -> Self::Result { self() }
 }
 
 /// A reporter that calls a statically known function with the result of a
@@ -61,9 +57,7 @@ pub struct QueryTask<Q: Query, F: FnOnce(Q::Result) + Send + 'static> {
   callback: F,
 }
 impl<Q: Query, F: FnOnce(Q::Result) + Send + 'static> Task for QueryTask<Q, F> {
-  fn run(self) {
-    (self.callback)(self.query.run())
-  }
+  fn run(self) { (self.callback)(self.query.run()) }
 }
 
 enum Message<T: Task> {
@@ -91,9 +85,7 @@ struct ThreadPoolData<T: Task> {
 ///
 /// struct MyTask(&'static str);
 /// impl Task for MyTask {
-///   fn run(self) {
-///     println!("{}", self.0)
-///   }
+///   fn run(self) { println!("{}", self.0) }
 /// }
 ///
 /// let pool = ThreadPool::new();
@@ -167,9 +159,7 @@ impl<T: Task> ThreadPool<T> {
 }
 
 impl<T: Task> Default for ThreadPool<T> {
-  fn default() -> Self {
-    Self::new()
-  }
+  fn default() -> Self { Self::new() }
 }
 
 impl<T: Task> Drop for ThreadPool<T> {

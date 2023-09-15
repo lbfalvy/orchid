@@ -6,6 +6,7 @@ use dyn_clone::DynClone;
 use crate::interpreted::ExprInst;
 use crate::interpreter::{Context, RuntimeError};
 use crate::representations::interpreted::Clause;
+use crate::utils::ddispatch::Responder;
 use crate::Primitive;
 
 /// Information returned by [Atomic::run]. This mirrors
@@ -30,19 +31,18 @@ impl AtomicReturn {
 pub type AtomicResult = Result<AtomicReturn, RuntimeError>;
 
 /// Functionality the interpreter needs to handle a value
-pub trait Atomic: Any + Debug + DynClone
+pub trait Atomic: Any + Debug + DynClone + Responder
 where
   Self: 'static,
 {
-  /// A fully type-erased interface to issue a command to the unknown type
-  /// and see if it supports it
-  fn request(&self, _request: Box<dyn Any>) -> Option<Box<dyn Any>> {
-    None
-  }
-
   /// Casts this value to [Any] so that its original value can be salvaged
-  /// during introspection by other external code. There is no other way to
-  /// interact with values of unknown types at the moment.
+  /// during introspection by other external code.
+  ///
+  /// This function should be implemented in exactly one way:
+  ///
+  /// ```
+  /// fn as_any(&self) -> &dyn Any { self }
+  /// ```
   fn as_any(&self) -> &dyn Any;
 
   /// Attempt to normalize this value. If it wraps a value, this should report
@@ -81,31 +81,23 @@ impl Atom {
     Self(Box::new(data) as Box<dyn Atomic>)
   }
   /// Get the contained data
-  pub fn data(&self) -> &dyn Atomic {
-    self.0.as_ref() as &dyn Atomic
-  }
+  pub fn data(&self) -> &dyn Atomic { self.0.as_ref() as &dyn Atomic }
   /// Attempt to downcast contained data to a specific type
   pub fn try_cast<T: Atomic>(&self) -> Option<&T> {
     self.data().as_any().downcast_ref()
   }
   /// Test the type of the contained data without downcasting
-  pub fn is<T: 'static>(&self) -> bool {
-    self.data().as_any().is::<T>()
-  }
+  pub fn is<T: 'static>(&self) -> bool { self.data().as_any().is::<T>() }
   /// Downcast contained data, panic if it isn't the specified type
   pub fn cast<T: 'static>(&self) -> &T {
     self.data().as_any().downcast_ref().expect("Type mismatch on Atom::cast")
   }
   /// Normalize the contained data
-  pub fn run(&self, ctx: Context) -> AtomicResult {
-    self.0.run(ctx)
-  }
+  pub fn run(&self, ctx: Context) -> AtomicResult { self.0.run(ctx) }
 }
 
 impl Clone for Atom {
-  fn clone(&self) -> Self {
-    Self(dyn_clone::clone_box(self.data()))
-  }
+  fn clone(&self) -> Self { Self(dyn_clone::clone_box(self.data())) }
 }
 
 impl Debug for Atom {

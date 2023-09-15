@@ -3,7 +3,8 @@ use std::fmt::Debug;
 use crate::foreign::{Atomic, AtomicReturn};
 use crate::interpreter::Context;
 use crate::representations::interpreted::ExprInst;
-use crate::{atomic_defaults, write_fn_step, ConstTree, Interner};
+use crate::utils::ddispatch::Responder;
+use crate::{write_fn_step, ConstTree, Interner};
 
 write_fn_step! {
   /// Print and return whatever expression is in the argument without
@@ -15,8 +16,9 @@ write_fn_step! {
 struct Inspect1 {
   expr_inst: ExprInst,
 }
+impl Responder for Inspect1 {}
 impl Atomic for Inspect1 {
-  atomic_defaults!();
+  fn as_any(&self) -> &dyn std::any::Any { self }
   fn run(&self, ctx: Context) -> crate::foreign::AtomicResult {
     println!("{}", self.expr_inst);
     Ok(AtomicReturn {

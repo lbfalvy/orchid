@@ -32,13 +32,9 @@ impl<'a, T> Substack<'a, T> {
     }
   }
   /// Construct an iterator over the listlike, very fast O(1)
-  pub fn iter(&self) -> SubstackIterator<T> {
-    SubstackIterator { curr: self }
-  }
+  pub fn iter(&self) -> SubstackIterator<T> { SubstackIterator { curr: self } }
   /// Add the item to this substack
-  pub fn push(&'a self, item: T) -> Self {
-    Self::Frame(self.new_frame(item))
-  }
+  pub fn push(&'a self, item: T) -> Self { Self::Frame(self.new_frame(item)) }
   /// Create a new frame on top of this substack
   pub fn new_frame(&'a self, item: T) -> Stackframe<'a, T> {
     Stackframe { item, prev: self, len: self.opt().map_or(1, |s| s.len + 1) }
@@ -61,9 +57,7 @@ impl<'a, T> Substack<'a, T> {
     }
   }
   /// is this the bottom of the stack
-  pub fn is_empty(&self) -> bool {
-    self.len() == 0
-  }
+  pub fn is_empty(&self) -> bool { self.len() == 0 }
 }
 
 impl<'a, T: Debug> Debug for Substack<'a, T> {
@@ -104,9 +98,7 @@ impl<'a, T> SubstackIterator<'a, T> {
 
 impl<'a, T> Copy for SubstackIterator<'a, T> {}
 impl<'a, T> Clone for SubstackIterator<'a, T> {
-  fn clone(&self) -> Self {
-    Self { curr: self.curr }
-  }
+  fn clone(&self) -> Self { Self { curr: self.curr } }
 }
 
 impl<'a, T> Iterator for SubstackIterator<'a, T> {

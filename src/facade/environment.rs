@@ -23,9 +23,7 @@ pub struct Environment<'a> {
 }
 impl<'a> Environment<'a> {
   /// Initialize a new environment
-  pub fn new(i: &'a Interner) -> Self {
-    Self { i, systems: Vec::new() }
-  }
+  pub fn new(i: &'a Interner) -> Self { Self { i, systems: Vec::new() } }
 
   /// Register a new system in the environment
   pub fn add_system<'b: 'a>(mut self, is: impl IntoSystem<'b> + 'b) -> Self {

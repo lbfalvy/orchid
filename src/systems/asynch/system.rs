@@ -11,14 +11,14 @@ use ordered_float::NotNan;
 
 use crate::facade::{IntoSystem, System};
 use crate::foreign::cps_box::{init_cps, CPSBox};
-use crate::foreign::{Atomic, ExternError};
+use crate::foreign::{Atomic, ExternError, InertAtomic};
 use crate::interpreted::ExprInst;
 use crate::interpreter::HandlerTable;
 use crate::systems::codegen::call;
 use crate::systems::stl::Boolean;
 use crate::utils::poller::{PollEvent, Poller};
 use crate::utils::unwrap_or;
-use crate::{atomic_inert, define_fn, ConstTree, Interner};
+use crate::{define_fn, ConstTree, Interner};
 
 #[derive(Debug, Clone)]
 struct Timer {
@@ -45,7 +45,9 @@ impl Debug for CancelTimer {
 
 #[derive(Clone, Debug)]
 struct Yield;
-atomic_inert!(Yield, typestr = "a yield command");
+impl InertAtomic for Yield {
+  fn type_str() -> &'static str { "a yield command" }
+}
 
 /// Error indicating a yield command when all event producers and timers had
 /// exited
@@ -109,15 +111,11 @@ impl<'a> AsynchSystem<'a> {
   /// Obtain a message port for sending messages to the main thread. If an
   /// object is passed to the MessagePort that does not have a handler, the
   /// main thread panics.
-  pub fn get_port(&self) -> MessagePort {
-    MessagePort(self.sender.clone())
-  }
+  pub fn get_port(&self) -> MessagePort { MessagePort(self.sender.clone()) }
 }
 
 impl<'a> Default for AsynchSystem<'a> {
-  fn default() -> Self {
-    Self::new()
-  }
+  fn default() -> Self { Self::new() }
 }
 
 impl<'a> IntoSystem<'a> for AsynchSystem<'a> {

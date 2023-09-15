@@ -23,7 +23,5 @@ impl ProjectError for TooManySupers {
     )
   }
 
-  fn one_position(&self) -> Location {
-    self.location.clone()
-  }
+  fn one_position(&self) -> Location { self.location.clone() }
 }

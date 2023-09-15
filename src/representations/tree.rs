@@ -223,9 +223,7 @@ pub struct WalkError<'a> {
 }
 impl<'a> WalkError<'a> {
   /// Total length of the path represented by this error
-  pub fn depth(&self) -> usize {
-    self.prefix.len() + self.pos + 1
-  }
+  pub fn depth(&self) -> usize { self.prefix.len() + self.pos + 1 }
 
   /// Attach a location to the error and convert into trait object for reporting
   pub fn at(self, location: &Location) -> Rc<dyn ProjectError> {
@@ -263,15 +261,15 @@ impl ProjectError for WalkErrorWithLocation {
     let paths = Interner::extern_all(&self.path).join("::");
     let options = Interner::extern_all(&self.options).join(", ");
     match &self.kind {
-      ErrKind::Missing =>
-        format!("{paths} does not exist, options are {options}"),
-      ErrKind::NotModule =>
-        format!("{paths} is not a module, options are {options}"),
+      ErrKind::Missing => {
+        format!("{paths} does not exist, options are {options}")
+      },
+      ErrKind::NotModule => {
+        format!("{paths} is not a module, options are {options}")
+      },
       ErrKind::Private => format!("{paths} is private, options are {options}"),
     }
   }
 
-  fn one_position(&self) -> Location {
-    self.location.clone()
-  }
+  fn one_position(&self) -> Location { self.location.clone() }
 }

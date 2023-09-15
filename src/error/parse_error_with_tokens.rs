@@ -16,9 +16,7 @@ pub struct ParseErrorWithTokens {
   pub error: Rc<dyn ProjectError>,
 }
 impl ProjectError for ParseErrorWithTokens {
-  fn description(&self) -> &str {
-    self.error.description()
-  }
+  fn description(&self) -> &str { self.error.description() }
   fn message(&self) -> String {
     format!(
       "Failed to parse code: {}\nTokenized source for context:\n{}",
@@ -26,7 +24,5 @@ impl ProjectError for ParseErrorWithTokens {
       self.tokens.iter().map(|t| t.to_string()).join(" "),
     )
   }
-  fn positions(&self) -> BoxedIter<ErrorPosition> {
-    self.error.positions()
-  }
+  fn positions(&self) -> BoxedIter<ErrorPosition> { self.error.positions() }
 }

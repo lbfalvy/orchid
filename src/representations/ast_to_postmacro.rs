@@ -50,9 +50,7 @@ impl ProjectError for Error {
       _ => self.description().to_string(),
     }
   }
-  fn one_position(&self) -> Location {
-    self.location.clone()
-  }
+  fn one_position(&self) -> Location { self.location.clone() }
 }
 
 /// Try to convert an expression from AST format to typed lambda
@@ -73,9 +71,7 @@ impl<'a> Context<'a> {
     Context { names: self.names.push(name) }
   }
 
-  fn new() -> Context<'static> {
-    Context { names: Substack::Bottom }
-  }
+  fn new() -> Context<'static> { Context { names: Substack::Bottom } }
 }
 
 /// Process an expression sequence

@@ -55,9 +55,7 @@ pub trait ExternFn: DynClone {
 
 impl Eq for dyn ExternFn {}
 impl PartialEq for dyn ExternFn {
-  fn eq(&self, other: &Self) -> bool {
-    self.name() == other.name()
-  }
+  fn eq(&self, other: &Self) -> bool { self.name() == other.name() }
 }
 impl Hash for dyn ExternFn {
   fn hash<H: std::hash::Hasher>(&self, state: &mut H) {

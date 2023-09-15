@@ -40,9 +40,7 @@ impl Entry {
     )
   }
 
-  pub fn location(&self) -> Location {
-    self.location.clone()
-  }
+  pub fn location(&self) -> Location { self.location.clone() }
 
   pub fn range(&self) -> Range<usize> {
     self.location.range().expect("An Entry can only have a known location")
@@ -84,9 +82,7 @@ impl Display for Entry {
 // }
 
 impl AsRef<Location> for Entry {
-  fn as_ref(&self) -> &Location {
-    &self.location
-  }
+  fn as_ref(&self) -> &Location { &self.location }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -144,8 +140,9 @@ impl Display for Lexeme {
       Self::Module => write!(f, "module"),
       Self::Const => write!(f, "const"),
       Self::Macro => write!(f, "macro"),
-      Self::Operators(ops) =>
-        write!(f, "operators[{}]", Interner::extern_all(ops).join(" ")),
+      Self::Operators(ops) => {
+        write!(f, "operators[{}]", Interner::extern_all(ops).join(" "))
+      },
       Self::Placeh(Placeholder { name, class }) => match *class {
         PHClass::Scalar => write!(f, "${}", **name),
         PHClass::Vec { nonzero, prio } => {

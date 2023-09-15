@@ -31,9 +31,7 @@ impl Side {
     }
   }
   /// Shorthand for opposite
-  pub fn inv(&self) -> Self {
-    self.opposite()
-  }
+  pub fn inv(&self) -> Self { self.opposite() }
   /// take N elements from this end of a slice
   pub fn slice<'a, T>(&self, size: usize, slice: &'a [T]) -> &'a [T] {
     match self {
@@ -85,9 +83,7 @@ impl Side {
 impl Not for Side {
   type Output = Side;
 
-  fn not(self) -> Self::Output {
-    self.opposite()
-  }
+  fn not(self) -> Self::Output { self.opposite() }
 }
 
 #[cfg(test)]

@@ -40,13 +40,7 @@ impl<'a> Clone for ParsingContext<'a> {
 }
 
 impl Context for ParsingContext<'_> {
-  fn interner(&self) -> &Interner {
-    self.interner
-  }
-  fn file(&self) -> Rc<VName> {
-    self.file.clone()
-  }
-  fn ops(&self) -> &[Tok<String>] {
-    self.ops
-  }
+  fn interner(&self) -> &Interner { self.interner }
+  fn file(&self) -> Rc<VName> { self.file.clone() }
+  fn ops(&self) -> &[Tok<String>] { self.ops }
 }

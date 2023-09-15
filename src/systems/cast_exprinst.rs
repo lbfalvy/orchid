@@ -5,8 +5,8 @@ use std::rc::Rc;
 use ordered_float::NotNan;
 
 use super::assertion_error::AssertionError;
-use crate::foreign::{Atomic, ExternError};
-use crate::interpreted::Clause;
+use crate::foreign::{Atom, Atomic, ExternError};
+use crate::interpreted::{Clause, TryFromExprInst};
 use crate::representations::interpreted::ExprInst;
 use crate::representations::{Literal, OrcString};
 use crate::Primitive;
@@ -27,92 +27,66 @@ pub fn with_str<T>(
   x: &ExprInst,
   predicate: impl FnOnce(&OrcString) -> Result<T, Rc<dyn ExternError>>,
 ) -> Result<T, Rc<dyn ExternError>> {
-  with_lit(x, |l| {
-    if let Literal::Str(s) = l {
-      predicate(s)
-    } else {
-      AssertionError::fail(x.clone(), "a string")?
-    }
+  with_lit(x, |l| match l {
+    Literal::Str(s) => predicate(s),
+    _ => AssertionError::fail(x.clone(), "a string"),
   })
 }
 
-/// Like [with_lit] but also unwraps [Literal::Uint]
-pub fn with_uint<T>(
+/// If the [ExprInst] stores an [Atom], maps the predicate over it, otherwise
+/// raises a runtime error.
+pub fn with_atom<T>(
   x: &ExprInst,
-  predicate: impl FnOnce(u64) -> Result<T, Rc<dyn ExternError>>,
+  predicate: impl FnOnce(&Atom) -> Result<T, Rc<dyn ExternError>>,
 ) -> Result<T, Rc<dyn ExternError>> {
-  with_lit(x, |l| {
-    if let Literal::Uint(u) = l {
-      predicate(*u)
-    } else {
-      AssertionError::fail(x.clone(), "an uint")?
-    }
-  })
-}
-
-/// Like [with_lit] but also unwraps [Literal::Num]
-pub fn with_num<T>(
-  x: &ExprInst,
-  predicate: impl FnOnce(NotNan<f64>) -> Result<T, Rc<dyn ExternError>>,
-) -> Result<T, Rc<dyn ExternError>> {
-  with_lit(x, |l| {
-    if let Literal::Num(n) = l {
-      predicate(*n)
-    } else {
-      AssertionError::fail(x.clone(), "a float")?
-    }
+  x.inspect(|c| match c {
+    Clause::P(Primitive::Atom(a)) => predicate(a),
+    _ => AssertionError::fail(x.clone(), "an atom"),
   })
 }
 
 /// Tries to cast the [ExprInst] into the specified atom type. Throws an
 /// assertion error if unsuccessful, or calls the provided function on the
 /// extracted atomic type.
-pub fn with_atom<T: Atomic, U>(
+pub fn with_atomic<T: Atomic, U>(
   x: &ExprInst,
   inexact_typename: &'static str,
   predicate: impl FnOnce(&T) -> Result<U, Rc<dyn ExternError>>,
 ) -> Result<U, Rc<dyn ExternError>> {
-  x.inspect(|c| {
-    if let Clause::P(Primitive::Atom(a)) = c {
-      a.try_cast()
-        .map(predicate)
-        .unwrap_or_else(|| AssertionError::fail(x.clone(), inexact_typename))
-    } else {
-      AssertionError::fail(x.clone(), "an atom")
-    }
+  with_atom(x, |a| match a.try_cast() {
+    Some(atomic) => predicate(atomic),
+    _ => AssertionError::fail(x.clone(), inexact_typename),
   })
 }
 
 // ######## Automatically ########
 
-impl TryFrom<&ExprInst> for Literal {
-  type Error = Rc<dyn ExternError>;
-
-  fn try_from(value: &ExprInst) -> Result<Self, Self::Error> {
-    with_lit(value, |l| Ok(l.clone()))
+impl TryFromExprInst for Literal {
+  fn from_exi(exi: &ExprInst) -> Result<Self, Rc<dyn ExternError>> {
+    with_lit(exi, |l| Ok(l.clone()))
   }
 }
 
-impl TryFrom<&ExprInst> for OrcString {
-  type Error = Rc<dyn ExternError>;
-
-  fn try_from(value: &ExprInst) -> Result<Self, Self::Error> {
-    with_str(value, |s| Ok(s.clone()))
+impl TryFromExprInst for OrcString {
+  fn from_exi(exi: &ExprInst) -> Result<Self, Rc<dyn ExternError>> {
+    with_str(exi, |s| Ok(s.clone()))
   }
 }
 
-impl TryFrom<&ExprInst> for u64 {
-  type Error = Rc<dyn ExternError>;
-
-  fn try_from(value: &ExprInst) -> Result<Self, Self::Error> {
-    with_uint(value, Ok)
+impl TryFromExprInst for u64 {
+  fn from_exi(exi: &ExprInst) -> Result<Self, Rc<dyn ExternError>> {
+    with_lit(exi, |l| match l {
+      Literal::Uint(u) => Ok(*u),
+      _ => AssertionError::fail(exi.clone(), "an uint"),
+    })
   }
 }
 
-impl TryFrom<&ExprInst> for NotNan<f64> {
-  type Error = Rc<dyn ExternError>;
-
-  fn try_from(value: &ExprInst) -> Result<Self, Self::Error> {
-    with_num(value, Ok)
+impl TryFromExprInst for NotNan<f64> {
+  fn from_exi(exi: &ExprInst) -> Result<Self, Rc<dyn ExternError>> {
+    with_lit(exi, |l| match l {
+      Literal::Num(n) => Ok(*n),
+      _ => AssertionError::fail(exi.clone(), "a float"),
+    })
   }
 }

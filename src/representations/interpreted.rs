@@ -13,6 +13,7 @@ use super::location::Location;
 use super::path_set::PathSet;
 use super::primitive::Primitive;
 use super::Literal;
+use crate::foreign::ExternError;
 use crate::Sym;
 
 /// An expression with metadata
@@ -44,6 +45,12 @@ impl Display for Expr {
 /// [ExprInst::with_literal] produces this marker unit to indicate that the
 /// expression is not a literal
 pub struct NotALiteral;
+
+/// Types automatically convertible from an [ExprInst]
+pub trait TryFromExprInst: Sized {
+  /// Match and clone the value out of an [ExprInst]
+  fn from_exi(exi: &ExprInst) -> Result<Self, Rc<dyn ExternError>>;
+}
 
 /// A wrapper around expressions to handle their multiple occurences in
 /// the tree together
@@ -134,6 +141,13 @@ impl ExprInst {
       Clause::Constant(_) | Clause::LambdaArg | Clause::P(_) => None,
     })
   }
+
+  /// Convert into any type that implements [FromExprInst]. Calls to this
+  /// function are generated wherever a conversion is elided in an extern
+  /// function.
+  pub fn downcast<T: TryFromExprInst>(&self) -> Result<T, Rc<dyn ExternError>> {
+    T::from_exi(self)
+  }
 }
 
 impl Debug for ExprInst {
@@ -208,13 +222,9 @@ impl Display for Clause {
 }
 
 impl<T: Into<Literal>> From<T> for Clause {
-  fn from(value: T) -> Self {
-    Self::P(Primitive::Literal(value.into()))
-  }
+  fn from(value: T) -> Self { Self::P(Primitive::Literal(value.into())) }
 }
 
 impl<T: Into<Clause>> From<T> for ExprInst {
-  fn from(value: T) -> Self {
-    value.into().wrap()
-  }
+  fn from(value: T) -> Self { value.into().wrap() }
 }

@@ -25,9 +25,7 @@ impl Debug for OrcString {
 
 impl OrcString {
   /// Clone out the plain Rust [String]
-  pub fn get_string(&self) -> String {
-    self.as_str().to_owned()
-  }
+  pub fn get_string(&self) -> String { self.as_str().to_owned() }
 }
 
 impl Deref for OrcString {
@@ -48,15 +46,11 @@ impl Hash for OrcString {
 }
 
 impl From<String> for OrcString {
-  fn from(value: String) -> Self {
-    Self::Runtime(Rc::new(value))
-  }
+  fn from(value: String) -> Self { Self::Runtime(Rc::new(value)) }
 }
 
 impl From<Tok<String>> for OrcString {
-  fn from(value: Tok<String>) -> Self {
-    Self::Interned(value)
-  }
+  fn from(value: Tok<String>) -> Self { Self::Interned(value) }
 }
 
 impl PartialEq for OrcString {

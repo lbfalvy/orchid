@@ -20,9 +20,7 @@ pub trait ProjectError {
   /// A general description of this type of error
   fn description(&self) -> &str;
   /// A formatted message that includes specific parameters
-  fn message(&self) -> String {
-    self.description().to_string()
-  }
+  fn message(&self) -> String { self.description().to_string() }
   /// Code positions relevant to this error. If you don't implement this, you
   /// must implement [ProjectError::one_position]
   fn positions(&self) -> BoxedIter<ErrorPosition> {
@@ -30,9 +28,7 @@ pub trait ProjectError {
   }
   /// Short way to provide a single location. If you don't implement this, you
   /// must implement [ProjectError::positions]
-  fn one_position(&self) -> Location {
-    unimplemented!()
-  }
+  fn one_position(&self) -> Location { unimplemented!() }
   /// Convert the error into an `Rc<dyn ProjectError>` to be able to
   /// handle various errors together
   fn rc(self) -> Rc<dyn ProjectError>

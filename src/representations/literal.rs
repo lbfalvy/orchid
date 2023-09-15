@@ -27,17 +27,11 @@ impl Debug for Literal {
 }
 
 impl From<NotNan<f64>> for Literal {
-  fn from(value: NotNan<f64>) -> Self {
-    Self::Num(value)
-  }
+  fn from(value: NotNan<f64>) -> Self { Self::Num(value) }
 }
 impl From<u64> for Literal {
-  fn from(value: u64) -> Self {
-    Self::Uint(value)
-  }
+  fn from(value: u64) -> Self { Self::Uint(value) }
 }
 impl From<String> for Literal {
-  fn from(value: String) -> Self {
-    Self::Str(value.into())
-  }
+  fn from(value: String) -> Self { Self::Str(value.into()) }
 }

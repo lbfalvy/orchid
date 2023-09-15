@@ -12,19 +12,19 @@ use crate::{ast, define_fn, ConstTree, Interner, Primitive};
 define_fn! {
   ReadString = |x| Ok(init_cps(3, IOCmdHandlePack{
     cmd: ReadCmd::RStr(SRead::All),
-    handle: x.try_into()?
+    handle: x.downcast()?
   }))
 }
 define_fn! {
   ReadLine = |x| Ok(init_cps(3, IOCmdHandlePack{
     cmd: ReadCmd::RStr(SRead::Line),
-    handle: x.try_into()?
+    handle: x.downcast()?
   }))
 }
 define_fn! {
   ReadBin = |x| Ok(init_cps(3, IOCmdHandlePack{
     cmd: ReadCmd::RBytes(BRead::All),
-    handle: x.try_into()?
+    handle: x.downcast()?
   }))
 }
 define_fn! {
@@ -72,7 +72,7 @@ define_fn! {
 define_fn! {
   Flush = |x| Ok(init_cps(3, IOCmdHandlePack {
     cmd: WriteCmd::Flush,
-    handle: x.try_into()?
+    handle: x.downcast()?
   }))
 }
 

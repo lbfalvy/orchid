@@ -6,13 +6,9 @@ use std::iter;
 /// initialized form multiple iterators of incompatible types
 pub type BoxedIter<'a, T> = Box<dyn Iterator<Item = T> + 'a>;
 /// creates a [BoxedIter] of a single element
-pub fn box_once<'a, T: 'a>(t: T) -> BoxedIter<'a, T> {
-  Box::new(iter::once(t))
-}
+pub fn box_once<'a, T: 'a>(t: T) -> BoxedIter<'a, T> { Box::new(iter::once(t)) }
 /// creates an empty [BoxedIter]
-pub fn box_empty<'a, T: 'a>() -> BoxedIter<'a, T> {
-  Box::new(iter::empty())
-}
+pub fn box_empty<'a, T: 'a>() -> BoxedIter<'a, T> { Box::new(iter::empty()) }
 
 /// Chain various iterators into a [BoxedIter]
 macro_rules! box_chain {

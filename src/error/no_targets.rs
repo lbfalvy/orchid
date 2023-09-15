@@ -16,7 +16,5 @@ impl ProjectError for NoTargets {
     "No targets were specified for layer parsing"
   }
 
-  fn positions(&self) -> BoxedIter<ErrorPosition> {
-    box_empty()
-  }
+  fn positions(&self) -> BoxedIter<ErrorPosition> { box_empty() }
 }

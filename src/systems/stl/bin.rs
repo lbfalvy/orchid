@@ -4,16 +4,18 @@ use std::sync::Arc;
 use itertools::Itertools;
 
 use super::Boolean;
-use crate::systems::cast_exprinst::with_uint;
+use crate::foreign::InertAtomic;
 use crate::systems::codegen::{orchid_opt, tuple};
 use crate::systems::RuntimeError;
 use crate::utils::{iter_find, unwrap_or};
-use crate::{atomic_inert, define_fn, ConstTree, Interner, Literal};
+use crate::{define_fn, ConstTree, Interner, Literal};
 
 /// A block of binary data
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct Binary(pub Arc<Vec<u8>>);
-atomic_inert!(Binary, typestr = "a binary blob");
+impl InertAtomic for Binary {
+  fn type_str() -> &'static str { "a binary blob" }
+}
 
 impl Debug for Binary {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -96,11 +98,7 @@ define_fn! {expr=x in
 
 define_fn! {expr=x in
   /// Extract a subsection of the binary data
-  pub Slice {
-    s: Binary,
-    i: u64 as with_uint(x, Ok),
-    len: u64 as with_uint(x, Ok)
-  } => {
+  pub Slice { s: Binary, i: u64, len: u64 } => {
     if i + len < s.0.len() as u64 {
       RuntimeError::fail(
         "Byte index out of bounds".to_string(),
@@ -123,10 +121,7 @@ define_fn! {expr=x in
 
 define_fn! {expr=x in
   /// Split binary data block into two smaller blocks
-  pub Split {
-    bin: Binary,
-    i: u64 as with_uint(x, Ok)
-  } => {
+  pub Split { bin: Binary, i: u64 } => {
     if bin.0.len() < *i as usize {
       RuntimeError::fail(
         "Byte index out of bounds".to_string(),
@@ -144,7 +139,7 @@ define_fn! {expr=x in
 define_fn! {
   /// Detect the number of bytes in the binary data block
   pub Size = |x| {
-    Ok(Literal::Uint(Binary::try_from(x)?.0.len() as u64).into())
+    Ok(Literal::Uint(x.downcast::<Binary>()?.0.len() as u64).into())
   }
 }
 

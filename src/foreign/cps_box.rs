@@ -4,11 +4,11 @@ use std::fmt::Debug;
 
 use trait_set::trait_set;
 
-use super::{Atomic, ExternFn, XfnResult};
+use super::{Atomic, ExternFn, InertAtomic, XfnResult};
 use crate::interpreted::{Clause, ExprInst};
 use crate::interpreter::{Context, HandlerRes};
 use crate::utils::pure_push::pushed_ref;
-use crate::{ConstTree, atomic_inert};
+use crate::ConstTree;
 
 trait_set! {
   /// A "well behaved" type that can be used as payload in a CPS box
@@ -34,9 +34,7 @@ impl<T: CPSPayload> CPSFn<T> {
   }
 }
 impl<T: CPSPayload> ExternFn for CPSFn<T> {
-  fn name(&self) -> &str {
-    "CPS function without argument"
-  }
+  fn name(&self) -> &str { "CPS function without argument" }
   fn apply(&self, arg: ExprInst, _ctx: Context) -> XfnResult {
     let payload = self.payload.clone();
     let continuations = pushed_ref(&self.continuations, arg);
@@ -93,7 +91,9 @@ impl<T: CPSPayload> CPSBox<T> {
   }
 }
 
-atomic_inert!(CPSBox(T:(CPSPayload)), typestr = "a CPS box");
+impl<T: CPSPayload> InertAtomic for CPSBox<T> {
+  fn type_str() -> &'static str { "a CPS box" }
+}
 
 /// Like [init_cps] but wrapped in a [ConstTree] for init-time usage
 pub fn const_cps<T: CPSPayload>(argc: usize, payload: T) -> ConstTree {

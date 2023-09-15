@@ -2,15 +2,17 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::foreign::cps_box::{const_cps, init_cps, CPSBox};
-use crate::foreign::Atomic;
+use crate::foreign::{Atomic, InertAtomic};
 use crate::interpreted::ExprInst;
 use crate::interpreter::HandlerTable;
 use crate::systems::codegen::call;
-use crate::{atomic_inert, define_fn, ConstTree, Interner};
+use crate::{define_fn, ConstTree, Interner};
 
 #[derive(Debug, Clone)]
 pub struct State(Rc<RefCell<ExprInst>>);
-atomic_inert!(State, typestr = "a state");
+impl InertAtomic for State {
+  fn type_str() -> &'static str { "a stateful container" }
+}
 
 #[derive(Debug, Clone)]
 struct NewStateCmd;
@@ -21,8 +23,8 @@ struct SetStateCmd(State);
 #[derive(Debug, Clone)]
 struct GetStateCmd(State);
 
-define_fn! { SetState = |x| Ok(init_cps(2, SetStateCmd(x.try_into()?))) }
-define_fn! { GetState = |x| Ok(init_cps(2, GetStateCmd(x.try_into()?))) }
+define_fn! { SetState = |x| Ok(init_cps(2, SetStateCmd(x.downcast()?))) }
+define_fn! { GetState = |x| Ok(init_cps(2, GetStateCmd(x.downcast()?))) }
 
 fn new_state_handler<E>(cmd: &CPSBox<NewStateCmd>) -> Result<ExprInst, E> {
   let (_, default, handler) = cmd.unpack2();

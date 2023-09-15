@@ -44,9 +44,7 @@ pub enum Loaded {
 }
 impl Loaded {
   /// Is the loaded item source code (not a collection)?
-  pub fn is_code(&self) -> bool {
-    matches!(self, Loaded::Code(_))
-  }
+  pub fn is_code(&self) -> bool { matches!(self, Loaded::Code(_)) }
 }
 
 /// Returned by any source loading callback

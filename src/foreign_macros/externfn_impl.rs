@@ -25,9 +25,7 @@ use crate::{atomic_impl, atomic_redirect};
 macro_rules! externfn_impl {
   ($typ:ident, $next_atomic:expr) => {
     impl $crate::foreign::ExternFn for $typ {
-      fn name(&self) -> &str {
-        stringify!($typ)
-      }
+      fn name(&self) -> &str { stringify!($typ) }
       fn apply(
         &self,
         arg: $crate::interpreted::ExprInst,

@@ -25,13 +25,9 @@ pub trait NameLike: 'static + Clone + Eq + Hash + Debug {
 }
 
 impl NameLike for Sym {
-  fn to_strv(&self) -> Vec<String> {
-    self.extern_vec()
-  }
+  fn to_strv(&self) -> Vec<String> { self.extern_vec() }
 }
 
 impl NameLike for VName {
-  fn to_strv(&self) -> Vec<String> {
-    Interner::extern_all(self)
-  }
+  fn to_strv(&self) -> Vec<String> { Interner::extern_all(self) }
 }

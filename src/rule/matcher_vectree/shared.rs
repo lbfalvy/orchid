@@ -56,9 +56,7 @@ pub enum AnyMatcher {
   Vec { left: Vec<ScalMatcher>, mid: VecMatcher, right: Vec<ScalMatcher> },
 }
 impl Matcher for AnyMatcher {
-  fn new(pattern: Rc<Vec<RuleExpr>>) -> Self {
-    mk_any(&pattern)
-  }
+  fn new(pattern: Rc<Vec<RuleExpr>>) -> Self { mk_any(&pattern) }
 
   fn apply<'a>(&self, source: &'a [RuleExpr]) -> Option<State<'a>> {
     any_match(self, source)
@@ -99,10 +97,12 @@ impl Display for VecMatcher {
         write!(f, "..${key}")
       },
       Self::Scan { left, sep, right, direction } => match direction {
-        Side::Left =>
-          write!(f, "Scan{{{left} <== {} <== {right}}}", sep.iter().join(" ")),
-        Side::Right =>
-          write!(f, "Scan{{{left} ==> {} ==> {right}}}", sep.iter().join(" ")),
+        Side::Left => {
+          write!(f, "Scan{{{left} <== {} <== {right}}}", sep.iter().join(" "))
+        },
+        Side::Right => {
+          write!(f, "Scan{{{left} ==> {} ==> {right}}}", sep.iter().join(" "))
+        },
       },
       Self::Middle { left, left_sep, mid, right_sep, right, .. } => {
         let left_sep_s = left_sep.iter().join(" ");
@@ -134,9 +134,7 @@ impl Display for AnyMatcher {
 /// vectorial placeholders and handles the scalars on leaves.
 pub struct VectreeMatcher(AnyMatcher);
 impl Matcher for VectreeMatcher {
-  fn new(pattern: Rc<Vec<RuleExpr>>) -> Self {
-    Self(AnyMatcher::new(pattern))
-  }
+  fn new(pattern: Rc<Vec<RuleExpr>>) -> Self { Self(AnyMatcher::new(pattern)) }
 
   fn apply<'a>(&self, source: &'a [RuleExpr]) -> Option<State<'a>> {
     self.0.apply(source)

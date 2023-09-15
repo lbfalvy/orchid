@@ -37,9 +37,7 @@ impl<TOnce, TRec> Clone for Timer<TOnce, TRec> {
 }
 impl<TOnce, TRec> Eq for Timer<TOnce, TRec> {}
 impl<TOnce, TRec> PartialEq for Timer<TOnce, TRec> {
-  fn eq(&self, other: &Self) -> bool {
-    self.expires.eq(&other.expires)
-  }
+  fn eq(&self, other: &Self) -> bool { self.expires.eq(&other.expires) }
 }
 impl<TOnce, TRec> PartialOrd for Timer<TOnce, TRec> {
   fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {

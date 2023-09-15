@@ -57,9 +57,7 @@ impl<N: NameLike> Expr<N> {
 }
 
 impl<N: NameLike> AsRef<Location> for Expr<N> {
-  fn as_ref(&self) -> &Location {
-    &self.location
-  }
+  fn as_ref(&self) -> &Location { &self.location }
 }
 
 /// Visit all expression sequences including this sequence itself. Otherwise

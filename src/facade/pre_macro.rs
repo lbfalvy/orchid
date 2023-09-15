@@ -116,9 +116,7 @@ pub struct MacroTimeout {
   limit: usize,
 }
 impl ProjectError for MacroTimeout {
-  fn description(&self) -> &str {
-    "Macro execution has not halted"
-  }
+  fn description(&self) -> &str { "Macro execution has not halted" }
 
   fn message(&self) -> String {
     format!(
@@ -128,7 +126,5 @@ impl ProjectError for MacroTimeout {
     )
   }
 
-  fn one_position(&self) -> Location {
-    self.location.clone()
-  }
+  fn one_position(&self) -> Location { self.location.clone() }
 }

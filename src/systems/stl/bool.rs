@@ -1,19 +1,20 @@
 use std::rc::Rc;
 
+use crate::foreign::InertAtomic;
 use crate::interner::Interner;
 use crate::representations::interpreted::Clause;
 use crate::systems::AssertionError;
-use crate::{atomic_inert, define_fn, ConstTree, Literal, PathSet};
+use crate::{define_fn, ConstTree, Literal, PathSet};
 
 /// Booleans exposed to Orchid
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Boolean(pub bool);
-atomic_inert!(Boolean, typestr = "a boolean");
+impl InertAtomic for Boolean {
+  fn type_str() -> &'static str { "a boolean" }
+}
 
 impl From<bool> for Boolean {
-  fn from(value: bool) -> Self {
-    Self(value)
-  }
+  fn from(value: bool) -> Self { Self(value) }
 }
 
 define_fn! {expr=x in
@@ -36,7 +37,7 @@ define_fn! {expr=x in
 define_fn! {
   /// Takes a boolean and two branches, runs the first if the bool is true, the
   /// second if it's false.
-  IfThenElse = |x| x.try_into()
+  IfThenElse = |x| x.downcast()
     .map_err(|_| AssertionError::ext(x.clone(), "a boolean"))
     .map(|b: Boolean| if b.0 {Clause::Lambda {
       args: Some(PathSet { steps: Rc::new(vec![]), next: None }),

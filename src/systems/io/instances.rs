@@ -81,23 +81,23 @@ pub enum ReadResult {
 impl ReadResult {
   pub fn dispatch(self, succ: ExprInst, fail: ExprInst) -> Vec<ExprInst> {
     match self {
-      ReadResult::RBin(_, Err(e)) | ReadResult::RStr(_, Err(e)) =>
-        vec![call(fail, vec![wrap_io_error(e)]).wrap()],
+      ReadResult::RBin(_, Err(e)) | ReadResult::RStr(_, Err(e)) => {
+        vec![call(fail, vec![wrap_io_error(e)]).wrap()]
+      },
       ReadResult::RBin(_, Ok(bytes)) => {
         let arg = Binary(Arc::new(bytes)).atom_cls().wrap();
         vec![call(succ, vec![arg]).wrap()]
       },
-      ReadResult::RStr(_, Ok(text)) =>
-        vec![call(succ, vec![Literal::Str(text.into()).into()]).wrap()],
+      ReadResult::RStr(_, Ok(text)) => {
+        vec![call(succ, vec![Literal::Str(text.into()).into()]).wrap()]
+      },
     }
   }
 }
 
 /// Placeholder function for an eventual conversion from [io::Error] to Orchid
 /// data
-fn wrap_io_error(_e: io::Error) -> ExprInst {
-  Literal::Uint(0u64).into()
-}
+fn wrap_io_error(_e: io::Error) -> ExprInst { Literal::Uint(0u64).into() }
 
 /// Writing command (string or binary)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

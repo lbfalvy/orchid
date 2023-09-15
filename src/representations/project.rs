@@ -25,9 +25,7 @@ pub enum ItemKind<N: NameLike> {
 }
 
 impl<N: NameLike> Default for ItemKind<N> {
-  fn default() -> Self {
-    Self::None
-  }
+  fn default() -> Self { Self::None }
 }
 
 #[derive(Debug, Clone, Default)]

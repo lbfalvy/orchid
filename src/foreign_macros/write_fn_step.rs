@@ -107,6 +107,7 @@ macro_rules! write_fn_step {
       $( $arg: $typ, )*
       expr_inst: $crate::interpreted::ExprInst,
     }
+    impl $crate::utils::ddispatch::Responder for $name {}
     $crate::atomic_redirect!($name, expr_inst);
     $crate::atomic_impl!($name);
     $crate::externfn_impl!(
@@ -136,6 +137,7 @@ macro_rules! write_fn_step {
       expr_inst: $crate::interpreted::ExprInst,
     }
     $crate::atomic_redirect!($name, expr_inst);
+    impl $crate::utils::ddispatch::Responder for $name {}
     $crate::atomic_impl!(
       $name,
       |Self{ $($arg, )* expr_inst }: &Self, _| {
@@ -157,6 +159,6 @@ macro_rules! write_fn_step {
     }
   };
   (@CONV $locxname:expr) => {
-    ($locxname).try_into()?
+    ($locxname).downcast()?
   };
 }
