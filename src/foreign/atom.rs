@@ -20,12 +20,6 @@ pub struct AtomicReturn {
   /// [Atomic::run]
   pub inert: bool,
 }
-impl AtomicReturn {
-  /// Wrap an inert atomic for delivery to the supervisor
-  pub fn from_data<D: Atomic>(d: D, c: Context) -> Self {
-    AtomicReturn { clause: d.atom_cls(), gas: c.gas, inert: false }
-  }
-}
 
 /// Returned by [Atomic::run]
 pub type AtomicResult = Result<AtomicReturn, RuntimeError>;
@@ -40,15 +34,17 @@ where
   ///
   /// This function should be implemented in exactly one way:
   ///
+  /// ```ignore
+  /// fn as_any(self: Box<Self>) -> Box<dyn Any> { self }
   /// ```
-  /// fn as_any(&self) -> &dyn Any { self }
-  /// ```
-  fn as_any(&self) -> &dyn Any;
+  fn as_any(self: Box<Self>) -> Box<dyn Any>;
+  /// See [Atomic::as_any], exactly the same but for references
+  fn as_any_ref(&self) -> &dyn Any;
 
   /// Attempt to normalize this value. If it wraps a value, this should report
   /// inert. If it wraps a computation, it should execute one logical step of
   /// the computation and return a structure representing the ntext.
-  fn run(&self, ctx: Context) -> AtomicResult;
+  fn run(self: Box<Self>, ctx: Context) -> AtomicResult;
 
   /// Wrap the atom in a clause to be placed in an [AtomicResult].
   fn atom_cls(self) -> Clause
@@ -83,17 +79,20 @@ impl Atom {
   /// Get the contained data
   pub fn data(&self) -> &dyn Atomic { self.0.as_ref() as &dyn Atomic }
   /// Attempt to downcast contained data to a specific type
-  pub fn try_cast<T: Atomic>(&self) -> Option<&T> {
-    self.data().as_any().downcast_ref()
+  pub fn try_cast<T: Atomic>(self) -> Result<T, Self> {
+    match self.0.as_any_ref().is::<T>() {
+      true => Ok(*self.0.as_any().downcast().expect("checked just above")),
+      false => Err(self),
+    }
   }
   /// Test the type of the contained data without downcasting
-  pub fn is<T: 'static>(&self) -> bool { self.data().as_any().is::<T>() }
+  pub fn is<T: 'static>(&self) -> bool { self.data().as_any_ref().is::<T>() }
   /// Downcast contained data, panic if it isn't the specified type
-  pub fn cast<T: 'static>(&self) -> &T {
-    self.data().as_any().downcast_ref().expect("Type mismatch on Atom::cast")
+  pub fn cast<T: 'static>(self) -> T {
+    *self.0.as_any().downcast().expect("Type mismatch on Atom::cast")
   }
   /// Normalize the contained data
-  pub fn run(&self, ctx: Context) -> AtomicResult { self.0.run(ctx) }
+  pub fn run(self, ctx: Context) -> AtomicResult { self.0.run(ctx) }
 }
 
 impl Clone for Atom {

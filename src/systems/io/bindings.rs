@@ -13,63 +13,49 @@ define_fn! {
   ReadString = |x| Ok(init_cps(3, IOCmdHandlePack{
     cmd: ReadCmd::RStr(SRead::All),
     handle: x.downcast()?
-  }))
-}
-define_fn! {
+  }));
   ReadLine = |x| Ok(init_cps(3, IOCmdHandlePack{
     cmd: ReadCmd::RStr(SRead::Line),
     handle: x.downcast()?
-  }))
-}
-define_fn! {
+  }));
   ReadBin = |x| Ok(init_cps(3, IOCmdHandlePack{
     cmd: ReadCmd::RBytes(BRead::All),
     handle: x.downcast()?
-  }))
-}
-define_fn! {
+  }));
   ReadBytes {
     stream: SourceHandle,
     n: u64
   } => Ok(init_cps(3, IOCmdHandlePack{
-    cmd: ReadCmd::RBytes(BRead::N((*n).try_into().unwrap())),
+    cmd: ReadCmd::RBytes(BRead::N(n.try_into().unwrap())),
     handle: stream.clone()
-  }))
-}
-define_fn! {
+  }));
   ReadUntil {
     stream: SourceHandle,
     pattern: u64
   } => {
-    let delim = (*pattern).try_into().map_err(|_| RuntimeError::ext(
+    let delim = pattern.try_into().map_err(|_| RuntimeError::ext(
       "greater than 255".to_string(),
       "converting number to byte"
     ))?;
     Ok(init_cps(3, IOCmdHandlePack{
       cmd: ReadCmd::RBytes(BRead::Until(delim)),
-      handle: stream.clone()
+      handle: stream
     }))
-  }
-}
-define_fn! {
+  };
   WriteStr {
     stream: SinkHandle,
     string: OrcString
   } => Ok(init_cps(3, IOCmdHandlePack {
     cmd: WriteCmd::WStr(string.get_string()),
     handle: stream.clone(),
-  }))
-}
-define_fn! {
+  }));
   WriteBin {
     stream: SinkHandle,
     bytes: Binary
   } => Ok(init_cps(3, IOCmdHandlePack {
-    cmd: WriteCmd::WBytes(bytes.clone()),
+    cmd: WriteCmd::WBytes(bytes),
     handle: stream.clone(),
-  }))
-}
-define_fn! {
+  }));
   Flush = |x| Ok(init_cps(3, IOCmdHandlePack {
     cmd: WriteCmd::Flush,
     handle: x.downcast()?

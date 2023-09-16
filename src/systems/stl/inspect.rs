@@ -18,8 +18,9 @@ struct Inspect1 {
 }
 impl Responder for Inspect1 {}
 impl Atomic for Inspect1 {
-  fn as_any(&self) -> &dyn std::any::Any { self }
-  fn run(&self, ctx: Context) -> crate::foreign::AtomicResult {
+  fn as_any(self: Box<Self>) -> Box<dyn std::any::Any> { self }
+  fn as_any_ref(&self) -> &dyn std::any::Any { self }
+  fn run(self: Box<Self>, ctx: Context) -> crate::foreign::AtomicResult {
     println!("{}", self.expr_inst);
     Ok(AtomicReturn {
       clause: self.expr_inst.expr().clause.clone(),

@@ -56,30 +56,29 @@ impl<'a, ST: IntoIterator<Item = (&'a str, Stream)>> IntoSystem<'static>
   fn into_system(self, i: &crate::Interner) -> crate::facade::System<'static> {
     let scheduler = self.scheduler.clone();
     let mut handlers = HandlerTable::new();
-    handlers.register(move |cps: &CPSBox<IOCmdHandlePack<ReadCmd>>| {
+    handlers.register(move |cps: Box<CPSBox<IOCmdHandlePack<ReadCmd>>>| {
       let (IOCmdHandlePack { cmd, handle }, succ, fail, tail) = cps.unpack3();
-      let (cmd, succ1, fail1) = (*cmd, succ.clone(), fail.clone());
+      let fail1 = fail.clone();
       let result = scheduler.schedule(
-        handle.clone(),
+        handle,
         move |mut stream, cancel| {
           let ret = cmd.execute(&mut stream, cancel);
           (stream, ret)
         },
-        move |stream, res, _cancel| (stream, res.dispatch(succ1, fail1)),
+        move |stream, res, _cancel| (stream, res.dispatch(succ, fail1)),
         |stream| (stream, Vec::new()),
       );
       match result {
-        Ok(cancel) =>
-          Ok(call(tail.clone(), vec![init_cps(1, cancel).wrap()]).wrap()),
-        Err(e) => Ok(call(fail.clone(), vec![e.atom_exi()]).wrap()),
+        Ok(cancel) => Ok(call(tail, vec![init_cps(1, cancel).wrap()]).wrap()),
+        Err(e) => Ok(call(fail, vec![e.atom_exi()]).wrap()),
       }
     });
     let scheduler = self.scheduler.clone();
-    handlers.register(move |cps: &CPSBox<IOCmdHandlePack<WriteCmd>>| {
+    handlers.register(move |cps: Box<CPSBox<IOCmdHandlePack<WriteCmd>>>| {
       let (IOCmdHandlePack { cmd, handle }, succ, fail, tail) = cps.unpack3();
-      let (cmd, succ1, fail1) = (cmd.clone(), succ.clone(), fail.clone());
+      let (succ1, fail1) = (succ, fail.clone());
       let result = scheduler.schedule(
-        handle.clone(),
+        handle,
         move |mut stream, cancel| {
           let ret = cmd.execute(&mut stream, cancel);
           (stream, ret)
@@ -88,9 +87,8 @@ impl<'a, ST: IntoIterator<Item = (&'a str, Stream)>> IntoSystem<'static>
         |stream| (stream, Vec::new()),
       );
       match result {
-        Ok(cancel) =>
-          Ok(call(tail.clone(), vec![init_cps(1, cancel).wrap()]).wrap()),
-        Err(e) => Ok(call(fail.clone(), vec![e.atom_exi()]).wrap()),
+        Ok(cancel) => Ok(call(tail, vec![init_cps(1, cancel).wrap()]).wrap()),
+        Err(e) => Ok(call(fail, vec![e.atom_exi()]).wrap()),
       }
     });
     let streams = self.global_streams.into_iter().map(|(n, stream)| {

@@ -5,12 +5,13 @@ use hashbrown::HashMap;
 use trait_set::trait_set;
 
 use super::{run, Context, Return, RuntimeError};
-use crate::foreign::ExternError;
-use crate::interpreted::{Clause, ExprInst};
+use crate::foreign::{Atom, Atomic, ExternError};
+use crate::interpreted::{Clause, Expr, ExprInst};
+use crate::utils::take_with_output;
 use crate::Primitive;
 
 trait_set! {
-  trait Handler = for<'b> FnMut(&'b dyn Any) -> HandlerRes;
+  trait Handler = FnMut(Box<dyn Any>) -> HandlerRes;
 }
 
 /// A table of command handlers
@@ -26,16 +27,22 @@ impl<'a> HandlerTable<'a> {
   /// next. This function can be impure.
   pub fn register<T: 'static>(
     &mut self,
-    mut f: impl for<'b> FnMut(&'b T) -> HandlerRes + 'a,
+    mut f: impl FnMut(Box<T>) -> HandlerRes + 'a,
   ) {
-    let cb = move |a: &dyn Any| f(a.downcast_ref().expect("found by TypeId"));
+    let cb = move |a: Box<dyn Any>| f(a.downcast().expect("found by TypeId"));
     let prev = self.handlers.insert(TypeId::of::<T>(), Box::new(cb));
     assert!(prev.is_none(), "A handler for this type is already registered");
   }
 
   /// Find and execute the corresponding handler for this type
-  pub fn dispatch(&mut self, arg: &dyn Any) -> Option<HandlerRes> {
-    self.handlers.get_mut(&arg.type_id()).map(|f| f(arg))
+  pub fn dispatch(
+    &mut self,
+    arg: Box<dyn Atomic>,
+  ) -> Result<HandlerRes, Box<dyn Atomic>> {
+    match self.handlers.get_mut(&arg.as_any_ref().type_id()) {
+      Some(f) => Ok(f(arg.as_any())),
+      None => Err(arg),
+    }
   }
 
   /// Combine two non-overlapping handler sets
@@ -60,16 +67,23 @@ pub fn run_handler(
   mut ctx: Context,
 ) -> Result<Return, RuntimeError> {
   loop {
-    let ret = run(expr.clone(), ctx.clone())?;
-    if let Clause::P(Primitive::Atom(a)) = &ret.state.expr().clause {
-      if let Some(e) = handlers.dispatch(a.0.as_any()) {
-        expr = e?;
-        ctx.gas = ret.gas;
-        if ret.gas.map_or(true, |g| g > 0) {
-          continue;
+    let mut ret = run(expr, ctx.clone())?;
+    let quit = take_with_output(&mut ret.state, |exi| match exi.expr_val() {
+      Expr { clause: Clause::P(Primitive::Atom(a)), .. } => {
+        match handlers.dispatch(a.0) {
+          Err(b) => (Clause::P(Primitive::Atom(Atom(b))).wrap(), Ok(true)),
+          Ok(e) => match e {
+            Ok(expr) => (expr, Ok(false)),
+            Err(e) => (Clause::Bottom.wrap(), Err(e)),
+          },
         }
-      }
+      },
+      expr => (ExprInst::new(expr), Ok(true)),
+    })?;
+    if quit | ret.gas.map_or(false, |g| g == 0) {
+      return Ok(ret);
     }
-    return Ok(ret);
+    ctx.gas = ret.gas;
+    expr = ret.state;
   }
 }

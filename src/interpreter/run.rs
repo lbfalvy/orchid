@@ -7,41 +7,40 @@ use crate::representations::Primitive;
 
 /// Normalize an expression using beta reduction with memoization
 pub fn run(expr: ExprInst, mut ctx: Context) -> Result<Return, RuntimeError> {
-  let (state, (gas, inert)) =
-    expr.try_normalize(|cls, loc| -> Result<(Clause, _), RuntimeError> {
-      let mut i = cls.clone();
+  let (state, (gas, inert)) = expr.try_normalize(
+    |mut cls, loc| -> Result<(Clause, _), RuntimeError> {
       while ctx.gas.map(|g| g > 0).unwrap_or(true) {
-        match &i {
+        match cls {
           Clause::Apply { f, x } => {
-            let res = apply(f.clone(), x.clone(), ctx.clone())?;
+            let res = apply(f, x, ctx.clone())?;
             if res.inert {
-              return Ok((i, (res.gas, true)));
+              return Ok((res.state.expr_val().clause, (res.gas, true)));
             }
             ctx.gas = res.gas;
-            i = res.state.expr().clause.clone();
+            cls = res.state.expr().clause.clone();
           },
           Clause::P(Primitive::Atom(data)) => {
-            let ret = data.run(ctx.clone())?;
-            let AtomicReturn { clause, gas, inert } = ret;
+            let AtomicReturn { clause, gas, inert } = data.run(ctx.clone())?;
             if inert {
-              return Ok((i, (gas, true)));
+              return Ok((clause, (gas, true)));
             }
             ctx.gas = gas;
-            i = clause.clone();
+            cls = clause;
           },
           Clause::Constant(c) => {
-            let symval = (ctx.symbols.get(c)).ok_or_else(|| {
+            let symval = (ctx.symbols.get(&c)).ok_or_else(|| {
               RuntimeError::MissingSymbol(c.clone(), loc.clone())
             })?;
             ctx.gas = ctx.gas.map(|g| g - 1); // cost of lookup
-            i = symval.expr().clause.clone();
+            cls = symval.expr().clause.clone();
           },
           // non-reducible
-          _ => return Ok((i, (ctx.gas, true))),
+          _ => return Ok((cls, (ctx.gas, true))),
         }
       }
       // out of gas
-      Ok((i, (ctx.gas, false)))
-    })?;
+      Ok((cls, (ctx.gas, false)))
+    },
+  )?;
   Ok(Return { state, gas, inert })
 }

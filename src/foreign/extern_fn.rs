@@ -39,7 +39,7 @@ pub trait ExternFn: DynClone {
   /// Display name of the function
   fn name(&self) -> &str;
   /// Combine the function with an argument to produce a new clause
-  fn apply(&self, arg: ExprInst, ctx: Context) -> XfnResult;
+  fn apply(self: Box<Self>, arg: ExprInst, ctx: Context) -> XfnResult;
   /// Hash the name to get a somewhat unique hash.
   fn hash(&self, mut state: &mut dyn std::hash::Hasher) {
     self.name().hash(&mut state)

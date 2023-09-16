@@ -35,7 +35,7 @@ impl<T: CPSPayload> CPSFn<T> {
 }
 impl<T: CPSPayload> ExternFn for CPSFn<T> {
   fn name(&self) -> &str { "CPS function without argument" }
-  fn apply(&self, arg: ExprInst, _ctx: Context) -> XfnResult {
+  fn apply(self: Box<Self>, arg: ExprInst, _ctx: Context) -> XfnResult {
     let payload = self.payload.clone();
     let continuations = pushed_ref(&self.continuations, arg);
     if self.argc == 1 {
@@ -68,26 +68,27 @@ impl<T: CPSPayload> CPSBox<T> {
     )
   }
   /// Unpack the wrapped command and the continuation
-  pub fn unpack1(&self) -> (&T, &ExprInst) {
+  pub fn unpack1(self) -> (T, ExprInst) {
     self.assert_count(1);
-    (&self.payload, &self.continuations[0])
+    let [cont]: [ExprInst; 1] =
+      self.continuations.try_into().expect("size checked");
+    (self.payload, cont)
   }
   /// Unpack the wrapped command and 2 continuations (usually an async and a
   /// sync)
-  pub fn unpack2(&self) -> (&T, &ExprInst, &ExprInst) {
+  pub fn unpack2(self) -> (T, ExprInst, ExprInst) {
     self.assert_count(2);
-    (&self.payload, &self.continuations[0], &self.continuations[1])
+    let [c1, c2]: [ExprInst; 2] =
+      self.continuations.try_into().expect("size checked");
+    (self.payload, c1, c2)
   }
   /// Unpack the wrapped command and 3 continuations (usually an async success,
   /// an async fail and a sync)
-  pub fn unpack3(&self) -> (&T, &ExprInst, &ExprInst, &ExprInst) {
+  pub fn unpack3(self) -> (T, ExprInst, ExprInst, ExprInst) {
     self.assert_count(3);
-    (
-      &self.payload,
-      &self.continuations[0],
-      &self.continuations[1],
-      &self.continuations[2],
-    )
+    let [c1, c2, c3]: [ExprInst; 3] =
+      self.continuations.try_into().expect("size checked");
+    (self.payload, c1, c2, c3)
   }
 }
 

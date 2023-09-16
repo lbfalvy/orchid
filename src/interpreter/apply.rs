@@ -13,17 +13,14 @@ use crate::utils::Side;
 fn map_at<E>(
   path: &[Side],
   source: ExprInst,
-  mapper: &mut impl FnMut(&Clause) -> Result<Clause, E>,
+  mapper: &mut impl FnMut(Clause) -> Result<Clause, E>,
 ) -> Result<ExprInst, E> {
   source
     .try_update(|value, _loc| {
       // Pass right through lambdas
       if let Clause::Lambda { args, body } = value {
         return Ok((
-          Clause::Lambda {
-            args: args.clone(),
-            body: map_at(path, body.clone(), mapper)?,
-          },
+          Clause::Lambda { args, body: map_at(path, body, mapper)? },
           (),
         ));
       }
@@ -37,14 +34,8 @@ fn map_at<E>(
       if let Clause::Apply { f, x } = value {
         return Ok((
           match head {
-            Side::Left => Clause::Apply {
-              f: map_at(tail, f.clone(), mapper)?,
-              x: x.clone(),
-            },
-            Side::Right => Clause::Apply {
-              f: f.clone(),
-              x: map_at(tail, x.clone(), mapper)?,
-            },
+            Side::Left => Clause::Apply { f: map_at(tail, f, mapper)?, x },
+            Side::Right => Clause::Apply { f, x: map_at(tail, x, mapper)? },
           },
           (),
         ));
@@ -63,8 +54,8 @@ fn substitute(paths: &PathSet, value: Clause, body: ExprInst) -> ExprInst {
     match (checkpoint, next) {
       (Clause::Lambda { .. }, _) => unreachable!("Handled by map_at"),
       (Clause::Apply { f, x }, Some((left, right))) => Ok(Clause::Apply {
-        f: substitute(left, value.clone(), f.clone()),
-        x: substitute(right, value.clone(), x.clone()),
+        f: substitute(left, value.clone(), f),
+        x: substitute(right, value.clone(), x),
       }),
       (Clause::LambdaArg, None) => Ok(value.clone()),
       (_, None) => {
@@ -91,20 +82,19 @@ pub fn apply(
       Ok((clause, (ctx.gas.map(|g| g - 1), false)))
     },
     Clause::Lambda { args, body } => Ok(if let Some(args) = args {
-      let x_cls = x.expr().clause.clone();
-      let new_xpr_inst = substitute(args, x_cls, body.clone());
-      let new_xpr = new_xpr_inst.expr();
+      let x_cls = x.expr_val().clause;
+      let result = substitute(&args, x_cls, body);
       // cost of substitution
       // XXX: should this be the number of occurrences instead?
-      (new_xpr.clause.clone(), (ctx.gas.map(|x| x - 1), false))
+      (result.expr_val().clause, (ctx.gas.map(|x| x - 1), false))
     } else {
-      (body.expr().clause.clone(), (ctx.gas, false))
+      (body.expr_val().clause, (ctx.gas, false))
     }),
     Clause::Constant(name) =>
-      if let Some(sym) = ctx.symbols.get(name) {
+      if let Some(sym) = ctx.symbols.get(&name) {
         Ok((Clause::Apply { f: sym.clone(), x }, (ctx.gas, false)))
       } else {
-        Err(RuntimeError::MissingSymbol(name.clone(), loc.clone()))
+        Err(RuntimeError::MissingSymbol(name.clone(), loc))
       },
     Clause::P(Primitive::Atom(atom)) => {
       // take a step in expanding atom
@@ -113,11 +103,11 @@ pub fn apply(
     },
     Clause::Apply { f: fun, x: arg } => {
       // take a step in resolving pre-function
-      let ret = apply(fun.clone(), arg.clone(), ctx.clone())?;
+      let ret = apply(fun, arg, ctx.clone())?;
       let Return { state, inert, gas } = ret;
       Ok((Clause::Apply { f: state, x }, (gas, inert)))
     },
-    _ => Err(RuntimeError::NonFunctionApplication(f.clone())),
+    _ => Err(RuntimeError::NonFunctionApplication(loc)),
   })?;
   Ok(Return { state, gas, inert })
 }

@@ -1,7 +1,7 @@
 #[allow(unused)] // for doc
 use crate::foreign::ExternFn;
 #[allow(unused)] // for doc
-use crate::interpreted::ExprInst;
+use crate::interpreted::{ExprInst, TryFromExprInst};
 #[allow(unused)] // for doc
 use crate::write_fn_step;
 
@@ -27,9 +27,7 @@ use crate::write_fn_step;
 /// `Rc<dyn ExternError>`.
 ///
 /// To avoid typing the same expression a lot, the conversion is optional.
-/// If it is omitted, the field is initialized with a [TryInto::try_into] call
-/// from `&ExprInst` to the target type. In this case, the error is
-/// short-circuited using `?` so conversions through `FromResidual` are allowed.
+/// If it is omitted, the field is initialized using [TryFromExprInst].
 /// The optional syntax starts with `as`.
 ///
 /// If all conversions are omitted, the alias definition (`expr=$ident in`) has
@@ -41,14 +39,13 @@ use crate::write_fn_step;
 ///
 /// ```
 /// use orchidlang::interpreted::Clause;
-/// use orchidlang::systems::cast_exprinst::with_str;
 /// use orchidlang::{define_fn, Literal, OrcString, Primitive};
 ///
 /// define_fn! {expr=x in
 ///   /// Append a string to another
 ///   pub Concatenate {
-///     a: OrcString as with_str(x, |s| Ok(s.clone())),
-///     b: OrcString as with_str(x, |s| Ok(s.clone()))
+///     a: OrcString as x.downcast(),
+///     b: OrcString
 ///   } => {
 ///     Ok(Clause::P(Primitive::Literal(Literal::Str(
 ///       OrcString::from(a.get_string() + &b)
@@ -61,23 +58,26 @@ use crate::write_fn_step;
 ///
 /// ```
 /// use orchidlang::interpreted::Clause;
-/// use orchidlang::systems::cast_exprinst::with_lit;
+/// use orchidlang::systems::cast_exprinst::get_literal;
 /// use orchidlang::{define_fn, Literal};
 ///
 /// define_fn! {
 ///   /// Convert a literal to a string using Rust's conversions for floats,
 ///   /// chars and uints respectively
-///   ToString = |x| with_lit(x, |l| Ok(match l {
-///     Literal::Uint(i) => Literal::Str(i.to_string().into()),
-///     Literal::Num(n) => Literal::Str(n.to_string().into()),
-///     s@Literal::Str(_) => s.clone(),
-///   })).map(Clause::from)
+///   ToString = |x| Ok(match get_literal(x)?.0 {
+///     Literal::Uint(i) => Clause::from(Literal::Str(i.to_string().into())),
+///     Literal::Num(n) => Clause::from(Literal::Str(n.to_string().into())),
+///     s@Literal::Str(_) => Clause::from(s),
+///   })
 /// }
 /// ```
 #[macro_export]
 macro_rules! define_fn {
   // Unary function entry
-  ($( #[ $attr:meta ] )* $qual:vis $name:ident = |$x:ident| $body:expr) => {
+  (
+    $( #[ $attr:meta ] )* $qual:vis $name:ident = |$x:ident| $body:expr
+    $(; $( $next:tt )+ )?
+  ) => {
     paste::paste!{
       $crate::write_fn_step!(
         $( #[ $attr ] )* $qual $name
@@ -89,21 +89,28 @@ macro_rules! define_fn {
         {}
         out = expr => Ok(expr);
         {
-          let lambda = |$x: &$crate::interpreted::ExprInst| $body;
+          let lambda = |$x: $crate::interpreted::ExprInst| $body;
           lambda(out)
         }
       );
     }
+
+    $( $crate::define_fn!{ $( $next )+ } )?
   };
   // xname is optional only if every conversion is implicit
-  ($( #[ $attr:meta ] )* $qual:vis $name:ident {
-    $( $arg:ident: $typ:ty ),+  $(,)?
-  } => $body:expr) => {
+  (
+    $( #[ $attr:meta ] )* $qual:vis $name:ident {
+      $( $arg:ident: $typ:ty ),+  $(,)?
+    } => $body:expr
+    $(; $( $next:tt )+ )?
+  ) => {
     $crate::define_fn!{expr=expr in
       $( #[ $attr ] )* $qual $name {
         $( $arg: $typ ),*
       } => $body
     }
+
+    $( $crate::define_fn!{ $( $next )+ } )?
   };
   // multi-parameter function entry
   (expr=$xname:ident in
@@ -112,24 +119,29 @@ macro_rules! define_fn {
       $arg0:ident: $typ0:ty $( as $parse0:expr )?
       $(, $arg:ident: $typ:ty $( as $parse:expr )? )* $(,)?
     } => $body:expr
-  ) => {paste::paste!{
-    // Generate initial state
-    $crate::write_fn_step!(
-      $( #[ $attr ] )* $qual $name
-      >
-      [< Internal $name >]
-    );
-    // Enter loop to generate intermediate states
-    $crate::define_fn!(@MIDDLE $xname [< Internal $name >] ($body)
-      ()
-      (
-        ( $arg0: $typ0 $( as $parse0)? )
-        $(
-          ( $arg: $typ $( as $parse)? )
-        )*
-      )
-    );
-  }};
+    $(; $( $next:tt )+ )?
+  ) => {
+    paste::paste!{
+      // Generate initial state
+      $crate::write_fn_step!(
+        $( #[ $attr ] )* $qual $name
+        >
+        [< Internal $name >]
+      );
+      // Enter loop to generate intermediate states
+      $crate::define_fn!(@MIDDLE $xname [< Internal $name >] ($body)
+        ()
+        (
+          ( $arg0: $typ0 $( as $parse0)? )
+          $(
+            ( $arg: $typ $( as $parse)? )
+          )*
+        )
+      );
+    }
+
+    $( $crate::define_fn!{ expr = $xname in $( $next )+ } )?
+  };
   // Recursive case
   (@MIDDLE $xname:ident $name:ident ($body:expr)
     // fields that should be included in this struct

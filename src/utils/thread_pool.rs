@@ -168,9 +168,8 @@ impl<T: Task> Drop for ThreadPool<T> {
     self.data.stopping.store(true, Ordering::SeqCst);
     let mut rdv_point = self.data.rdv_point.lock().unwrap();
     if let Some(pending) = rdv_point.take() {
-      pending
-        .try_send(Message::Stop)
-        .expect("The channel is always removed before push")
+      // the worker has read the value of `stopping`
+      let _ = pending.send(Message::Stop);
     }
   }
 }

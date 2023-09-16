@@ -34,4 +34,4 @@ pub use representations::{
   Location, NameLike, OrcString, PathSet, Primitive, Sym, VName,
 };
 pub use utils::substack::Substack;
-pub use utils::{IdMap, Side};
+pub use utils::{ddispatch, take_with_output, thread_pool, IdMap, Side};

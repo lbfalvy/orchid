@@ -29,10 +29,7 @@ define_fn! {expr=x in
   SetTimer {
     recurring: Boolean,
     duration: NotNan<f64>
-  } => Ok(init_cps(2, Timer{
-    recurring: *recurring,
-    duration: *duration
-  }))
+  } => Ok(init_cps(2, Timer{ recurring, duration }))
 }
 
 #[derive(Clone)]
@@ -125,27 +122,27 @@ impl<'a> IntoSystem<'a> for AsynchSystem<'a> {
     let polly = Rc::new(RefCell::new(poller));
     handler_table.register({
       let polly = polly.clone();
-      move |t: &CPSBox<Timer>| {
+      move |t: Box<CPSBox<Timer>>| {
         let mut polly = polly.borrow_mut();
         let (timeout, action, cont) = t.unpack2();
         let duration = Duration::from_secs_f64(*timeout.duration);
         let cancel_timer = if timeout.recurring.0 {
-          CancelTimer(Rc::new(polly.set_interval(duration, action.clone())))
+          CancelTimer(Rc::new(polly.set_interval(duration, action)))
         } else {
-          CancelTimer(Rc::new(polly.set_timeout(duration, action.clone())))
+          CancelTimer(Rc::new(polly.set_timeout(duration, action)))
         };
-        Ok(call(cont.clone(), [init_cps(1, cancel_timer).wrap()]).wrap())
+        Ok(call(cont, [init_cps(1, cancel_timer).wrap()]).wrap())
       }
     });
-    handler_table.register(move |t: &CPSBox<CancelTimer>| {
+    handler_table.register(move |t: Box<CPSBox<CancelTimer>>| {
       let (command, cont) = t.unpack1();
       command.0.as_ref()();
-      Ok(cont.clone())
+      Ok(cont)
     });
     handler_table.register({
       let polly = polly.clone();
       let mut microtasks = VecDeque::new();
-      move |_: &Yield| {
+      move |_: Box<Yield>| {
         if let Some(expr) = microtasks.pop_front() {
           return Ok(expr);
         }

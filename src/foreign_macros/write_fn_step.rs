@@ -23,7 +23,6 @@ use crate::interpreted::ExprInst;
 ///
 /// use orchidlang::{write_fn_step, Literal, Primitive, OrcString};
 /// use orchidlang::interpreted::Clause;
-/// use orchidlang::systems::cast_exprinst::{with_str, with_uint};
 /// use orchidlang::systems::RuntimeError;
 ///
 /// // Initial state
@@ -31,14 +30,14 @@ use crate::interpreted::ExprInst;
 /// // Middle state
 /// write_fn_step!(
 ///   CharAt1 {}
-///   CharAt0 where s: OrcString = x => with_str(x, |s| Ok(s.clone()));
+///   CharAt0 where s: OrcString = x => x.downcast::<OrcString>();
 /// );
 /// // Exit state
 /// write_fn_step!(
 ///   CharAt0 { s: OrcString }
-///   i = x => with_uint(x, Ok);
+///   i = x => x.downcast::<u64>();
 ///   {
-///     if let Some(c) = s.graphemes(true).nth(*i as usize) {
+///     if let Some(c) = s.graphemes(true).nth(i as usize) {
 ///       Ok(Literal::Str(OrcString::from(c.to_string())).into())
 ///     } else {
 ///       RuntimeError::fail(
@@ -88,7 +87,7 @@ macro_rules! write_fn_step {
     $quant struct $name;
     $crate::externfn_impl!{
       $name,
-      |_: &Self, expr_inst: $crate::interpreted::ExprInst| {
+      |_: Self, expr_inst: $crate::interpreted::ExprInst| {
         Ok($next{ expr_inst })
       }
     }
@@ -107,14 +106,14 @@ macro_rules! write_fn_step {
       $( $arg: $typ, )*
       expr_inst: $crate::interpreted::ExprInst,
     }
-    impl $crate::utils::ddispatch::Responder for $name {}
+    impl $crate::ddispatch::Responder for $name {}
     $crate::atomic_redirect!($name, expr_inst);
     $crate::atomic_impl!($name);
     $crate::externfn_impl!(
       $name,
-      |this: &Self, expr_inst: $crate::interpreted::ExprInst| {
+      |this: Self, expr_inst: $crate::interpreted::ExprInst| {
         let $added $( :$added_typ )? =
-          $crate::write_fn_step!(@CONV &this.expr_inst $(, $xname $extract )?);
+          $crate::write_fn_step!(@CONV this.expr_inst $(, $xname $extract )?);
         Ok($next{
           $( $arg: this.$arg.clone(), )*
           $added, expr_inst
@@ -137,13 +136,12 @@ macro_rules! write_fn_step {
       expr_inst: $crate::interpreted::ExprInst,
     }
     $crate::atomic_redirect!($name, expr_inst);
-    impl $crate::utils::ddispatch::Responder for $name {}
+    impl $crate::ddispatch::Responder for $name {}
     $crate::atomic_impl!(
       $name,
-      |Self{ $($arg, )* expr_inst }: &Self, _| {
-        let added $(: $added_typ )? =
+      |Self{ $($arg, )* expr_inst }, _| {
+        let $added $(: $added_typ )? =
           $crate::write_fn_step!(@CONV expr_inst $(, $xname $extract )?);
-        let $added = &added;
         $process
       }
     );

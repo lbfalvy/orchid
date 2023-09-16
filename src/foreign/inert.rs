@@ -6,10 +6,11 @@ use super::{AtomicResult, AtomicReturn, ExternError};
 #[allow(unused)] // for doc
 use crate::define_fn;
 use crate::foreign::Atomic;
-use crate::interpreted::{ExprInst, TryFromExprInst};
+use crate::interpreted::{Clause, Expr, ExprInst, TryFromExprInst};
 use crate::interpreter::Context;
-use crate::systems::cast_exprinst::with_atomic;
+use crate::systems::AssertionError;
 use crate::utils::ddispatch::{Request, Responder};
+use crate::Primitive;
 
 /// A proxy trait that implements [Atomic] for blobs of data in Rust code that
 /// cannot be processed and always report inert. Since these are expected to be
@@ -28,19 +29,23 @@ impl<T: InertAtomic> Responder for T {
   fn respond(&self, request: Request) { self.respond(request) }
 }
 impl<T: InertAtomic> Atomic for T {
-  fn as_any(&self) -> &dyn Any { self }
+  fn as_any(self: Box<Self>) -> Box<dyn Any> { self }
+  fn as_any_ref(&self) -> &dyn Any { self }
 
-  fn run(&self, ctx: Context) -> AtomicResult {
-    Ok(AtomicReturn {
-      clause: self.clone().atom_cls(),
-      gas: ctx.gas,
-      inert: true,
-    })
+  fn run(self: Box<Self>, ctx: Context) -> AtomicResult {
+    Ok(AtomicReturn { gas: ctx.gas, inert: true, clause: self.atom_cls() })
   }
 }
 
 impl<T: InertAtomic> TryFromExprInst for T {
-  fn from_exi(exi: &ExprInst) -> Result<Self, Rc<dyn ExternError>> {
-    with_atomic(exi, Self::type_str(), |a: &T| Ok(a.clone()))
+  fn from_exi(exi: ExprInst) -> Result<Self, Rc<dyn ExternError>> {
+    let Expr { clause, location } = exi.expr_val();
+    match clause {
+      Clause::P(Primitive::Atom(a)) => match a.0.as_any().downcast() {
+        Ok(t) => Ok(*t),
+        Err(_) => AssertionError::fail(location, Self::type_str()),
+      },
+      _ => AssertionError::fail(location, "atom"),
+    }
   }
 }

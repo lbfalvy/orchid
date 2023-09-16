@@ -2,7 +2,6 @@ use std::fmt::Display;
 use std::rc::Rc;
 
 use crate::foreign::ExternError;
-use crate::representations::interpreted::ExprInst;
 use crate::{Location, Sym};
 
 /// Problems in the process of execution
@@ -11,7 +10,7 @@ pub enum RuntimeError {
   /// A Rust function encountered an error
   Extern(Rc<dyn ExternError>),
   /// Primitive applied as function
-  NonFunctionApplication(ExprInst),
+  NonFunctionApplication(Location),
   /// Symbol not in context
   MissingSymbol(Sym, Location),
 }
@@ -24,8 +23,8 @@ impl Display for RuntimeError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Extern(e) => write!(f, "Error in external function: {e}"),
-      Self::NonFunctionApplication(expr) => {
-        write!(f, "Primitive applied as function at {}", expr.expr().location)
+      Self::NonFunctionApplication(location) => {
+        write!(f, "Primitive applied as function at {}", location)
       },
       Self::MissingSymbol(sym, loc) => {
         write!(

@@ -27,12 +27,12 @@ macro_rules! externfn_impl {
     impl $crate::foreign::ExternFn for $typ {
       fn name(&self) -> &str { stringify!($typ) }
       fn apply(
-        &self,
+        self: Box<Self>,
         arg: $crate::interpreted::ExprInst,
         _ctx: $crate::interpreter::Context,
       ) -> $crate::foreign::XfnResult {
         let closure = $next_atomic;
-        match closure(self, arg) {
+        match closure(*self, arg) {
           // ? casts the result but we want to strictly forward it
           Ok(r) => Ok($crate::interpreted::Clause::P($crate::Primitive::Atom(
             $crate::foreign::Atom::new(r),

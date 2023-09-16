@@ -25,7 +25,13 @@ impl Debug for OrcString {
 
 impl OrcString {
   /// Clone out the plain Rust [String]
-  pub fn get_string(&self) -> String { self.as_str().to_owned() }
+  pub fn get_string(self) -> String {
+    match self {
+      Self::Interned(s) => s.as_str().to_owned(),
+      Self::Runtime(rc) =>
+        Rc::try_unwrap(rc).unwrap_or_else(|rc| (*rc).clone()),
+    }
+  }
 }
 
 impl Deref for OrcString {

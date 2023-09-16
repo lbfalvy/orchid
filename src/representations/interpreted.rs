@@ -13,10 +13,15 @@ use super::location::Location;
 use super::path_set::PathSet;
 use super::primitive::Primitive;
 use super::Literal;
+#[allow(unused)] // for doc
+use crate::foreign::Atomic;
 use crate::foreign::ExternError;
+use crate::utils::ddispatch::request;
+use crate::utils::take_with_output;
 use crate::Sym;
 
 /// An expression with metadata
+#[derive(Clone)]
 pub struct Expr {
   /// The actual value
   pub clause: Clause,
@@ -49,7 +54,7 @@ pub struct NotALiteral;
 /// Types automatically convertible from an [ExprInst]
 pub trait TryFromExprInst: Sized {
   /// Match and clone the value out of an [ExprInst]
-  fn from_exi(exi: &ExprInst) -> Result<Self, Rc<dyn ExternError>>;
+  fn from_exi(exi: ExprInst) -> Result<Self, Rc<dyn ExternError>>;
 }
 
 /// A wrapper around expressions to handle their multiple occurences in
@@ -57,6 +62,18 @@ pub trait TryFromExprInst: Sized {
 #[derive(Clone)]
 pub struct ExprInst(pub Rc<RefCell<Expr>>);
 impl ExprInst {
+  /// Wrap an [Expr] in a shared container so that normalizatoin steps are
+  /// applied to all references
+  pub fn new(expr: Expr) -> Self { Self(Rc::new(RefCell::new(expr))) }
+
+  /// Take the [Expr] out of this container if it's the last reference to it, or
+  /// clone it out.
+  pub fn expr_val(self) -> Expr {
+    Rc::try_unwrap(self.0)
+      .map(|c| c.into_inner())
+      .unwrap_or_else(|rc| rc.as_ref().borrow().deref().clone())
+  }
+
   /// Read-only access to the shared expression instance
   ///
   /// # Panics
@@ -80,12 +97,15 @@ impl ExprInst {
   /// across the tree.
   pub fn try_normalize<T, E>(
     &self,
-    mapper: impl FnOnce(&Clause, &Location) -> Result<(Clause, T), E>,
+    mapper: impl FnOnce(Clause, &Location) -> Result<(Clause, T), E>,
   ) -> Result<(Self, T), E> {
-    let expr = self.expr();
-    let (new_clause, extra) = mapper(&expr.clause, &expr.location)?;
-    drop(expr);
-    self.expr_mut().clause = new_clause;
+    let extra = take_with_output(&mut *self.expr_mut(), |expr| {
+      let Expr { clause, location } = expr;
+      match mapper(clause, &location) {
+        Ok((clause, t)) => (Expr { clause, location }, Ok(t)),
+        Err(e) => (Expr { clause: Clause::Bottom, location }, Err(e)),
+      }
+    })?;
     Ok((self.clone(), extra))
   }
 
@@ -93,13 +113,12 @@ impl ExprInst {
   /// distinct expression. The new expression shares location info with
   /// the original but is normalized independently.
   pub fn try_update<T, E>(
-    &self,
-    mapper: impl FnOnce(&Clause, &Location) -> Result<(Clause, T), E>,
+    self,
+    mapper: impl FnOnce(Clause, Location) -> Result<(Clause, T), E>,
   ) -> Result<(Self, T), E> {
-    let expr = self.expr();
-    let (clause, extra) = mapper(&expr.clause, &expr.location)?;
-    let new_expr = Expr { clause, location: expr.location.clone() };
-    Ok((Self(Rc::new(RefCell::new(new_expr))), extra))
+    let Expr { clause, location } = self.expr_val();
+    let (clause, extra) = mapper(clause, location.clone())?;
+    Ok((Self::new(Expr { clause, location }), extra))
   }
 
   /// Call a predicate on the expression, returning whatever the
@@ -111,16 +130,22 @@ impl ExprInst {
 
   /// Call the predicate on the value inside this expression if it is a
   /// primitive
-  pub fn with_literal<T>(
-    &self,
-    predicate: impl FnOnce(&Literal) -> T,
-  ) -> Result<T, NotALiteral> {
-    let expr = self.expr();
-    if let Clause::P(Primitive::Literal(l)) = &expr.clause {
-      Ok(predicate(l))
-    } else {
-      Err(NotALiteral)
-    }
+  pub fn get_literal(self) -> Result<(Literal, Location), Self> {
+    Rc::try_unwrap(self.0).map_or_else(
+      |rc| {
+        if let Expr { clause: Clause::P(Primitive::Literal(li)), location } =
+          rc.as_ref().borrow().deref()
+        {
+          return Ok((li.clone(), location.clone()));
+        }
+        Err(Self(rc))
+      },
+      |cell| match cell.into_inner() {
+        Expr { clause: Clause::P(Primitive::Literal(li)), location } =>
+          Ok((li, location)),
+        expr => Err(Self::new(expr)),
+      },
+    )
   }
 
   /// Visit all expressions in the tree. The search can be exited early by
@@ -138,15 +163,30 @@ impl ExprInst {
       Clause::Apply { f, x } =>
         f.search_all(predicate).or_else(|| x.search_all(predicate)),
       Clause::Lambda { body, .. } => body.search_all(predicate),
-      Clause::Constant(_) | Clause::LambdaArg | Clause::P(_) => None,
+      Clause::Constant(_)
+      | Clause::LambdaArg
+      | Clause::P(_)
+      | Clause::Bottom => None,
     })
   }
 
   /// Convert into any type that implements [FromExprInst]. Calls to this
   /// function are generated wherever a conversion is elided in an extern
   /// function.
-  pub fn downcast<T: TryFromExprInst>(&self) -> Result<T, Rc<dyn ExternError>> {
+  pub fn downcast<T: TryFromExprInst>(self) -> Result<T, Rc<dyn ExternError>> {
     T::from_exi(self)
+  }
+
+  /// Get the code location data associated with this expresssion directly
+  pub fn location(&self) -> Location { self.expr().location.clone() }
+
+  /// If this expression is an [Atomic], request an object of the given type.
+  /// If it's not an atomic, fail the request automatically.
+  pub fn request<T: 'static>(&self) -> Option<T> {
+    match &self.expr().clause {
+      Clause::P(Primitive::Atom(a)) => request(&*a.0),
+      _ => None,
+    }
   }
 }
 
@@ -171,6 +211,8 @@ impl Display for ExprInst {
 /// Distinct types of expressions recognized by the interpreter
 #[derive(Debug, Clone)]
 pub enum Clause {
+  /// An expression that causes an error
+  Bottom,
   /// An unintrospectable unit
   P(Primitive),
   /// A function application
@@ -210,6 +252,7 @@ impl Display for Clause {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Clause::P(p) => write!(f, "{p:?}"),
+      Clause::Bottom => write!(f, "bottom"),
       Clause::LambdaArg => write!(f, "arg"),
       Clause::Apply { f: fun, x } => write!(f, "({fun} {x})"),
       Clause::Lambda { args, body } => match args {

@@ -41,8 +41,9 @@ use crate::Primitive;
 /// ```
 /// use orchidlang::{Literal};
 /// use orchidlang::interpreted::{ExprInst, Clause};
-/// use orchidlang::systems::cast_exprinst::with_lit;
+/// use orchidlang::systems::cast_exprinst::get_literal;
 /// use orchidlang::{atomic_impl, atomic_redirect, externfn_impl};
+/// use orchidlang::ddispatch::Responder;
 ///
 /// /// Convert a literal to a string using Rust's conversions for floats, chars and
 /// /// uints respectively
@@ -50,65 +51,67 @@ use crate::Primitive;
 /// struct ToString;
 ///
 /// externfn_impl!{
-///   ToString, |_: &Self, expr_inst: ExprInst|{
-///     Ok(InternalToString {
-///       expr_inst
-///     })
+///   ToString, |_: Self, expr_inst: ExprInst|{
+///     Ok(InternalToString { expr_inst })
 ///   }
 /// }
 /// #[derive(std::fmt::Debug,Clone)]
 /// struct InternalToString {
 ///   expr_inst: ExprInst,
 /// }
+/// impl Responder for InternalToString {}
 /// atomic_redirect!(InternalToString, expr_inst);
-/// atomic_impl!(InternalToString, |Self { expr_inst }: &Self, _|{
-///   with_lit(expr_inst, |l| Ok(match l {
-///     Literal::Uint(i) => Literal::Str(i.to_string().into()),
-///     Literal::Num(n) => Literal::Str(n.to_string().into()),
-///     s@Literal::Str(_) => s.clone(),
-///   })).map(Clause::from)
+/// atomic_impl!(InternalToString, |Self { expr_inst }: Self, _|{
+///   Ok(match get_literal(expr_inst)?.0 {
+///     Literal::Uint(i) => Clause::from(Literal::Str(i.to_string().into())),
+///     Literal::Num(n) => Clause::from(Literal::Str(n.to_string().into())),
+///     s@Literal::Str(_) => Clause::from(s),
+///   })
 /// });
 /// ```
 #[macro_export]
 macro_rules! atomic_impl {
   ($typ:ident) => {
-    $crate::atomic_impl! {$typ, |this: &Self, _: $crate::interpreter::Context| {
+    $crate::atomic_impl! {$typ, |this: Self, _: $crate::interpreter::Context| {
       use $crate::foreign::ExternFn;
-      Ok(this.clone().xfn_cls())
+      Ok(this.xfn_cls())
     }}
   };
   ($typ:ident, $next_phase:expr) => {
     impl $crate::foreign::Atomic for $typ {
-      fn as_any(&self) -> &dyn std::any::Any { self }
+      fn as_any(self: Box<Self>) -> Box<dyn std::any::Any> { self }
+      fn as_any_ref(&self) -> &dyn std::any::Any { self }
 
       fn run(
-        &self,
+        self: Box<Self>,
         ctx: $crate::interpreter::Context,
       ) -> $crate::foreign::AtomicResult {
         // extract the expression
+        let mut this = *self;
         let expr =
-          <Self as AsRef<$crate::interpreted::ExprInst>>::as_ref(self).clone();
+          <Self as AsMut<$crate::interpreted::ExprInst>>::as_mut(&mut this);
         // run the expression
-        let ret = $crate::interpreter::run(expr, ctx.clone())?;
-        let $crate::interpreter::Return { gas, state, inert } = ret;
-        // rebuild the atomic
-        let next_self = <Self as From<(
-          &Self,
-          $crate::interpreted::ExprInst,
-        )>>::from((self, state));
+        let (gas, inert) =
+          $crate::take_with_output(
+            expr,
+            |expr| match $crate::interpreter::run(expr, ctx.clone()) {
+              Ok(ret) => (ret.state, Ok((ret.gas, ret.inert))),
+              Err(e) => ($crate::interpreted::Clause::Bottom.wrap(), Err(e)),
+            },
+          )?;
         // branch off or wrap up
         let clause = if inert {
           let closure = $next_phase;
           let res: Result<
             $crate::interpreted::Clause,
             std::rc::Rc<dyn $crate::foreign::ExternError>,
-          > = closure(&next_self, ctx);
+          > = closure(this, ctx);
           match res {
             Ok(r) => r,
             Err(e) => return Err($crate::interpreter::RuntimeError::Extern(e)),
           }
         } else {
-          next_self.atom_cls()
+          this.atom_cls()
         };
         // package and return
         Ok($crate::foreign::AtomicReturn { clause, gas, inert: false })

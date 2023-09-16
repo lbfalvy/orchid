@@ -15,10 +15,9 @@ use crate::foreign::InertAtomic;
 use crate::interpreted::ExprInst;
 use crate::interpreter::HandlerTable;
 use crate::systems::asynch::{AsynchSystem, MessagePort};
-use crate::systems::cast_exprinst::with_atom;
 use crate::systems::stl::Boolean;
 use crate::systems::AssertionError;
-use crate::utils::ddispatch::{request, Request};
+use crate::utils::ddispatch::Request;
 use crate::utils::thread_pool::ThreadPool;
 use crate::utils::{take_with_output, unwrap_or, IdMap};
 use crate::{define_fn, ConstTree};
@@ -117,12 +116,6 @@ impl Debug for TakeCmd {
     write!(f, "A command to drop a shared resource")
   }
 }
-define_fn! {
-  pub TakeAndDrop = |x| with_atom(x, |a| match request(a.0.as_ref()) {
-    Some(t) => Ok(init_cps::<TakeCmd>(1, t)),
-    None => AssertionError::fail(x.clone(), "a SharedHandle"),
-  })
-}
 
 /// Error produced when an operation is scheduled or a seal placed on a resource
 /// which is either already sealed or taken.
@@ -135,6 +128,13 @@ impl InertAtomic for SealedOrTaken {
 }
 
 define_fn! {
+  pub TakeAndDrop = |x| {
+    let location = x.location();
+    match x.request() {
+      Some(t) => Ok(init_cps::<TakeCmd>(1, t)),
+      None => AssertionError::fail(location, "SharedHandle"),
+    }
+  };
   IsTakenError = |x| {
     Ok(Boolean(x.downcast::<SealedOrTaken>().is_ok()).atom_cls())
   }
@@ -296,15 +296,15 @@ impl SeqScheduler {
 impl IntoSystem<'static> for SeqScheduler {
   fn into_system(self, i: &crate::Interner) -> crate::facade::System<'static> {
     let mut handlers = HandlerTable::new();
-    handlers.register(|cmd: &CPSBox<Canceller>| {
+    handlers.register(|cmd: Box<CPSBox<Canceller>>| {
       let (canceller, cont) = cmd.unpack1();
       canceller.cancel();
-      Ok(cont.clone())
+      Ok(cont)
     });
-    handlers.register(move |cmd: &CPSBox<TakeCmd>| {
+    handlers.register(move |cmd: Box<CPSBox<TakeCmd>>| {
       let (TakeCmd(cb), cont) = cmd.unpack1();
       cb(self.clone());
-      Ok(cont.clone())
+      Ok(cont)
     });
     System {
       name: ["system", "scheduler"].into_iter().map_into().collect(),
