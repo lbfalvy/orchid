@@ -9,11 +9,10 @@ use crate::systems::scheduler::{Canceller, SharedHandle};
 use crate::systems::stl::Binary;
 use crate::Literal;
 
+/// Any type that we can read controlled amounts of data from
 pub type Source = BufReader<Box<dyn Read + Send>>;
+/// Any type that we can write data to
 pub type Sink = Box<dyn Write + Send>;
-
-pub type SourceHandle = SharedHandle<Source>;
-pub type SinkHandle = SharedHandle<Sink>;
 
 /// String reading command
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -39,7 +38,7 @@ pub enum ReadCmd {
 impl IOCmd for ReadCmd {
   type Stream = Source;
   type Result = ReadResult;
-  type Handle = SourceHandle;
+  type Handle = SharedHandle<Source>;
 
   // This is a buggy rule, check manually
   #[allow(clippy::read_zero_byte_vec)]
@@ -82,22 +81,21 @@ impl ReadResult {
   pub fn dispatch(self, succ: ExprInst, fail: ExprInst) -> Vec<ExprInst> {
     match self {
       ReadResult::RBin(_, Err(e)) | ReadResult::RStr(_, Err(e)) => {
-        vec![call(fail, vec![wrap_io_error(e)]).wrap()]
+        vec![call(fail, [wrap_io_error(e)]).wrap()]
       },
       ReadResult::RBin(_, Ok(bytes)) => {
         let arg = Binary(Arc::new(bytes)).atom_cls().wrap();
-        vec![call(succ, vec![arg]).wrap()]
+        vec![call(succ, [arg]).wrap()]
       },
       ReadResult::RStr(_, Ok(text)) => {
-        vec![call(succ, vec![Literal::Str(text.into()).into()]).wrap()]
+        vec![call(succ, [Literal::Str(text.into()).into()]).wrap()]
       },
     }
   }
 }
 
-/// Placeholder function for an eventual conversion from [io::Error] to Orchid
-/// data
-fn wrap_io_error(_e: io::Error) -> ExprInst { Literal::Uint(0u64).into() }
+/// Function to convert [io::Error] to Orchid data
+pub fn wrap_io_error(_e: io::Error) -> ExprInst { Literal::Uint(0u64).into() }
 
 /// Writing command (string or binary)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -109,7 +107,7 @@ pub enum WriteCmd {
 
 impl IOCmd for WriteCmd {
   type Stream = Sink;
-  type Handle = SinkHandle;
+  type Handle = SharedHandle<Sink>;
   type Result = WriteResult;
 
   fn execute(

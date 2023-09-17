@@ -48,6 +48,7 @@ fn map_at<E>(
 /// Replace the [Clause::LambdaArg] placeholders at the ends of the [PathSet]
 /// with the value in the body. Note that a path may point to multiple
 /// placeholders.
+#[must_use]
 fn substitute(paths: &PathSet, value: Clause, body: ExprInst) -> ExprInst {
   let PathSet { steps, next } = paths;
   unwrap_always(map_at(steps, body, &mut |checkpoint| -> Always<Clause> {

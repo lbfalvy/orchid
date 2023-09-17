@@ -14,6 +14,7 @@ pub enum StateEntry<'a> {
 }
 pub type State<'a> = HashMap<Tok<String>, StateEntry<'a>>;
 
+#[must_use]
 pub fn apply_exprv(template: &[RuleExpr], state: &State) -> Vec<RuleExpr> {
   template
     .iter()
@@ -22,6 +23,7 @@ pub fn apply_exprv(template: &[RuleExpr], state: &State) -> Vec<RuleExpr> {
     .collect()
 }
 
+#[must_use]
 pub fn apply_expr(template: &RuleExpr, state: &State) -> Vec<RuleExpr> {
   let Expr { location, value } = template;
   match value {

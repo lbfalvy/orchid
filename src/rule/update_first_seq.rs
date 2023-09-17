@@ -8,6 +8,7 @@ use crate::Sym;
 /// Traverse the tree, calling pred on every sibling list until it returns
 /// some vec then replace the sibling list with that vec and return true
 /// return false if pred never returned some
+#[must_use]
 pub fn exprv<F: FnMut(Rc<Vec<RuleExpr>>) -> Option<Rc<Vec<RuleExpr>>>>(
   input: Rc<Vec<RuleExpr>>,
   pred: &mut F,
@@ -19,6 +20,7 @@ pub fn exprv<F: FnMut(Rc<Vec<RuleExpr>>) -> Option<Rc<Vec<RuleExpr>>>>(
     .map(|i| Rc::new(i.collect()))
 }
 
+#[must_use]
 pub fn expr<F: FnMut(Rc<Vec<RuleExpr>>) -> Option<Rc<Vec<RuleExpr>>>>(
   input: &RuleExpr,
   pred: &mut F,
@@ -27,6 +29,7 @@ pub fn expr<F: FnMut(Rc<Vec<RuleExpr>>) -> Option<Rc<Vec<RuleExpr>>>>(
     .map(|value| Expr { value, location: input.location.clone() })
 }
 
+#[must_use]
 pub fn clause<F: FnMut(Rc<Vec<RuleExpr>>) -> Option<Rc<Vec<RuleExpr>>>>(
   c: &Clause<Sym>,
   pred: &mut F,

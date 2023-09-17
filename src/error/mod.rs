@@ -2,7 +2,6 @@
 mod import_all;
 mod no_targets;
 mod not_exported;
-// mod not_found;
 mod conflicting_roles;
 mod parse_error_with_tokens;
 mod project_error;

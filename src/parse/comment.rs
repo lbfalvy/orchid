@@ -4,6 +4,7 @@ pub use chumsky::{self, Parser};
 use super::decls::SimpleParser;
 
 /// Parses Lua-style comments
+#[must_use]
 pub fn comment_parser() -> impl SimpleParser<char, String> {
   choice((
     just("--[").ignore_then(take_until(just("]--").ignored())),

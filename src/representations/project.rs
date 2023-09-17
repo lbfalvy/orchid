@@ -137,6 +137,7 @@ fn collect_rules_rec<N: NameLike>(
 
 /// Collect the complete list of rules to be used by the rule repository from
 /// the [ProjectTree]
+#[must_use]
 pub fn collect_rules<N: NameLike>(project: &ProjectTree<N>) -> Vec<Rule<N>> {
   let mut rules = Vec::new();
   collect_rules_rec(&mut rules, &project.0);
@@ -164,6 +165,7 @@ fn collect_consts_rec<N: NameLike>(
 }
 
 /// Extract the symbol table from a [ProjectTree]
+#[must_use]
 pub fn collect_consts<N: NameLike>(
   project: &ProjectTree<N>,
   i: &Interner,
@@ -173,6 +175,7 @@ pub fn collect_consts<N: NameLike>(
   consts
 }
 
+#[must_use]
 fn vname_to_sym_tree_rec(
   tree: ProjectMod<VName>,
   i: &Interner,
@@ -218,6 +221,7 @@ fn vname_to_sym_tree_rec(
 /// Convert a flexible vname-based tree to a more rigid but faster symbol-based
 /// tree. The pipeline works with vnames, but the macro executor works with
 /// symbols.
+#[must_use]
 pub fn vname_to_sym_tree(
   tree: ProjectTree<VName>,
   i: &Interner,

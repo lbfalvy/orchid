@@ -27,6 +27,7 @@ pub enum Location {
 
 impl Location {
   /// Range, if known. If the range is known, the file is always known
+  #[must_use]
   pub fn range(&self) -> Option<Range<usize>> {
     if let Self::Range { range, .. } = self {
       Some(range.clone())
@@ -36,6 +37,7 @@ impl Location {
   }
 
   /// File, if known
+  #[must_use]
   pub fn file(&self) -> Option<Rc<VName>> {
     if let Self::File(file) | Self::Range { file, .. } = self {
       Some(file.clone())
@@ -45,6 +47,7 @@ impl Location {
   }
 
   /// Associated source code, if known
+  #[must_use]
   pub fn source(&self) -> Option<Rc<String>> {
     if let Self::Range { source, .. } = self {
       Some(source.clone())
@@ -55,6 +58,7 @@ impl Location {
 
   /// If the two locations are ranges in the same file, connect them.
   /// Otherwise choose the more accurate, preferring lhs if equal.
+  #[must_use]
   pub fn to(self, other: Self) -> Self {
     match self {
       Location::Unknown => other,
@@ -75,6 +79,7 @@ impl Location {
 
   /// Choose one of the two locations, preferring better accuracy, or lhs if
   /// equal
+  #[must_use]
   pub fn or(self, alt: Self) -> Self {
     match (&self, &alt) {
       (Self::Unknown, _) => alt,
@@ -110,6 +115,7 @@ impl Debug for Location {
   }
 }
 
+#[must_use]
 fn pos2lc(s: &str, i: usize) -> (usize, usize) {
   s.chars().take(i).fold((1, 1), |(line, col), char| {
     if char == '\n' { (line + 1, 1) } else { (line, col + 1) }

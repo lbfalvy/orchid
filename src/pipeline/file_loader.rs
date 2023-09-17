@@ -87,6 +87,7 @@ pub fn load_file(root: &Path, path: &[Tok<String>]) -> IOResult {
 }
 
 /// Generates a cached file loader for a directory
+#[must_use]
 pub fn mk_dir_cache(root: PathBuf) -> Cache<'static, VName, IOResult> {
   Cache::new(move |vname: VName, _this| load_file(&root, &vname))
 }
@@ -125,6 +126,7 @@ pub fn load_embed<T: 'static + RustEmbed>(path: &str, ext: &str) -> IOResult {
 }
 
 /// Generates a cached file loader for a [RustEmbed]
+#[must_use]
 pub fn mk_embed_cache<T: 'static + RustEmbed>(
   ext: &str,
 ) -> Cache<'_, Vec<Stok>, IOResult> {
@@ -136,6 +138,7 @@ pub fn mk_embed_cache<T: 'static + RustEmbed>(
 
 /// Load all files from an embed and convert them into a map usable in a
 /// [System]
+#[must_use]
 pub fn embed_to_map<T: 'static + RustEmbed>(
   suffix: &str,
   i: &Interner,

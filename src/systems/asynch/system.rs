@@ -8,12 +8,14 @@ use std::time::Duration;
 
 use hashbrown::HashMap;
 use ordered_float::NotNan;
+use rust_embed::RustEmbed;
 
 use crate::facade::{IntoSystem, System};
 use crate::foreign::cps_box::{init_cps, CPSBox};
 use crate::foreign::{Atomic, ExternError, InertAtomic};
 use crate::interpreted::ExprInst;
 use crate::interpreter::HandlerTable;
+use crate::pipeline::file_loader::embed_to_map;
 use crate::systems::codegen::call;
 use crate::systems::stl::Boolean;
 use crate::utils::poller::{PollEvent, Poller};
@@ -68,6 +70,12 @@ impl MessagePort {
   }
 }
 
+#[derive(RustEmbed)]
+#[folder = "src/systems/asynch"]
+#[prefix = "system/"]
+#[include = "*.orc"]
+struct AsynchEmbed;
+
 type AnyHandler<'a> = Box<dyn FnMut(Box<dyn Any>) -> Vec<ExprInst> + 'a>;
 
 /// Datastructures the asynch system will eventually be constructed from.
@@ -80,6 +88,7 @@ pub struct AsynchSystem<'a> {
 impl<'a> AsynchSystem<'a> {
   /// Create a new async event loop that allows registering handlers and taking
   /// references to the port before it's converted into a [System]
+  #[must_use]
   pub fn new() -> Self {
     let (sender, poller) = Poller::new();
     Self { poller, sender, handlers: HashMap::new() }
@@ -108,6 +117,7 @@ impl<'a> AsynchSystem<'a> {
   /// Obtain a message port for sending messages to the main thread. If an
   /// object is passed to the MessagePort that does not have a handler, the
   /// main thread panics.
+  #[must_use]
   pub fn get_port(&self) -> MessagePort { MessagePort(self.sender.clone()) }
 }
 
@@ -181,7 +191,7 @@ impl<'a> IntoSystem<'a> for AsynchSystem<'a> {
         ]),
       )
       .unwrap_tree(),
-      code: HashMap::new(),
+      code: embed_to_map::<AsynchEmbed>(".orc", i),
       prelude: Vec::new(),
       handlers: handler_table,
     }

@@ -1,6 +1,7 @@
 #[allow(unused)] // for doc
 use std::io::{BufReader, Read, Write};
 
+use itertools::Itertools;
 use rust_embed::RustEmbed;
 use trait_set::trait_set;
 
@@ -69,8 +70,8 @@ impl<'a, ST: IntoIterator<Item = (&'a str, Stream)>> IntoSystem<'static>
         |stream| (stream, Vec::new()),
       );
       match result {
-        Ok(cancel) => Ok(call(tail, vec![init_cps(1, cancel).wrap()]).wrap()),
-        Err(e) => Ok(call(fail, vec![e.atom_exi()]).wrap()),
+        Ok(cancel) => Ok(call(tail, [init_cps(1, cancel).wrap()]).wrap()),
+        Err(e) => Ok(call(fail, [e.atom_exi()]).wrap()),
       }
     });
     let scheduler = self.scheduler.clone();
@@ -87,8 +88,8 @@ impl<'a, ST: IntoIterator<Item = (&'a str, Stream)>> IntoSystem<'static>
         |stream| (stream, Vec::new()),
       );
       match result {
-        Ok(cancel) => Ok(call(tail, vec![init_cps(1, cancel).wrap()]).wrap()),
-        Err(e) => Ok(call(fail, vec![e.atom_exi()]).wrap()),
+        Ok(cancel) => Ok(call(tail, [init_cps(1, cancel).wrap()]).wrap()),
+        Err(e) => Ok(call(fail, [e.atom_exi()]).wrap()),
       }
     });
     let streams = self.global_streams.into_iter().map(|(n, stream)| {
@@ -101,7 +102,7 @@ impl<'a, ST: IntoIterator<Item = (&'a str, Stream)>> IntoSystem<'static>
     });
     System {
       handlers,
-      name: vec!["system".to_string(), "io".to_string()],
+      name: ["system", "io"].into_iter().map_into().collect(),
       constants: io_bindings(i, streams).unwrap_tree(),
       code: embed_to_map::<IOEmbed>(".orc", i),
       prelude: vec![FileEntry {

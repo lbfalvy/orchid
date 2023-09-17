@@ -223,6 +223,26 @@ impl SeqScheduler {
     })
   }
 
+  /// Run an operation asynchronously and then process its result in thread,
+  /// without queuing on any particular data.
+  pub fn run_orphan<T: Send + 'static>(
+    &self,
+    operation: impl FnOnce(Canceller) -> T + Send + 'static,
+    handler: impl FnOnce(T, Canceller) -> Vec<ExprInst> + 'static,
+  ) -> Canceller {
+    let cancelled = Canceller::new();
+    let canc1 = cancelled.clone();
+    let opid = self.0.pending.borrow_mut().insert(Box::new(|data, _| {
+      handler(*data.downcast().expect("This is associated by ID"), canc1)
+    }));
+    let canc1 = cancelled.clone();
+    let mut port = self.0.port.clone();
+    self.0.pool.submit(Box::new(move || {
+      port.send(SyncReply { opid, data: Box::new(operation(canc1)) });
+    }));
+    cancelled
+  }
+
   /// Schedule a function that will consume the value. After this the handle is
   /// considered sealed and all [SeqScheduler::schedule] calls will fail.
   pub fn seal<T>(

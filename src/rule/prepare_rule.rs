@@ -11,6 +11,7 @@ use crate::Sym;
 
 /// Ensure that the rule's source begins and ends with a vectorial without
 /// changing its meaning
+#[must_use]
 fn pad(mut rule: Rule<Sym>, i: &Interner) -> Rule<Sym> {
   let class: PHClass = PHClass::Vec { nonzero: false, prio: 0 };
   let empty: &[Expr<Sym>] = &[];

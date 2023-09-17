@@ -4,6 +4,7 @@ use super::vec_match::vec_match;
 use crate::rule::matcher::RuleExpr;
 use crate::rule::state::State;
 
+#[must_use]
 pub fn any_match<'a>(
   matcher: &AnyMatcher,
   seq: &'a [RuleExpr],

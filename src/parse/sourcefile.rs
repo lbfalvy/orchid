@@ -287,6 +287,7 @@ fn vec_to_single(
   }
 }
 
+#[must_use]
 pub fn expr_slice_location(v: &[impl AsRef<Location>]) -> Location {
   v.first()
     .map(|l| l.as_ref().clone().to(v.last().unwrap().as_ref().clone()))

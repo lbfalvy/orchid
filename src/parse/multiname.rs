@@ -16,19 +16,23 @@ struct Subresult {
   location: Location,
 }
 impl Subresult {
+  #[must_use]
   fn new_glob(location: Location) -> Self {
     Self { glob: true, deque: VecDeque::new(), location }
   }
 
+  #[must_use]
   fn new_named(name: Tok<String>, location: Location) -> Self {
     Self { location, glob: false, deque: VecDeque::from([name]) }
   }
 
+  #[must_use]
   fn push_front(mut self, name: Tok<String>) -> Self {
     self.deque.push_front(name);
     self
   }
 
+  #[must_use]
   fn finalize(self) -> Import {
     let Self { mut deque, glob, location } = self;
     debug_assert!(glob || !deque.is_empty(), "The constructors forbid this");

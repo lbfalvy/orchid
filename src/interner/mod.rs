@@ -5,9 +5,7 @@
 mod monotype;
 mod multitype;
 mod token;
-// mod traits;
 
 pub use monotype::TypedInterner;
 pub use multitype::Interner;
 pub use token::Tok;
-// pub use traits::{DisplayBundle, InternedDisplay, InternedInto};

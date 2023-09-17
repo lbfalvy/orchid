@@ -32,6 +32,7 @@ pub struct Expr<N: NameLike> {
 impl<N: NameLike> Expr<N> {
   /// Process all names with the given mapper.
   /// Return a new object if anything was processed
+  #[must_use]
   pub fn map_names(&self, pred: &impl Fn(&N) -> Option<N>) -> Option<Self> {
     Some(Self {
       value: self.value.map_names(pred)?,
@@ -40,6 +41,7 @@ impl<N: NameLike> Expr<N> {
   }
 
   /// Transform from one name system to another
+  #[must_use]
   pub fn transform_names<O: NameLike>(self, pred: &impl Fn(N) -> O) -> Expr<O> {
     Expr { value: self.value.transform_names(pred), location: self.location }
   }
@@ -71,6 +73,7 @@ pub fn search_all_slcs<N: NameLike, T>(
 
 impl Expr<VName> {
   /// Add the specified prefix to every Name
+  #[must_use]
   pub fn prefix(
     &self,
     prefix: &[Tok<String>],
@@ -143,6 +146,7 @@ pub enum Clause<N: NameLike> {
 
 impl<N: NameLike> Clause<N> {
   /// Extract the expressions from an auto, lambda or S
+  #[must_use]
   pub fn body(&self) -> Option<Rc<Vec<Expr<N>>>> {
     match self {
       Self::Lambda(_, body) | Self::S(_, body) => Some(body.clone()),
@@ -151,6 +155,7 @@ impl<N: NameLike> Clause<N> {
   }
 
   /// Convert with identical meaning
+  #[must_use]
   pub fn into_expr(self) -> Expr<N> {
     if let Self::S('(', body) = &self {
       if body.len() == 1 {
@@ -164,6 +169,7 @@ impl<N: NameLike> Clause<N> {
   }
 
   /// Convert with identical meaning
+  #[must_use]
   pub fn from_exprs(exprs: &[Expr<N>]) -> Option<Self> {
     if exprs.is_empty() {
       None
@@ -173,7 +179,9 @@ impl<N: NameLike> Clause<N> {
       Some(Self::S('(', Rc::new(exprs.to_vec())))
     }
   }
+  
   /// Convert with identical meaning
+  #[must_use]
   pub fn from_exprv(exprv: &Rc<Vec<Expr<N>>>) -> Option<Clause<N>> {
     if exprv.len() < 2 {
       Self::from_exprs(exprv)
@@ -185,6 +193,7 @@ impl<N: NameLike> Clause<N> {
   /// Collect all names that appear in this expression.
   /// NOTICE: this isn't the total set of unbound names, it's mostly useful to
   /// make weak statements for optimization.
+  #[must_use]
   pub fn collect_names(&self) -> HashSet<N> {
     if let Self::Name(n) = self {
       return HashSet::from([n.clone()]);
@@ -202,6 +211,7 @@ impl<N: NameLike> Clause<N> {
 
   /// Process all names with the given mapper.
   /// Return a new object if anything was processed
+  #[must_use]
   pub fn map_names(&self, pred: &impl Fn(&N) -> Option<N>) -> Option<Self> {
     match self {
       Clause::P(_) | Clause::Placeh(_) => None,
@@ -244,6 +254,7 @@ impl<N: NameLike> Clause<N> {
   }
 
   /// Transform from one name representation to another
+  #[must_use]
   pub fn transform_names<O: NameLike>(
     self,
     pred: &impl Fn(N) -> O,
@@ -292,6 +303,7 @@ impl<N: NameLike> Clause<N> {
 
 impl Clause<VName> {
   /// Add the specified prefix to every Name
+  #[must_use]
   pub fn prefix(
     &self,
     prefix: &[Tok<String>],
@@ -348,6 +360,7 @@ pub struct Rule<N: NameLike> {
 
 impl Rule<VName> {
   /// Namespace all tokens in the rule
+  #[must_use]
   pub fn prefix(
     &self,
     prefix: &[Tok<String>],
@@ -364,6 +377,7 @@ impl Rule<VName> {
 
   /// Return a list of all names that don't contain a namespace separator `::`.
   /// These are exported when the rule is exported
+  #[must_use]
   pub fn collect_single_names(&self) -> VName {
     let mut names = Vec::new();
     for e in self.pattern.iter() {

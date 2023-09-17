@@ -2,6 +2,7 @@ use chumsky::prelude::*;
 
 use super::decls::SimpleParser;
 
+#[must_use]
 pub fn operators_parser<T>(
   f: impl Fn(String) -> T,
 ) -> impl SimpleParser<char, Vec<T>> {

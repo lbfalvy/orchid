@@ -4,6 +4,7 @@ use chumsky::{self, Parser};
 use super::decls::SimpleParser;
 
 /// Parses a text character that is not the specified delimiter
+#[must_use]
 fn text_parser(delim: char) -> impl SimpleParser<char, char> {
   // Copied directly from Chumsky's JSON example.
   let escape = just('\\').ignore_then(
@@ -35,6 +36,7 @@ fn text_parser(delim: char) -> impl SimpleParser<char, char> {
 }
 
 /// Parse a string between double quotes
+#[must_use]
 pub fn str_parser() -> impl SimpleParser<char, String> {
   just('"')
     .ignore_then(

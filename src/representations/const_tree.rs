@@ -24,6 +24,7 @@ pub enum ConstTree {
 }
 impl ConstTree {
   /// Describe a [Primitive]
+  #[must_use]
   pub fn primitive(primitive: Primitive) -> Self {
     Self::Const(Expr {
       location: Location::Unknown,
@@ -31,18 +32,22 @@ impl ConstTree {
     })
   }
   /// Describe an [ExternFn]
+  #[must_use]
   pub fn xfn(xfn: impl ExternFn + 'static) -> Self {
     Self::primitive(Primitive::ExternFn(Box::new(xfn)))
   }
   /// Describe an [Atomic]
+  #[must_use]
   pub fn atom(atom: impl Atomic + 'static) -> Self {
     Self::primitive(Primitive::Atom(Atom(Box::new(atom))))
   }
   /// Describe a module
+  #[must_use]
   pub fn tree(arr: impl IntoIterator<Item = (Tok<String>, Self)>) -> Self {
     Self::Tree(arr.into_iter().collect())
   }
   /// Namespace the tree with the list of names
+  #[must_use]
   pub fn namespace(
     pref: impl IntoIterator<Item = Tok<String>>,
     data: Self,
@@ -59,6 +64,7 @@ impl ConstTree {
   /// # Panics
   ///
   /// If this is a leaf node aka. constant and not a namespace
+  #[must_use]
   pub fn unwrap_tree(self) -> HashMap<Tok<String>, Self> {
     match self {
       Self::Tree(map) => map,
@@ -87,6 +93,7 @@ impl Add for ConstTree {
   }
 }
 
+#[must_use]
 fn from_const_tree_rec(
   path: Substack<Tok<String>>,
   consts: HashMap<Tok<String>, ConstTree>,
@@ -119,6 +126,7 @@ fn from_const_tree_rec(
 
 /// Convert a map of [ConstTree] into a [ProjectTree] that can be used with the
 /// layered parsing system
+#[must_use]
 pub fn from_const_tree(
   consts: HashMap<Tok<String>, ConstTree>,
   file: &[Tok<String>],

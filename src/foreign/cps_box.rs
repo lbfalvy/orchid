@@ -25,6 +25,7 @@ struct CPSFn<T: CPSPayload> {
   pub payload: T,
 }
 impl<T: CPSPayload> CPSFn<T> {
+  #[must_use]
   fn new(argc: usize, payload: T) -> Self {
     debug_assert!(
       argc > 0,
@@ -55,37 +56,25 @@ pub struct CPSBox<T: CPSPayload> {
   pub continuations: Vec<ExprInst>,
 }
 impl<T: CPSPayload> CPSBox<T> {
-  /// Assert that the command was instantiated with the correct number of
-  /// possible continuations. This is decided by the native bindings, not user
-  /// code, therefore this error may be uncovered by usercode but can never be
-  /// produced at will.
-  pub fn assert_count(&self, expect: usize) {
-    let real = self.continuations.len();
-    debug_assert!(
-      real == expect,
-      "Tried to read {expect} argument(s) but {real} were provided for {:?}",
-      self.payload
-    )
-  }
   /// Unpack the wrapped command and the continuation
+  #[must_use]
   pub fn unpack1(self) -> (T, ExprInst) {
-    self.assert_count(1);
     let [cont]: [ExprInst; 1] =
       self.continuations.try_into().expect("size checked");
     (self.payload, cont)
   }
   /// Unpack the wrapped command and 2 continuations (usually an async and a
   /// sync)
+  #[must_use]
   pub fn unpack2(self) -> (T, ExprInst, ExprInst) {
-    self.assert_count(2);
     let [c1, c2]: [ExprInst; 2] =
       self.continuations.try_into().expect("size checked");
     (self.payload, c1, c2)
   }
   /// Unpack the wrapped command and 3 continuations (usually an async success,
   /// an async fail and a sync)
+  #[must_use]
   pub fn unpack3(self) -> (T, ExprInst, ExprInst, ExprInst) {
-    self.assert_count(3);
     let [c1, c2, c3]: [ExprInst; 3] =
       self.continuations.try_into().expect("size checked");
     (self.payload, c1, c2, c3)
@@ -97,6 +86,7 @@ impl<T: CPSPayload> InertAtomic for CPSBox<T> {
 }
 
 /// Like [init_cps] but wrapped in a [ConstTree] for init-time usage
+#[must_use]
 pub fn const_cps<T: CPSPayload>(argc: usize, payload: T) -> ConstTree {
   ConstTree::xfn(CPSFn::new(argc, payload))
 }
@@ -106,6 +96,7 @@ pub fn const_cps<T: CPSPayload>(argc: usize, payload: T) -> ConstTree {
 ///
 /// This function is meant to be used in an external function defined with
 /// [crate::define_fn]. For usage in a [ConstTree], see [mk_const]
+#[must_use]
 pub fn init_cps<T: CPSPayload>(argc: usize, payload: T) -> Clause {
   CPSFn::new(argc, payload).xfn_cls()
 }

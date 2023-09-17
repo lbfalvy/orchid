@@ -37,8 +37,10 @@ where
   /// ```ignore
   /// fn as_any(self: Box<Self>) -> Box<dyn Any> { self }
   /// ```
+  #[must_use]
   fn as_any(self: Box<Self>) -> Box<dyn Any>;
   /// See [Atomic::as_any], exactly the same but for references
+  #[must_use]
   fn as_any_ref(&self) -> &dyn Any;
 
   /// Attempt to normalize this value. If it wraps a value, this should report
@@ -47,6 +49,7 @@ where
   fn run(self: Box<Self>, ctx: Context) -> AtomicResult;
 
   /// Wrap the atom in a clause to be placed in an [AtomicResult].
+  #[must_use]
   fn atom_cls(self) -> Clause
   where
     Self: Sized,
@@ -55,6 +58,7 @@ where
   }
 
   /// Wrap the atom in a new expression instance to be placed in a tree
+  #[must_use]
   fn atom_exi(self) -> ExprInst
   where
     Self: Sized,
@@ -73,10 +77,12 @@ where
 pub struct Atom(pub Box<dyn Atomic>);
 impl Atom {
   /// Wrap an [Atomic] in a type-erased box
+  #[must_use]
   pub fn new<T: 'static + Atomic>(data: T) -> Self {
     Self(Box::new(data) as Box<dyn Atomic>)
   }
   /// Get the contained data
+  #[must_use]
   pub fn data(&self) -> &dyn Atomic { self.0.as_ref() as &dyn Atomic }
   /// Attempt to downcast contained data to a specific type
   pub fn try_cast<T: Atomic>(self) -> Result<T, Self> {
@@ -86,8 +92,10 @@ impl Atom {
     }
   }
   /// Test the type of the contained data without downcasting
+  #[must_use]
   pub fn is<T: 'static>(&self) -> bool { self.data().as_any_ref().is::<T>() }
   /// Downcast contained data, panic if it isn't the specified type
+  #[must_use]
   pub fn cast<T: 'static>(self) -> T {
     *self.0.as_any().downcast().expect("Type mismatch on Atom::cast")
   }

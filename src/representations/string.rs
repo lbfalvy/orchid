@@ -3,7 +3,8 @@ use std::hash::Hash;
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::Tok;
+use crate::interpreted::{Clause, ExprInst};
+use crate::{Literal, Primitive, Tok};
 
 /// An Orchid string which may or may not be interned
 #[derive(Clone, Eq)]
@@ -25,6 +26,7 @@ impl Debug for OrcString {
 
 impl OrcString {
   /// Clone out the plain Rust [String]
+  #[must_use]
   pub fn get_string(self) -> String {
     match self {
       Self::Interned(s) => s.as_str().to_owned(),
@@ -32,6 +34,14 @@ impl OrcString {
         Rc::try_unwrap(rc).unwrap_or_else(|rc| (*rc).clone()),
     }
   }
+
+  /// Wrap in a [Clause] for returning from extern functions
+  pub fn cls(self) -> Clause {
+    Clause::P(Primitive::Literal(Literal::Str(self)))
+  }
+
+  /// Wrap in an [ExprInst] for embedding in runtime-generated code
+  pub fn exi(self) -> ExprInst { self.cls().wrap() }
 }
 
 impl Deref for OrcString {

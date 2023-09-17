@@ -65,7 +65,7 @@ expr=x in
     let mut graphs = s.as_str().graphemes(true);
     let a = graphs.by_ref().take(i as usize).collect::<String>();
     let b = graphs.collect::<String>();
-    Ok(tuple(vec![a.into(), b.into()]))
+    Ok(tuple([a.into(), b.into()]))
   }
 }
 

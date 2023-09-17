@@ -5,6 +5,7 @@ use super::path_set::PathSet;
 use super::{interpreted, postmacro};
 use crate::utils::Side;
 
+#[must_use]
 fn collect_paths_expr_rec(
   expr: &postmacro::Expr,
   depth: usize,

@@ -19,6 +19,7 @@ use crate::Primitive;
 /// provided in argument lists.
 pub trait InertAtomic: Debug + Clone + 'static {
   /// Typename to be shown in the error when a conversion from [ExprInst] fails
+  #[must_use]
   fn type_str() -> &'static str;
   /// Proxies to [Responder] so that you don't have to implmeent it manually if
   /// you need it, but behaves exactly as the default implementation.

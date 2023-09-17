@@ -21,6 +21,7 @@ pub type Sym = Tok<VName>;
 /// handled together in datastructures
 pub trait NameLike: 'static + Clone + Eq + Hash + Debug {
   /// Fully resolve the name for printing
+  #[must_use]
   fn to_strv(&self) -> Vec<String>;
 }
 

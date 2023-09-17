@@ -25,10 +25,12 @@ pub struct Entry {
 }
 impl Entry {
   /// Checks if the lexeme is a comment or line break
+  #[must_use]
   pub fn is_filler(&self) -> bool {
     matches!(self.lexeme, Lexeme::Comment(_) | Lexeme::BR)
   }
 
+  #[must_use]
   pub fn is_keyword(&self) -> bool {
     matches!(
       self.lexeme,
@@ -40,12 +42,15 @@ impl Entry {
     )
   }
 
+  #[must_use]
   pub fn location(&self) -> Location { self.location.clone() }
 
+  #[must_use]
   pub fn range(&self) -> Range<usize> {
     self.location.range().expect("An Entry can only have a known location")
   }
 
+  #[must_use]
   pub fn file(&self) -> Rc<VName> {
     self.location.file().expect("An Entry can only have a range location")
   }
@@ -56,30 +61,6 @@ impl Display for Entry {
     self.lexeme.fmt(f)
   }
 }
-
-// impl From<Entry> for (Lexeme, Range<usize>) {
-//   fn from(ent: Entry) -> Self {
-//     (ent.lexeme.clone(), ent.range())
-//   }
-// }
-
-// impl Span for Entry {
-//   type Context = (Lexeme, Rc<Vec<String>>);
-//   type Offset = usize;
-
-//   fn context(&self) -> Self::Context {
-//     (self.lexeme.clone(), self.file())
-//   }
-//   fn start(&self) -> Self::Offset {
-//     self.range().start()
-//   }
-//   fn end(&self) -> Self::Offset {
-//     self.range().end()
-//   }
-//   fn new((lexeme, file): Self::Context, range: Range<Self::Offset>) -> Self {
-//     Self { lexeme, location: Location::Range { file, range } }
-//   }
-// }
 
 impl AsRef<Location> for Entry {
   fn as_ref(&self) -> &Location { &self.location }
@@ -159,12 +140,14 @@ impl Display for Lexeme {
 }
 
 impl Lexeme {
+  #[must_use]
   pub fn rule(prio: impl Into<f64>) -> Self {
     Lexeme::Arrow(
       NotNan::new(prio.into()).expect("Rule priority cannot be NaN"),
     )
   }
 
+  #[must_use]
   pub fn parser<E: chumsky::Error<Entry>>(
     self,
   ) -> impl Parser<Entry, Entry, Error = E> + Clone {
@@ -181,10 +164,12 @@ impl Display for LexedText {
   }
 }
 
+#[must_use]
 fn paren_parser(lp: char, rp: char) -> impl SimpleParser<char, Lexeme> {
   just(lp).to(Lexeme::LP(lp)).or(just(rp).to(Lexeme::RP(lp)))
 }
 
+#[must_use]
 pub fn literal_parser<'a>(
   ctx: impl Context + 'a,
 ) -> impl SimpleParser<char, Literal> + 'a {
@@ -199,6 +184,7 @@ pub fn literal_parser<'a>(
 
 pub static BASE_OPS: &[&str] = &[",", ".", "..", "...", "*"];
 
+#[must_use]
 pub fn lexer<'a>(
   ctx: impl Context + 'a,
   source: Rc<String>,

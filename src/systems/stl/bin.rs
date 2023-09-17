@@ -125,7 +125,7 @@ expr=x in
       )?
     }
     let (asl, bsl) = bin.0.split_at(i as usize);
-    Ok(tuple(vec![
+    Ok(tuple([
       Binary(Arc::new(asl.to_vec())).atom_cls().into(),
       Binary(Arc::new(bsl.to_vec())).atom_cls().into(),
     ]))

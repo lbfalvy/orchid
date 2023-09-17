@@ -8,7 +8,6 @@ use hashbrown::HashMap;
 
 use super::monotype::TypedInterner;
 use super::token::Tok;
-// use super::InternedDisplay;
 
 /// A collection of interners based on their type. Allows to intern any object
 /// that implements [ToOwned]. Objects of the same type are stored together in a
@@ -18,9 +17,11 @@ pub struct Interner {
 }
 impl Interner {
   /// Create a new interner
+  #[must_use]
   pub fn new() -> Self { Self { interners: RefCell::new(HashMap::new()) } }
 
   /// Intern something
+  #[must_use]
   pub fn i<Q: ?Sized + Eq + Hash + ToOwned>(&self, q: &Q) -> Tok<Q::Owned>
   where
     Q::Owned: 'static + Eq + Hash + Clone + Borrow<Q>,
@@ -31,32 +32,10 @@ impl Interner {
   }
 
   /// Fully resolve a list of interned things.
+  #[must_use]
   pub fn extern_all<T: 'static + Eq + Hash + Clone>(s: &[Tok<T>]) -> Vec<T> {
     s.iter().map(|t| (**t).clone()).collect()
   }
-
-  // /// A variant of `unwrap` using [InternedDisplay] to circumvent `unwrap`'s
-  // /// dependencyon [Debug]. For clarity, [expect] should be preferred.
-  // pub fn unwrap<T, E: InternedDisplay>(&self, result: Result<T, E>) -> T {
-  //   result.unwrap_or_else(|e| {
-  //     println!("Unwrapped Error: {}", e.bundle(self));
-  //     panic!("Unwrapped an error");
-  //   })
-  // }
-
-  // /// A variant of `expect` using  [InternedDisplay] to circumvent `expect`'s
-  // /// depeendency on [Debug].
-  // pub fn expect<T, E: InternedDisplay>(
-  //   &self,
-  //   result: Result<T, E>,
-  //   msg: &str,
-  // ) -> T {
-  //   result.unwrap_or_else(|e| {
-  //     println!("Expectation failed: {msg}");
-  //     println!("Error: {}", e.bundle(self));
-  //     panic!("Expected an error");
-  //   })
-  // }
 }
 
 impl Default for Interner {
@@ -64,6 +43,7 @@ impl Default for Interner {
 }
 
 /// Get or create an interner for a given type.
+#[must_use]
 fn get_interner<T: 'static + Eq + Hash + Clone>(
   interners: &mut RefMut<HashMap<TypeId, Rc<dyn Any>>>,
 ) -> Rc<TypedInterner<T>> {

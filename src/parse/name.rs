@@ -42,6 +42,7 @@ pub static NOT_NAME_CHAR: &[char] = &[
 /// TODO: `.` could possibly be parsed as an operator in some contexts.
 /// This operator is very common in maths so it's worth a try.
 /// Investigate.
+#[must_use]
 pub fn anyop_parser<'a>() -> impl SimpleParser<char, String> + 'a {
   filter(move |c| {
     !NOT_NAME_CHAR.contains(c)
@@ -57,6 +58,7 @@ pub fn anyop_parser<'a>() -> impl SimpleParser<char, String> + 'a {
 
 /// Parse an operator or name. Failing both, parse everything up to
 /// the next whitespace or blacklisted character as a new operator.
+#[must_use]
 pub fn name_parser<'a>(
   ops: &[impl AsRef<str> + Clone],
 ) -> impl SimpleParser<char, String> + 'a {

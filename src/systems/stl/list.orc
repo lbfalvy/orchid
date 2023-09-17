@@ -1,13 +1,17 @@
-import super::(option, fn::*, proc::*, loop::*, bool::*, known::*, num::*)
+import super::(option, fn::*, proc::*, loop::*, bool::*, known::*, num::*, tuple::*)
 
 const pair := \a.\b. \f. f a b
 
 -- Constructors
 
-export const cons := \hd.\tl. option::some (pair hd tl)
+export const cons := \hd.\tl. option::some t[hd, tl]
 export const end := option::none
 
-export const pop := \list.\default.\f.list default \cons.cons f
+export const pop := \list.\default.\f. do{
+  cps tuple = list default;
+  cps head, tail = tuple;
+  f head tail
+}
 
 -- Operators
 
@@ -99,6 +103,25 @@ export const get := \list.\n. (
     let n = n - 1;
   }
 )
+
+--[
+  Map every element to a pair of the index and the original element
+]--
+export const enumerate := \list. (
+  recursive r (list, n = 0) 
+    pop list end \head.\tail.
+      cons t[n, head] $ r tail $ n + 1
+)
+
+--[
+  Turn a list of CPS commands into a sequence. This is achieved by calling every
+  element on the return value of the next element with the tail passed to it.
+  The continuation is passed to the very last argument.
+]--
+export const chain := \list.\cont. loop_over (list) {
+  cps head, list = pop list cont;
+  cps head;
+}
 
 macro new[...$item, ...$rest:1] =0x2p84=> (cons (...$item) new[...$rest])
 macro new[...$end] =0x1p84=> (cons (...$end) end)

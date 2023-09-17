@@ -4,6 +4,7 @@ use crate::ast::Clause;
 use crate::rule::matcher::RuleExpr;
 use crate::rule::state::{State, StateEntry};
 
+#[must_use]
 pub fn scal_match<'a>(
   matcher: &ScalMatcher,
   expr: &'a RuleExpr,
@@ -24,6 +25,7 @@ pub fn scal_match<'a>(
   }
 }
 
+#[must_use]
 pub fn scalv_match<'a>(
   matchers: &[ScalMatcher],
   seq: &'a [RuleExpr],

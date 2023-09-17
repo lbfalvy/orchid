@@ -67,6 +67,7 @@ impl<M: Matcher> Repository<M> {
   }
 
   /// Attempt to run each rule in priority order once
+  #[must_use]
   pub fn step(&self, code: &RuleExpr) -> Option<RuleExpr> {
     let glossary = code.value.collect_names();
     for (rule, deps, _) in self.cache.iter() {
@@ -87,7 +88,7 @@ impl<M: Matcher> Repository<M> {
 
   /// Keep running the matching rule with the highest priority until no
   /// rules match. WARNING: this function might not terminate
-  #[allow(unused)]
+  #[must_use]
   pub fn pass(&self, code: &RuleExpr) -> Option<RuleExpr> {
     if let Some(mut processed) = self.step(code) {
       while let Some(out) = self.step(&processed) {
@@ -101,7 +102,7 @@ impl<M: Matcher> Repository<M> {
 
   /// Attempt to run each rule in priority order `limit` times. Returns
   /// the final tree and the number of iterations left to the limit.
-  #[allow(unused)]
+  #[must_use]
   pub fn long_step(
     &self,
     code: &RuleExpr,
@@ -138,6 +139,7 @@ impl<M: Debug + Matcher> Debug for Repository<M> {
   }
 }
 
+#[must_use]
 fn fmt_hex(num: f64) -> String {
   let exponent = (num.log2() / 4_f64).floor();
   let mantissa = num / 16_f64.powf(exponent);

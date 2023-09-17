@@ -11,6 +11,7 @@ use crate::tree::{ModEntry, ModMember, Module};
 use crate::utils::pure_push::pushed;
 use crate::{Interner, ProjectTree, Tok, VName};
 
+#[must_use]
 fn resolve_aliases_rec(
   root: &ProjectMod<VName>,
   module: &ProjectMod<VName>,
@@ -26,7 +27,6 @@ fn resolve_aliases_rec(
         let full_name = (module.extra.path.iter()).chain(n.iter()).cloned();
         match walk_with_links(root, full_name, false) {
           Ok(rep) => Some(rep.abs_path),
-          // Ok(_) => None,
           Err(e) => {
             let leftovers = e.tail.collect::<Vec<_>>();
             if !leftovers.is_empty() {
@@ -87,6 +87,7 @@ fn resolve_aliases_rec(
   }
 }
 
+#[must_use]
 pub fn resolve_aliases(
   project: ProjectTree<VName>,
   updated: &impl Fn(&[Tok<String>]) -> bool,

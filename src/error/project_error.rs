@@ -18,19 +18,24 @@ pub struct ErrorPosition {
 /// code changes
 pub trait ProjectError {
   /// A general description of this type of error
+  #[must_use]
   fn description(&self) -> &str;
   /// A formatted message that includes specific parameters
+  #[must_use]
   fn message(&self) -> String { self.description().to_string() }
   /// Code positions relevant to this error. If you don't implement this, you
   /// must implement [ProjectError::one_position]
+  #[must_use]
   fn positions(&self) -> BoxedIter<ErrorPosition> {
     box_once(ErrorPosition { location: self.one_position(), message: None })
   }
   /// Short way to provide a single location. If you don't implement this, you
   /// must implement [ProjectError::positions]
+  #[must_use]
   fn one_position(&self) -> Location { unimplemented!() }
   /// Convert the error into an `Rc<dyn ProjectError>` to be able to
   /// handle various errors together
+  #[must_use]
   fn rc(self) -> Rc<dyn ProjectError>
   where
     Self: Sized + 'static,

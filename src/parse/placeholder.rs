@@ -6,6 +6,7 @@ use super::decls::SimpleParser;
 use super::number::int_parser;
 use crate::ast::{PHClass, Placeholder};
 
+#[must_use]
 pub fn placeholder_parser(
   ctx: impl Context,
 ) -> impl SimpleParser<char, Placeholder> {

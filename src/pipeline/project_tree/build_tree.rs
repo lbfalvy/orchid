@@ -16,6 +16,7 @@ use crate::utils::get_or::get_or_default;
 use crate::utils::pure_push::pushed_ref;
 use crate::{Tok, VName};
 
+#[must_use = "A submodule may not be integrated into the tree"]
 pub struct TreeReport {
   pub entries: HashMap<Tok<String>, ProjectEntry<VName>>,
   pub rules: Vec<Rule<VName>>,

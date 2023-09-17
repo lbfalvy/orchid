@@ -21,6 +21,7 @@ pub struct HandlerTable<'a> {
 }
 impl<'a> HandlerTable<'a> {
   /// Create a new [HandlerTable]
+  #[must_use]
   pub fn new() -> Self { Self { handlers: HashMap::new() } }
 
   /// Add a handler function to interpret a type of atom and decide what happens
@@ -46,6 +47,7 @@ impl<'a> HandlerTable<'a> {
   }
 
   /// Combine two non-overlapping handler sets
+  #[must_use]
   pub fn combine(mut self, other: Self) -> Self {
     for (key, value) in other.handlers {
       let prev = self.handlers.insert(key, value);

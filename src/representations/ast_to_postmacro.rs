@@ -26,6 +26,7 @@ pub struct Error {
   pub kind: ErrorKind,
 }
 impl Error {
+  #[must_use]
   pub fn new(kind: ErrorKind, location: &Location) -> Self {
     Self { location: location.clone(), kind }
   }
@@ -64,6 +65,7 @@ struct Context<'a> {
 }
 
 impl<'a> Context<'a> {
+  #[must_use]
   fn w_name<'b>(&'b self, name: Sym) -> Context<'b>
   where
     'a: 'b,
@@ -71,6 +73,7 @@ impl<'a> Context<'a> {
     Context { names: self.names.push(name) }
   }
 
+  #[must_use]
   fn new() -> Context<'static> { Context { names: Substack::Bottom } }
 }
 

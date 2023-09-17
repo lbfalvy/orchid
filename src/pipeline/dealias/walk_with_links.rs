@@ -12,6 +12,7 @@ pub enum Target<'a, N: NameLike> {
   Leaf(&'a ProjectItem<N>),
 }
 
+#[must_use = "this is the sole product of this function"]
 pub struct WalkReport<'a, N: NameLike> {
   pub target: Target<'a, N>,
   pub abs_path: VName,

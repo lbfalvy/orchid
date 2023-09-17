@@ -28,6 +28,7 @@ impl NotFound {
   ///
   /// Basically, if `e` was not produced by the `walk*` methods called on
   /// `path`.
+  #[must_use]
   pub fn from_walk_error(
     source: &[Tok<String>],
     prefix: &[Tok<String>],

@@ -27,6 +27,7 @@ pub struct System<'a> {
 impl<'a> System<'a> {
   /// Intern the name of the system so that it can be used as an Orchid
   /// namespace
+  #[must_use]
   pub fn vname(&self, i: &Interner) -> VName {
     self.name.iter().map(|s| i.i(s)).collect::<Vec<_>>()
   }

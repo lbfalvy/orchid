@@ -23,6 +23,7 @@ pub enum RuleError {
 }
 impl RuleError {
   /// Convert into a unified error trait object shared by all Orchid errors
+  #[must_use]
   pub fn to_project_error(self, rule: &Rule<Sym>) -> Rc<dyn ProjectError> {
     match self {
       RuleError::Missing(name) => Missing::new(rule, name).rc(),
@@ -58,6 +59,7 @@ pub struct Missing {
   name: Tok<String>,
 }
 impl Missing {
+  #[must_use]
   pub fn new(rule: &ast::Rule<Sym>, name: Tok<String>) -> Self {
     let mut locations = HashSet::new();
     for expr in rule.template.iter() {
@@ -99,6 +101,7 @@ pub struct Multiple {
   name: Tok<String>,
 }
 impl Multiple {
+  #[must_use]
   pub fn new(rule: &ast::Rule<Sym>, name: Tok<String>) -> Self {
     let mut locations = HashSet::new();
     for expr in rule.template.iter() {
@@ -137,6 +140,7 @@ pub struct ArityMismatch {
   name: Tok<String>,
 }
 impl ArityMismatch {
+  #[must_use]
   pub fn new(rule: &ast::Rule<Sym>, name: Tok<String>) -> Self {
     let mut locations = HashSet::new();
     for expr in rule.template.iter() {
@@ -188,6 +192,7 @@ pub struct VecNeighbors {
   n2: Tok<String>,
 }
 impl VecNeighbors {
+  #[must_use]
   pub fn new(rule: &ast::Rule<Sym>, n1: Tok<String>, n2: Tok<String>) -> Self {
     let mut locations = HashSet::new();
     search_all_slcs(&rule.template[..], &mut |ev| {

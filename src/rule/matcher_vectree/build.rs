@@ -12,6 +12,7 @@ pub type MaxVecSplit<'a> =
 
 /// Derive the details of the central vectorial and the two sides from a
 /// slice of Expr's
+#[must_use]
 fn split_at_max_vec(pattern: &[RuleExpr]) -> Option<MaxVecSplit> {
   let rngidx = pattern.iter().position_max_by_key(|expr| {
     vec_attrs(expr).map(|attrs| attrs.1 as i64).unwrap_or(-1)
@@ -23,10 +24,12 @@ fn split_at_max_vec(pattern: &[RuleExpr]) -> Option<MaxVecSplit> {
   vec_attrs(placeh).map(|attrs| (left, attrs, right))
 }
 
+#[must_use]
 fn scal_cnt<'a>(iter: impl Iterator<Item = &'a RuleExpr>) -> usize {
   iter.take_while(|expr| vec_attrs(expr).is_none()).count()
 }
 
+#[must_use]
 pub fn mk_any(pattern: &[RuleExpr]) -> AnyMatcher {
   let left_split = scal_cnt(pattern.iter());
   if pattern.len() <= left_split {
@@ -43,11 +46,13 @@ pub fn mk_any(pattern: &[RuleExpr]) -> AnyMatcher {
 }
 
 /// Pattern MUST NOT contain vectorial placeholders
+#[must_use]
 fn mk_scalv(pattern: &[RuleExpr]) -> Vec<ScalMatcher> {
   pattern.iter().map(mk_scalar).collect()
 }
 
 /// Pattern MUST start and end with a vectorial placeholder
+#[must_use]
 fn mk_vec(pattern: &[RuleExpr]) -> VecMatcher {
   debug_assert!(!pattern.is_empty(), "pattern cannot be empty");
   debug_assert!(
@@ -99,6 +104,7 @@ fn mk_vec(pattern: &[RuleExpr]) -> VecMatcher {
 }
 
 /// Pattern MUST NOT be a vectorial placeholder
+#[must_use]
 fn mk_scalar(pattern: &RuleExpr) -> ScalMatcher {
   match &pattern.value {
     Clause::P(p) => ScalMatcher::P(p.clone()),

@@ -1,14 +1,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::foreign::InertAtomic;
-
 /// A single-fire thread-safe boolean flag with relaxed ordering
 #[derive(Debug, Clone)]
 pub struct Canceller(Arc<AtomicBool>);
-impl InertAtomic for Canceller {
-  fn type_str() -> &'static str { "a canceller" }
-}
 
 impl Canceller {
   /// Create a new canceller

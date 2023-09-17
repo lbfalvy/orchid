@@ -8,8 +8,11 @@ use crate::{Tok, VName};
 /// Hiding type parameters in associated types allows for simpler
 /// parser definitions
 pub trait Context: Clone {
+  #[must_use]
   fn ops(&self) -> &[Tok<String>];
+  #[must_use]
   fn file(&self) -> Rc<VName>;
+  #[must_use]
   fn interner(&self) -> &Interner;
 }
 

@@ -8,6 +8,7 @@ use crate::rule::matcher::RuleExpr;
 use crate::rule::state::{State, StateEntry};
 use crate::utils::unwrap_or;
 
+#[must_use]
 pub fn vec_match<'a>(
   matcher: &VecMatcher,
   seq: &'a [RuleExpr],

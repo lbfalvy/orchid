@@ -34,6 +34,7 @@ impl Import {
   ///
   /// Returns the path if this is a glob import, or the path plus the
   /// name if this is a specific import
+  #[must_use]
   pub fn nonglob_path(&self) -> VName {
     let mut path_vec = self.path.clone();
     if let Some(n) = &self.name {
@@ -241,6 +242,7 @@ pub fn absolute_path(
   })
 }
 
+#[must_use = "this could be None which means that there are too many supers"]
 fn absolute_path_rec(
   abs_location: &[Tok<String>],
   rel_path: &[Tok<String>],

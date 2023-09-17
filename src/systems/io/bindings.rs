@@ -1,10 +1,11 @@
 use super::flow::IOCmdHandlePack;
 use super::instances::{
-  BRead, ReadCmd, SRead, SinkHandle, SourceHandle, WriteCmd,
+  BRead, ReadCmd, SRead, WriteCmd, Sink, Source,
 };
 use crate::foreign::cps_box::init_cps;
 use crate::foreign::{Atom, Atomic};
 use crate::representations::OrcString;
+use crate::systems::scheduler::SharedHandle;
 use crate::systems::stl::Binary;
 use crate::systems::RuntimeError;
 use crate::{ast, define_fn, ConstTree, Interner, Primitive};
@@ -22,17 +23,13 @@ define_fn! {
     cmd: ReadCmd::RBytes(BRead::All),
     handle: x.downcast()?
   }));
-  ReadBytes {
-    stream: SourceHandle,
-    n: u64
-  } => Ok(init_cps(3, IOCmdHandlePack{
-    cmd: ReadCmd::RBytes(BRead::N(n.try_into().unwrap())),
-    handle: stream.clone()
-  }));
-  ReadUntil {
-    stream: SourceHandle,
-    pattern: u64
-  } => {
+  ReadBytes { stream: SharedHandle<Source>, n: u64 } => {
+    Ok(init_cps(3, IOCmdHandlePack{
+      cmd: ReadCmd::RBytes(BRead::N(n.try_into().unwrap())),
+      handle: stream.clone()
+    }))
+  };
+  ReadUntil { stream: SharedHandle<Source>, pattern: u64 } => {
     let delim = pattern.try_into().map_err(|_| RuntimeError::ext(
       "greater than 255".to_string(),
       "converting number to byte"
@@ -42,20 +39,18 @@ define_fn! {
       handle: stream
     }))
   };
-  WriteStr {
-    stream: SinkHandle,
-    string: OrcString
-  } => Ok(init_cps(3, IOCmdHandlePack {
-    cmd: WriteCmd::WStr(string.get_string()),
-    handle: stream.clone(),
-  }));
-  WriteBin {
-    stream: SinkHandle,
-    bytes: Binary
-  } => Ok(init_cps(3, IOCmdHandlePack {
-    cmd: WriteCmd::WBytes(bytes),
-    handle: stream.clone(),
-  }));
+  WriteStr { stream: SharedHandle<Sink>, string: OrcString } => {
+    Ok(init_cps(3, IOCmdHandlePack {
+      cmd: WriteCmd::WStr(string.get_string()),
+      handle: stream.clone(),
+    }))
+  };
+  WriteBin { stream: SharedHandle<Sink>, bytes: Binary } => {
+    Ok(init_cps(3, IOCmdHandlePack {
+      cmd: WriteCmd::WBytes(bytes),
+      handle: stream.clone(),
+    }))
+  };
   Flush = |x| Ok(init_cps(3, IOCmdHandlePack {
     cmd: WriteCmd::Flush,
     handle: x.downcast()?

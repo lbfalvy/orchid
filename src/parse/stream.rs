@@ -5,6 +5,7 @@ use crate::Location;
 
 /// Represents a slice which may or may not contain items, and a fallback entry
 /// used for error reporting whenever the errant stream is empty.
+#[must_use = "streams represent segments of code that must be parsed"]
 #[derive(Clone, Copy)]
 pub struct Stream<'a> {
   pub fallback: &'a Entry,
@@ -42,6 +43,7 @@ impl<'a> Stream<'a> {
     })
   }
 
+  #[must_use]
   pub fn location(self) -> Location {
     self.data.first().map_or_else(
       || self.fallback.location(),
@@ -97,12 +99,6 @@ impl<'a> Stream<'a> {
     }
   }
 }
-
-// impl<'a> From<(&'a Entry, &'a [Entry])> for Stream<'a> {
-//   fn from((fallback, data): (&'a Entry, &'a [Entry])) -> Self {
-//     Self::new(fallback, data)
-//   }
-// }
 
 pub fn skip_parenthesized<'a>(
   it: impl Iterator<Item = &'a Entry>,

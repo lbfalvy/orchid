@@ -33,6 +33,7 @@ impl<'a> Process<'a> {
 
   /// Find all unbound constant names in a symbol. This is often useful to
   /// identify dynamic loading targets.
+  #[must_use]
   pub fn unbound_refs(&self, key: Sym) -> Vec<(Sym, Location)> {
     let mut errors = Vec::new();
     let sym = self.symbols.get(&key).expect("symbol must exist");
@@ -48,9 +49,9 @@ impl<'a> Process<'a> {
     errors
   }
 
-  /// Assert that, unless [interpreted::Clause::Constant]s are created
-  /// procedurally, a [interpreter::RuntimeError::MissingSymbol] cannot be
-  /// produced
+  /// Assert that the code contains no invalid constants. This ensures that,
+  /// unless [interpreted::Clause::Constant]s are created procedurally,
+  /// a [interpreter::RuntimeError::MissingSymbol] cannot be produced
   pub fn validate_refs(&self) -> ProjectResult<()> {
     for key in self.symbols.keys() {
       if let Some((symbol, location)) = self.unbound_refs(key.clone()).pop() {

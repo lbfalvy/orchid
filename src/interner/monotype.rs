@@ -15,11 +15,13 @@ pub struct TypedInterner<T: 'static + Eq + Hash + Clone> {
 }
 impl<T: Eq + Hash + Clone> TypedInterner<T> {
   /// Create a fresh interner instance
+  #[must_use]
   pub fn new() -> Rc<Self> {
     Rc::new(Self { tokens: RefCell::new(HashMap::new()) })
   }
 
   /// Intern an object, returning a token
+  #[must_use]
   pub fn i<Q: ?Sized + Eq + Hash + ToOwned<Owned = T>>(
     self: &Rc<Self>,
     q: &Q,
@@ -42,6 +44,7 @@ impl<T: Eq + Hash + Clone> TypedInterner<T> {
 }
 
 /// Helper function to compute hashes outside a hashmap
+#[must_use]
 fn compute_hash(
   hash_builder: &impl BuildHasher,
   key: &(impl Hash + ?Sized),

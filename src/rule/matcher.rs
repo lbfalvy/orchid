@@ -10,7 +10,9 @@ pub type RuleExpr = Expr<Sym>;
 /// injected to allow experimentation in the matcher implementation.
 pub trait Matcher {
   /// Build matcher for a pattern
+  #[must_use]
   fn new(pattern: Rc<Vec<RuleExpr>>) -> Self;
   /// Apply matcher to a token sequence
+  #[must_use]
   fn apply<'a>(&self, source: &'a [RuleExpr]) -> Option<State<'a>>;
 }

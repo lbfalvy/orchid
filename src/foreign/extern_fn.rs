@@ -16,6 +16,7 @@ pub type XfnResult = Result<Clause, Rc<dyn ExternError>>;
 /// Errors produced by external code
 pub trait ExternError: Display {
   /// Convert into trait object
+  #[must_use]
   fn into_extern(self) -> Rc<dyn ExternError>
   where
     Self: 'static + Sized,
@@ -37,6 +38,7 @@ impl Error for dyn ExternError {}
 /// these are also external functions.
 pub trait ExternFn: DynClone {
   /// Display name of the function
+  #[must_use]
   fn name(&self) -> &str;
   /// Combine the function with an argument to produce a new clause
   fn apply(self: Box<Self>, arg: ExprInst, ctx: Context) -> XfnResult;
@@ -45,6 +47,7 @@ pub trait ExternFn: DynClone {
     self.name().hash(&mut state)
   }
   /// Wrap this function in a clause to be placed in an [AtomicResult].
+  #[must_use]
   fn xfn_cls(self) -> Clause
   where
     Self: Sized + 'static,

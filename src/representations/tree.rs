@@ -33,6 +33,7 @@ pub struct ModEntry<TItem: Clone, TExt: Clone> {
 }
 impl<TItem: Clone, TExt: Clone> ModEntry<TItem, TExt> {
   /// Returns the item in this entry if it contains one.
+  #[must_use]
   pub fn item(&self) -> Option<&TItem> {
     match &self.member {
       ModMember::Item(it) => Some(it),
@@ -56,6 +57,7 @@ pub type ModPath<'a> = Substack<'a, Tok<String>>;
 impl<TItem: Clone, TExt: Clone> Module<TItem, TExt> {
   /// If the argument is false, returns all child names.
   /// If the argument is  true, returns all public child names.
+  #[must_use]
   pub fn keys(&self, public: bool) -> BoxedIter<Tok<String>> {
     match public {
       false => Box::new(self.entries.keys().cloned()),
@@ -96,7 +98,6 @@ impl<TItem: Clone, TExt: Clone> Module<TItem, TExt> {
   /// # Panics
   ///
   /// if path is empty, since the reference cannot be forwarded that way
-  #[allow(clippy::needless_arbitrary_self_type)] // duplicate
   pub fn walk1_ref<'a: 'b, 'b>(
     &'a self,
     prefix: &'b [Tok<String>],
@@ -223,9 +224,11 @@ pub struct WalkError<'a> {
 }
 impl<'a> WalkError<'a> {
   /// Total length of the path represented by this error
+  #[must_use]
   pub fn depth(&self) -> usize { self.prefix.len() + self.pos + 1 }
 
   /// Attach a location to the error and convert into trait object for reporting
+  #[must_use]
   pub fn at(self, location: &Location) -> Rc<dyn ProjectError> {
     // panic!("hello");
     WalkErrorWithLocation {

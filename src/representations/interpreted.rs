@@ -64,10 +64,12 @@ pub struct ExprInst(pub Rc<RefCell<Expr>>);
 impl ExprInst {
   /// Wrap an [Expr] in a shared container so that normalizatoin steps are
   /// applied to all references
+  #[must_use]
   pub fn new(expr: Expr) -> Self { Self(Rc::new(RefCell::new(expr))) }
 
   /// Take the [Expr] out of this container if it's the last reference to it, or
   /// clone it out.
+  #[must_use]
   pub fn expr_val(self) -> Expr {
     Rc::try_unwrap(self.0)
       .map(|c| c.into_inner())
@@ -79,6 +81,7 @@ impl ExprInst {
   /// # Panics
   ///
   /// if the expression is already borrowed in read-write mode
+  #[must_use]
   pub fn expr(&self) -> impl Deref<Target = Expr> + '_ {
     self.0.as_ref().borrow()
   }
@@ -88,6 +91,7 @@ impl ExprInst {
   /// # Panics
   ///
   /// if the expression is already borrowed
+  #[must_use]
   pub fn expr_mut(&self) -> impl DerefMut<Target = Expr> + '_ {
     self.0.as_ref().borrow_mut()
   }
@@ -124,6 +128,7 @@ impl ExprInst {
   /// Call a predicate on the expression, returning whatever the
   /// predicate returns. This is a convenience function for reaching
   /// through the RefCell.
+  #[must_use]
   pub fn inspect<T>(&self, predicate: impl FnOnce(&Clause) -> T) -> T {
     predicate(&self.expr().clause)
   }
@@ -178,10 +183,12 @@ impl ExprInst {
   }
 
   /// Get the code location data associated with this expresssion directly
+  #[must_use]
   pub fn location(&self) -> Location { self.expr().location.clone() }
 
   /// If this expression is an [Atomic], request an object of the given type.
   /// If it's not an atomic, fail the request automatically.
+  #[must_use = "your request might not have succeeded"]
   pub fn request<T: 'static>(&self) -> Option<T> {
     match &self.expr().clause {
       Clause::P(Primitive::Atom(a)) => request(&*a.0),

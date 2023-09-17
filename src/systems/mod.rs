@@ -3,7 +3,7 @@ mod assertion_error;
 pub mod asynch;
 pub mod cast_exprinst;
 pub mod codegen;
-// mod directfs;
+pub mod directfs;
 pub mod io;
 mod runtime_error;
 pub mod scheduler;

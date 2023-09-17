@@ -10,7 +10,7 @@ use itertools::Itertools;
 use orchidlang::facade::{Environment, PreMacro};
 use orchidlang::systems::asynch::AsynchSystem;
 use orchidlang::systems::stl::StlConfig;
-use orchidlang::systems::{io, scheduler};
+use orchidlang::systems::{directfs, io, scheduler};
 use orchidlang::{ast, interpreted, interpreter, Interner, Sym, VName};
 
 use crate::cli::cmd_prompt;
@@ -64,6 +64,7 @@ impl Args {
   pub fn chk_proj(&self) -> Result<(), String> { self.chk_dir_main() }
 }
 
+#[must_use]
 pub fn to_vname(data: &str, i: &Interner) -> VName {
   data.split("::").map(|s| i.i(s)).collect::<Vec<_>>()
 }
@@ -135,16 +136,17 @@ pub fn main() {
   let main = to_vname(&args.main, &i);
   let mut asynch = AsynchSystem::new();
   let scheduler = scheduler::SeqScheduler::new(&mut asynch);
-  let io = io::Service::new(scheduler.clone(), [
+  let std_streams = [
     ("stdin", io::Stream::Source(BufReader::new(Box::new(std::io::stdin())))),
     ("stdout", io::Stream::Sink(Box::new(std::io::stdout()))),
-    ("stderr", io::Stream::Sink(Box::new(std::io::stderr()))),
-  ]);
+    // ("stderr", io::Stream::Sink(Box::new(std::io::stderr()))),
+  ];
   let env = Environment::new(&i)
     .add_system(StlConfig { impure: true })
     .add_system(asynch)
-    .add_system(scheduler)
-    .add_system(io);
+    .add_system(scheduler.clone())
+    .add_system(io::Service::new(scheduler.clone(), std_streams))
+    .add_system(directfs::DirectFS::new(scheduler));
   let premacro = env.load_dir(&dir, &main).unwrap();
   if args.dump_repo {
     println!("Parsed rules: {}", premacro.repo);

@@ -18,15 +18,18 @@ pub struct Tok<T: Eq + Hash + Clone + 'static> {
 }
 impl<T: Eq + Hash + Clone + 'static> Tok<T> {
   /// Create a new token. Used exclusively by the interner
+  #[must_use]
   pub(crate) fn new(data: Rc<T>, interner: Weak<TypedInterner<T>>) -> Self {
     Self { data, interner }
   }
   /// Take the ID number out of a token
+  #[must_use]
   pub fn id(&self) -> NonZeroUsize {
     ((self.data.as_ref() as *const T as usize).try_into())
       .expect("Pointer can always be cast to nonzero")
   }
   /// Cast into usize
+  #[must_use]
   pub fn usize(&self) -> usize { self.id().into() }
   ///
   pub fn assert_comparable(&self, other: &Self) {
