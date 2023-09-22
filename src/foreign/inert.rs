@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use super::{AtomicResult, AtomicReturn, ExternError};
 #[allow(unused)] // for doc
-use crate::define_fn;
+// use crate::define_fn;
 use crate::foreign::Atomic;
 use crate::interpreted::{Clause, Expr, ExprInst, TryFromExprInst};
 use crate::interpreter::Context;

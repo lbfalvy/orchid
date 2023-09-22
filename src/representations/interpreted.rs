@@ -57,6 +57,10 @@ pub trait TryFromExprInst: Sized {
   fn from_exi(exi: ExprInst) -> Result<Self, Rc<dyn ExternError>>;
 }
 
+impl TryFromExprInst for ExprInst {
+  fn from_exi(exi: ExprInst) -> Result<Self, Rc<dyn ExternError>> { Ok(exi) }
+}
+
 /// A wrapper around expressions to handle their multiple occurences in
 /// the tree together
 #[derive(Clone)]
@@ -252,6 +256,28 @@ impl Clause {
       location: Location::Unknown,
       clause: self,
     })))
+  }
+
+  /// Construct an application step
+  pub fn apply(f: Self, x: Self) -> Self {
+    Self::Apply { f: f.wrap(), x: x.wrap() }
+  }
+
+  /// Construct a lambda that uses its argument. See also [Clause::constfn]
+  pub fn lambda(arg: PathSet, body: Self) -> Self {
+    Self::Lambda { args: Some(arg), body: body.wrap() }
+  }
+
+  /// Construct a lambda that discards its argument. See also [Clause::lambda]
+  pub fn constfn(body: Self) -> Self {
+    Self::Lambda { args: None, body: body.wrap() }
+  }
+
+  /// Construct a lambda that picks its argument and places it in a directly
+  /// descendant slot. Body must be a [Clause::LambdaArg] nested in an arbitrary
+  /// number of [Clause::Lambda]s
+  pub fn pick(body: Self) -> Self {
+    Self::Lambda { args: Some(PathSet::pick()), body: body.wrap() }
   }
 }
 

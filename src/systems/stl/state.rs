@@ -3,11 +3,11 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::foreign::cps_box::{const_cps, init_cps, CPSBox};
-use crate::foreign::{Atomic, InertAtomic};
-use crate::interpreted::ExprInst;
+use crate::foreign::{xfn_1ary, Atomic, InertAtomic, XfnResult};
+use crate::interpreted::{Clause, ExprInst};
 use crate::interpreter::HandlerTable;
 use crate::systems::codegen::call;
-use crate::{define_fn, ConstTree, Interner};
+use crate::{ConstTree, Interner};
 
 #[derive(Debug, Clone)]
 pub struct State(Rc<RefCell<ExprInst>>);
@@ -24,10 +24,9 @@ struct SetStateCmd(State);
 #[derive(Debug, Clone)]
 struct GetStateCmd(State);
 
-define_fn! {
-  SetState = |x| Ok(init_cps(2, SetStateCmd(x.downcast()?)));
-  GetState = |x| Ok(init_cps(2, GetStateCmd(x.downcast()?)))
-}
+fn get_state(s: State) -> XfnResult<Clause> { Ok(init_cps(2, GetStateCmd(s))) }
+
+fn set_state(s: State) -> XfnResult<Clause> { Ok(init_cps(2, SetStateCmd(s))) }
 
 fn new_state_handler<E>(cmd: CPSBox<NewStateCmd>) -> Result<ExprInst, E> {
   let (_, default, handler) = cmd.unpack2();
@@ -63,8 +62,8 @@ pub fn state_lib(i: &Interner) -> ConstTree {
     [i.i("state")],
     ConstTree::tree([
       (i.i("new_state"), const_cps(2, NewStateCmd)),
-      (i.i("get_state"), ConstTree::xfn(GetState)),
-      (i.i("set_state"), ConstTree::xfn(SetState)),
+      (i.i("get_state"), ConstTree::xfn(xfn_1ary(get_state))),
+      (i.i("set_state"), ConstTree::xfn(xfn_1ary(set_state))),
     ]),
   )
 }

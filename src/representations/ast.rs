@@ -179,7 +179,7 @@ impl<N: NameLike> Clause<N> {
       Some(Self::S('(', Rc::new(exprs.to_vec())))
     }
   }
-  
+
   /// Convert with identical meaning
   #[must_use]
   pub fn from_exprv(exprv: &Rc<Vec<Expr<N>>>) -> Option<Clause<N>> {

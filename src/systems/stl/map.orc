@@ -59,7 +59,7 @@ export const set := \m.\k.\v. (
 
 -- ensure that there's only one instance of each key in the map
 export const normalize := \m. (
-  recursive r (m, normal=empty) with
+  recursive r (m, normal=empty)
     list::pop m normal \head.\tail.
       r tail $ set normal (fst head) (snd head)
 )

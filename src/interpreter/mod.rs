@@ -5,7 +5,7 @@ mod error;
 mod handler;
 mod run;
 
-pub use context::{Context, Return};
+pub use context::{Context, Return, ReturnStatus};
 pub use error::RuntimeError;
 pub use handler::{run_handler, HandlerRes, HandlerTable};
 pub use run::run;

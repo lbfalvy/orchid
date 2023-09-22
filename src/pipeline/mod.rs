@@ -1,7 +1,7 @@
 //! Loading Orchid modules from source
+mod dealias;
 pub mod file_loader;
 mod import_abs_path;
-mod dealias;
 mod parse_layer;
 mod project_tree;
 mod source_loader;

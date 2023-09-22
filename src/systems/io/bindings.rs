@@ -1,60 +1,47 @@
 use super::flow::IOCmdHandlePack;
-use super::instances::{
-  BRead, ReadCmd, SRead, WriteCmd, Sink, Source,
-};
+use super::instances::{BRead, ReadCmd, SRead, Sink, Source, WriteCmd};
 use crate::foreign::cps_box::init_cps;
-use crate::foreign::{Atom, Atomic};
+use crate::foreign::{xfn_1ary, xfn_2ary, Atom, Atomic, XfnResult};
+use crate::interpreted::Clause;
 use crate::representations::OrcString;
 use crate::systems::scheduler::SharedHandle;
 use crate::systems::stl::Binary;
 use crate::systems::RuntimeError;
-use crate::{ast, define_fn, ConstTree, Interner, Primitive};
+use crate::{ast, ConstTree, Interner, Primitive};
 
-define_fn! {
-  ReadString = |x| Ok(init_cps(3, IOCmdHandlePack{
-    cmd: ReadCmd::RStr(SRead::All),
-    handle: x.downcast()?
-  }));
-  ReadLine = |x| Ok(init_cps(3, IOCmdHandlePack{
-    cmd: ReadCmd::RStr(SRead::Line),
-    handle: x.downcast()?
-  }));
-  ReadBin = |x| Ok(init_cps(3, IOCmdHandlePack{
-    cmd: ReadCmd::RBytes(BRead::All),
-    handle: x.downcast()?
-  }));
-  ReadBytes { stream: SharedHandle<Source>, n: u64 } => {
-    Ok(init_cps(3, IOCmdHandlePack{
-      cmd: ReadCmd::RBytes(BRead::N(n.try_into().unwrap())),
-      handle: stream.clone()
-    }))
-  };
-  ReadUntil { stream: SharedHandle<Source>, pattern: u64 } => {
-    let delim = pattern.try_into().map_err(|_| RuntimeError::ext(
-      "greater than 255".to_string(),
-      "converting number to byte"
-    ))?;
-    Ok(init_cps(3, IOCmdHandlePack{
-      cmd: ReadCmd::RBytes(BRead::Until(delim)),
-      handle: stream
-    }))
-  };
-  WriteStr { stream: SharedHandle<Sink>, string: OrcString } => {
-    Ok(init_cps(3, IOCmdHandlePack {
-      cmd: WriteCmd::WStr(string.get_string()),
-      handle: stream.clone(),
-    }))
-  };
-  WriteBin { stream: SharedHandle<Sink>, bytes: Binary } => {
-    Ok(init_cps(3, IOCmdHandlePack {
-      cmd: WriteCmd::WBytes(bytes),
-      handle: stream.clone(),
-    }))
-  };
-  Flush = |x| Ok(init_cps(3, IOCmdHandlePack {
-    cmd: WriteCmd::Flush,
-    handle: x.downcast()?
-  }))
+type WriteHandle = SharedHandle<Sink>;
+type ReadHandle = SharedHandle<Source>;
+
+pub fn read_string(handle: ReadHandle) -> XfnResult<Clause> {
+  Ok(init_cps(3, IOCmdHandlePack { handle, cmd: ReadCmd::RStr(SRead::All) }))
+}
+pub fn read_line(handle: ReadHandle) -> XfnResult<Clause> {
+  Ok(init_cps(3, IOCmdHandlePack { handle, cmd: ReadCmd::RStr(SRead::Line) }))
+}
+pub fn read_bin(handle: ReadHandle) -> XfnResult<Clause> {
+  Ok(init_cps(3, IOCmdHandlePack { handle, cmd: ReadCmd::RBytes(BRead::All) }))
+}
+pub fn read_bytes(handle: ReadHandle, n: u64) -> XfnResult<Clause> {
+  let cmd = ReadCmd::RBytes(BRead::N(n.try_into().unwrap()));
+  Ok(init_cps(3, IOCmdHandlePack { cmd, handle }))
+}
+pub fn read_until(handle: ReadHandle, pattern: u64) -> XfnResult<Clause> {
+  let delim = pattern.try_into().map_err(|_| {
+    let msg = "greater than 255".to_string();
+    RuntimeError::ext(msg, "converting number to byte")
+  })?;
+  let cmd = ReadCmd::RBytes(BRead::Until(delim));
+  Ok(init_cps(3, IOCmdHandlePack { handle, cmd }))
+}
+pub fn write_str(handle: WriteHandle, string: OrcString) -> XfnResult<Clause> {
+  let cmd = WriteCmd::WStr(string.get_string());
+  Ok(init_cps(3, IOCmdHandlePack { handle, cmd }))
+}
+pub fn write_bin(handle: WriteHandle, bytes: Binary) -> XfnResult<Clause> {
+  Ok(init_cps(3, IOCmdHandlePack { handle, cmd: WriteCmd::WBytes(bytes) }))
+}
+pub fn flush(handle: WriteHandle) -> XfnResult<Clause> {
+  Ok(init_cps(3, IOCmdHandlePack { handle, cmd: WriteCmd::Flush }))
 }
 
 pub fn io_bindings<'a>(
@@ -64,14 +51,14 @@ pub fn io_bindings<'a>(
   ConstTree::namespace(
     [i.i("system"), i.i("io")],
     ConstTree::tree([
-      (i.i("read_string"), ConstTree::xfn(ReadString)),
-      (i.i("read_line"), ConstTree::xfn(ReadLine)),
-      (i.i("read_bin"), ConstTree::xfn(ReadBin)),
-      (i.i("read_n_bytes"), ConstTree::xfn(ReadBytes)),
-      (i.i("read_until"), ConstTree::xfn(ReadUntil)),
-      (i.i("write_str"), ConstTree::xfn(WriteStr)),
-      (i.i("write_bin"), ConstTree::xfn(WriteBin)),
-      (i.i("flush"), ConstTree::xfn(Flush)),
+      (i.i("read_string"), ConstTree::xfn(xfn_1ary(read_string))),
+      (i.i("read_line"), ConstTree::xfn(xfn_1ary(read_line))),
+      (i.i("read_bin"), ConstTree::xfn(xfn_1ary(read_bin))),
+      (i.i("read_n_bytes"), ConstTree::xfn(xfn_2ary(read_bytes))),
+      (i.i("read_until"), ConstTree::xfn(xfn_2ary(read_until))),
+      (i.i("write_str"), ConstTree::xfn(xfn_2ary(write_str))),
+      (i.i("write_bin"), ConstTree::xfn(xfn_2ary(write_bin))),
+      (i.i("flush"), ConstTree::xfn(xfn_1ary(flush))),
     ]) + ConstTree::Tree(
       std_streams
         .into_iter()

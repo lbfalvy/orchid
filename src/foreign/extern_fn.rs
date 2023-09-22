@@ -5,13 +5,11 @@ use std::rc::Rc;
 
 use dyn_clone::DynClone;
 
+use super::XfnResult;
 use crate::interpreted::ExprInst;
 use crate::interpreter::Context;
 use crate::representations::interpreted::Clause;
 use crate::Primitive;
-
-/// Returned by [ExternFn::apply]
-pub type XfnResult = Result<Clause, Rc<dyn ExternError>>;
 
 /// Errors produced by external code
 pub trait ExternError: Display {
@@ -41,7 +39,7 @@ pub trait ExternFn: DynClone {
   #[must_use]
   fn name(&self) -> &str;
   /// Combine the function with an argument to produce a new clause
-  fn apply(self: Box<Self>, arg: ExprInst, ctx: Context) -> XfnResult;
+  fn apply(self: Box<Self>, arg: ExprInst, ctx: Context) -> XfnResult<Clause>;
   /// Hash the name to get a somewhat unique hash.
   fn hash(&self, mut state: &mut dyn std::hash::Hasher) {
     self.name().hash(&mut state)

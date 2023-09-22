@@ -11,8 +11,8 @@ use super::busy::{BusyState, NextItemReportKind};
 use super::Canceller;
 use crate::facade::{IntoSystem, System};
 use crate::foreign::cps_box::{init_cps, CPSBox};
-use crate::foreign::InertAtomic;
-use crate::interpreted::ExprInst;
+use crate::foreign::{xfn_1ary, InertAtomic, XfnResult};
+use crate::interpreted::{Clause, ExprInst};
 use crate::interpreter::HandlerTable;
 use crate::systems::asynch::{AsynchSystem, MessagePort};
 use crate::systems::stl::Boolean;
@@ -20,7 +20,7 @@ use crate::systems::AssertionError;
 use crate::utils::ddispatch::Request;
 use crate::utils::thread_pool::ThreadPool;
 use crate::utils::{take_with_output, unwrap_or, IdMap};
-use crate::{define_fn, ConstTree};
+use crate::{ConstTree, Location};
 
 enum SharedResource<T> {
   Free(T),
@@ -127,17 +127,15 @@ impl InertAtomic for SealedOrTaken {
   }
 }
 
-define_fn! {
-  pub TakeAndDrop = |x| {
-    let location = x.location();
-    match x.request() {
-      Some(t) => Ok(init_cps::<TakeCmd>(1, t)),
-      None => AssertionError::fail(location, "SharedHandle"),
-    }
-  };
-  IsTakenError = |x| {
-    Ok(Boolean(x.downcast::<SealedOrTaken>().is_ok()).atom_cls())
+pub fn take_and_drop(x: ExprInst) -> XfnResult<Clause> {
+  match x.request() {
+    Some(t) => Ok(init_cps::<TakeCmd>(1, t)),
+    None => AssertionError::fail(Location::Unknown, "SharedHandle"),
   }
+}
+
+pub fn is_taken_error(x: ExprInst) -> XfnResult<Boolean> {
+  Ok(Boolean(x.downcast::<SealedOrTaken>().is_ok()))
 }
 
 trait_set! {
@@ -334,8 +332,8 @@ impl IntoSystem<'static> for SeqScheduler {
       constants: ConstTree::namespace(
         [i.i("system"), i.i("scheduler")],
         ConstTree::tree([
-          (i.i("is_taken_error"), ConstTree::xfn(IsTakenError)),
-          (i.i("take_and_drop"), ConstTree::xfn(TakeAndDrop)),
+          (i.i("is_taken_error"), ConstTree::xfn(xfn_1ary(is_taken_error))),
+          (i.i("take_and_drop"), ConstTree::xfn(xfn_1ary(take_and_drop))),
         ]),
       )
       .unwrap_tree(),

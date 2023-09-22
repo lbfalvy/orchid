@@ -3,13 +3,13 @@ use std::rc::Rc;
 use ordered_float::NotNan;
 
 use super::ArithmeticError;
-use crate::foreign::ExternError;
+use crate::foreign::{xfn_2ary, ExternError, ToClause, XfnResult};
 use crate::interpreted::TryFromExprInst;
 use crate::representations::interpreted::{Clause, ExprInst};
 use crate::representations::{Literal, Primitive};
 use crate::systems::cast_exprinst::get_literal;
 use crate::systems::AssertionError;
-use crate::{define_fn, ConstTree, Interner};
+use crate::{ConstTree, Interner};
 
 // region:  Numeric, type to handle floats and uints together
 
@@ -51,9 +51,9 @@ impl TryFromExprInst for Numeric {
   }
 }
 
-impl From<Numeric> for Clause {
-  fn from(value: Numeric) -> Self {
-    Clause::P(Primitive::Literal(match value {
+impl ToClause for Numeric {
+  fn to_clause(self) -> Clause {
+    Clause::P(Primitive::Literal(match self {
       Numeric::Uint(i) => Literal::Uint(i),
       Numeric::Num(n) => Literal::Num(n),
     }))
@@ -62,65 +62,66 @@ impl From<Numeric> for Clause {
 
 // endregion
 
-// region: operations
-
-define_fn! {
-  /// Add two numbers. If they're both uint, the output is uint. If either is
-  /// number, the output is number.
-  Add { a: Numeric, b: Numeric } => match (a, b) {
-    (Numeric::Uint(a), Numeric::Uint(b)) => {
-      a.checked_add(b)
-        .map(Numeric::Uint)
-        .ok_or_else(|| ArithmeticError::Overflow.into_extern())
-    }
+/// Add two numbers. If they're both uint, the output is uint. If either is
+/// number, the output is number.
+pub fn add(a: Numeric, b: Numeric) -> XfnResult<Numeric> {
+  match (a, b) {
+    (Numeric::Uint(a), Numeric::Uint(b)) => a
+      .checked_add(b)
+      .map(Numeric::Uint)
+      .ok_or_else(|| ArithmeticError::Overflow.into_extern()),
     (Numeric::Num(a), Numeric::Num(b)) => Numeric::num(*(a + b)),
-    (Numeric::Num(a), Numeric::Uint(b)) | (Numeric::Uint(b), Numeric::Num(a))
-    => Numeric::num(*a + b as f64),
-  }.map(Numeric::into);
+    (Numeric::Num(a), Numeric::Uint(b))
+    | (Numeric::Uint(b), Numeric::Num(a)) => Numeric::num(*a + b as f64),
+  }
+}
 
-  /// Subtract a number from another. Always returns Number.
-  Subtract { a: Numeric, b: Numeric } => match (a, b) {
+/// Subtract a number from another. Always returns Number.
+pub fn subtract(a: Numeric, b: Numeric) -> XfnResult<Numeric> {
+  match (a, b) {
     (Numeric::Uint(a), Numeric::Uint(b)) => Numeric::num(a as f64 - b as f64),
     (Numeric::Num(a), Numeric::Num(b)) => Numeric::num(*(a - b)),
     (Numeric::Num(a), Numeric::Uint(b)) => Numeric::num(*a - b as f64),
     (Numeric::Uint(a), Numeric::Num(b)) => Numeric::num(a as f64 - *b),
-  }.map(Numeric::into);
+  }
+}
 
-  /// Multiply two numbers. If they're both uint, the output is uint. If either
-  /// is number, the output is number.
-  Multiply { a: Numeric, b: Numeric } => match (a, b) {
-    (Numeric::Uint(a), Numeric::Uint(b)) => {
-      a.checked_mul(b)
-        .map(Numeric::Uint)
-        .ok_or_else(|| ArithmeticError::Overflow.into_extern())
-    }
+/// Multiply two numbers. If they're both uint, the output is uint. If either
+/// is number, the output is number.
+pub fn multiply(a: Numeric, b: Numeric) -> XfnResult<Numeric> {
+  match (a, b) {
+    (Numeric::Uint(a), Numeric::Uint(b)) => a
+      .checked_mul(b)
+      .map(Numeric::Uint)
+      .ok_or_else(|| ArithmeticError::Overflow.into_extern()),
     (Numeric::Num(a), Numeric::Num(b)) => Numeric::num(*(a * b)),
-    (Numeric::Uint(a), Numeric::Num(b)) | (Numeric::Num(b), Numeric::Uint(a))
-      => Numeric::num(a as f64 * *b),
-  }.map(Numeric::into);
+    (Numeric::Uint(a), Numeric::Num(b))
+    | (Numeric::Num(b), Numeric::Uint(a)) => Numeric::num(a as f64 * *b),
+  }
+}
 
-  /// Divide a number by another. Always returns Number.
-  Divide { a: Numeric, b: Numeric } => {
-    let a: f64 = a.as_f64();
-    let b: f64 = b.as_f64();
-    if b == 0.0 {
-      return Err(ArithmeticError::DivByZero.into_extern())
-    }
-    Numeric::num(a / b).map(Numeric::into)
-  };
+/// Divide a number by another. Always returns Number.
+pub fn divide(a: Numeric, b: Numeric) -> XfnResult<Numeric> {
+  let a: f64 = a.as_f64();
+  let b: f64 = b.as_f64();
+  if b == 0.0 {
+    return Err(ArithmeticError::DivByZero.into_extern());
+  }
+  Numeric::num(a / b)
+}
 
-  /// Take the remainder of two numbers.  If they're both uint, the output is
-  /// uint. If either is number, the output is number.
-  Remainder { a: Numeric, b: Numeric } => match (a, b) {
-    (Numeric::Uint(a), Numeric::Uint(b)) => {
-      a.checked_rem(b)
-        .map(Numeric::Uint)
-        .ok_or_else(|| ArithmeticError::DivByZero.into_extern())
-    }
+/// Take the remainder of two numbers.  If they're both uint, the output is
+/// uint. If either is number, the output is number.
+pub fn remainder(a: Numeric, b: Numeric) -> XfnResult<Numeric> {
+  match (a, b) {
+    (Numeric::Uint(a), Numeric::Uint(b)) => a
+      .checked_rem(b)
+      .map(Numeric::Uint)
+      .ok_or_else(|| ArithmeticError::DivByZero.into_extern()),
     (Numeric::Num(a), Numeric::Num(b)) => Numeric::num(*(a % b)),
     (Numeric::Uint(a), Numeric::Num(b)) => Numeric::num(a as f64 % *b),
     (Numeric::Num(a), Numeric::Uint(b)) => Numeric::num(*a % b as f64),
-  }.map(Numeric::into)
+  }
 }
 
 // endregion
@@ -129,11 +130,11 @@ pub fn num(i: &Interner) -> ConstTree {
   ConstTree::tree([(
     i.i("num"),
     ConstTree::tree([
-      (i.i("add"), ConstTree::xfn(Add)),
-      (i.i("subtract"), ConstTree::xfn(Subtract)),
-      (i.i("multiply"), ConstTree::xfn(Multiply)),
-      (i.i("divide"), ConstTree::xfn(Divide)),
-      (i.i("remainder"), ConstTree::xfn(Remainder)),
+      (i.i("add"), ConstTree::xfn(xfn_2ary(add))),
+      (i.i("subtract"), ConstTree::xfn(xfn_2ary(subtract))),
+      (i.i("multiply"), ConstTree::xfn(xfn_2ary(multiply))),
+      (i.i("divide"), ConstTree::xfn(xfn_2ary(divide))),
+      (i.i("remainder"), ConstTree::xfn(xfn_2ary(remainder))),
     ]),
   )])
 }

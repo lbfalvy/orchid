@@ -12,26 +12,24 @@ use rust_embed::RustEmbed;
 
 use crate::facade::{IntoSystem, System};
 use crate::foreign::cps_box::{init_cps, CPSBox};
-use crate::foreign::{Atomic, ExternError, InertAtomic};
-use crate::interpreted::ExprInst;
+use crate::foreign::{xfn_2ary, Atomic, ExternError, InertAtomic, XfnResult};
+use crate::interpreted::{Clause, ExprInst};
 use crate::interpreter::HandlerTable;
 use crate::pipeline::file_loader::embed_to_map;
 use crate::systems::codegen::call;
 use crate::systems::stl::Boolean;
 use crate::utils::poller::{PollEvent, Poller};
 use crate::utils::unwrap_or;
-use crate::{define_fn, ConstTree, Interner};
+use crate::{ConstTree, Interner};
 
 #[derive(Debug, Clone)]
 struct Timer {
   recurring: Boolean,
-  duration: NotNan<f64>,
+  delay: NotNan<f64>,
 }
-define_fn! {expr=x in
-  SetTimer {
-    recurring: Boolean,
-    duration: NotNan<f64>
-  } => Ok(init_cps(2, Timer{ recurring, duration }))
+
+pub fn set_timer(recurring: Boolean, delay: NotNan<f64>) -> XfnResult<Clause> {
+  Ok(init_cps(2, Timer { recurring, delay }))
 }
 
 #[derive(Clone)]
@@ -135,7 +133,7 @@ impl<'a> IntoSystem<'a> for AsynchSystem<'a> {
       move |t: Box<CPSBox<Timer>>| {
         let mut polly = polly.borrow_mut();
         let (timeout, action, cont) = t.unpack2();
-        let duration = Duration::from_secs_f64(*timeout.duration);
+        let duration = Duration::from_secs_f64(*timeout.delay);
         let cancel_timer = if timeout.recurring.0 {
           CancelTimer(Rc::new(polly.set_interval(duration, action)))
         } else {
@@ -186,7 +184,7 @@ impl<'a> IntoSystem<'a> for AsynchSystem<'a> {
       constants: ConstTree::namespace(
         [i.i("system"), i.i("async")],
         ConstTree::tree([
-          (i.i("set_timer"), ConstTree::xfn(SetTimer)),
+          (i.i("set_timer"), ConstTree::xfn(xfn_2ary(set_timer))),
           (i.i("yield"), ConstTree::atom(Yield)),
         ]),
       )

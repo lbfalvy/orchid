@@ -19,7 +19,7 @@ impl AssertionError {
     location: Location,
     message: &'static str,
   ) -> Result<T, Rc<dyn ExternError>> {
-    return Err(Self { location, message }.into_extern());
+    return Err(Self::ext(location, message));
   }
 
   /// Construct and upcast to [ExternError]

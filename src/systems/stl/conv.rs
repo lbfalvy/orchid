@@ -2,48 +2,53 @@ use chumsky::Parser;
 use ordered_float::NotNan;
 
 use super::ArithmeticError;
-use crate::foreign::ExternError;
+use crate::foreign::{xfn_1ary, ExternError, XfnResult};
 use crate::interner::Interner;
-use crate::interpreted::Clause;
 use crate::parse::{float_parser, int_parser};
-use crate::systems::cast_exprinst::get_literal;
 use crate::systems::AssertionError;
-use crate::{define_fn, ConstTree, Literal};
+use crate::{ConstTree, Literal, Location};
 
-define_fn! {
-  /// parse a number. Accepts the same syntax Orchid does.
-  ToFloat = |x| match get_literal(x)? {
-    (Literal::Str(s), loc) => float_parser()
+/// parse a number. Accepts the same syntax Orchid does.
+pub fn to_float(l: Literal) -> XfnResult<Literal> {
+  match l {
+    Literal::Str(s) => float_parser()
       .parse(s.as_str())
-      .map_err(|_| AssertionError::ext(loc, "float syntax")),
-    (Literal::Num(n), _) => Ok(n),
-    (Literal::Uint(i), _) => NotNan::new(i as f64)
+      .map(Literal::Num)
+      .map_err(|_| AssertionError::ext(Location::Unknown, "float syntax")),
+    n @ Literal::Num(_) => Ok(n),
+    Literal::Uint(i) => NotNan::new(i as f64)
+      .map(Literal::Num)
       .map_err(|_| ArithmeticError::NaN.into_extern()),
-  }.map(|nn| Literal::Num(nn).into());
+  }
+}
 
-  /// Parse an unsigned integer. Accepts the same formats Orchid does. If the
-  /// input is a number, floors it.
-  ToUint = |x| match get_literal(x)? {
-    (Literal::Str(s), loc) => int_parser()
+/// Parse an unsigned integer. Accepts the same formats Orchid does. If the
+/// input is a number, floors it.
+pub fn to_uint(l: Literal) -> XfnResult<Literal> {
+  match l {
+    Literal::Str(s) => int_parser()
       .parse(s.as_str())
-      .map_err(|_| AssertionError::ext(loc, "int syntax")),
-    (Literal::Num(n), _) => Ok(n.floor() as u64),
-    (Literal::Uint(i), _) => Ok(i),
-  }.map(|u| Literal::Uint(u).into());
+      .map(Literal::Uint)
+      .map_err(|_| AssertionError::ext(Location::Unknown, "int syntax")),
+    Literal::Num(n) => Ok(Literal::Uint(n.floor() as u64)),
+    i @ Literal::Uint(_) => Ok(i),
+  }
+}
 
-  /// Convert a literal to a string using Rust's conversions for floats, chars and
-  /// uints respectively
-  ToString = |x| Ok(match get_literal(x)?.0 {
-    Literal::Uint(i) => Clause::from(Literal::Str(i.to_string().into())),
-    Literal::Num(n) => Clause::from(Literal::Str(n.to_string().into())),
-    s@Literal::Str(_) => Clause::from(s),
+/// Convert a literal to a string using Rust's conversions for floats, chars and
+/// uints respectively
+pub fn to_string(l: Literal) -> XfnResult<Literal> {
+  Ok(match l {
+    Literal::Uint(i) => Literal::Str(i.to_string().into()),
+    Literal::Num(n) => Literal::Str(n.to_string().into()),
+    s @ Literal::Str(_) => s,
   })
 }
 
 pub fn conv(i: &Interner) -> ConstTree {
   ConstTree::tree([
-    (i.i("to_float"), ConstTree::xfn(ToFloat)),
-    (i.i("to_uint"), ConstTree::xfn(ToUint)),
-    (i.i("to_string"), ConstTree::xfn(ToString)),
+    (i.i("to_float"), ConstTree::xfn(xfn_1ary(to_float))),
+    (i.i("to_uint"), ConstTree::xfn(xfn_1ary(to_uint))),
+    (i.i("to_string"), ConstTree::xfn(xfn_1ary(to_string))),
   ])
 }

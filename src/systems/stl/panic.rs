@@ -1,8 +1,9 @@
 use std::fmt::Display;
 use std::rc::Rc;
 
-use crate::foreign::ExternError;
-use crate::{define_fn, ConstTree, Interner, OrcString};
+use crate::foreign::{xfn_1ary, ExternError, XfnResult};
+use crate::interpreted::Clause;
+use crate::{ConstTree, Interner, OrcString};
 
 /// An unrecoverable error in Orchid land. Because Orchid is lazy, this only
 /// invalidates expressions that reference the one that generated it.
@@ -16,14 +17,12 @@ impl Display for OrchidPanic {
 
 impl ExternError for OrchidPanic {}
 
-define_fn! {
-  /// Takes a message, returns an [ExternError] unconditionally.
-  Panic = |x| {
-    let msg = Rc::new(x.downcast::<OrcString>()?.get_string());
-    Err(OrchidPanic(msg).into_extern())
-  }
+/// Takes a message, returns an [ExternError] unconditionally.
+pub fn orc_panic(msg: OrcString) -> XfnResult<Clause> {
+  // any return value would work, but Clause is the simplest
+  Err(OrchidPanic(Rc::new(msg.get_string())).into_extern())
 }
 
 pub fn panic(i: &Interner) -> ConstTree {
-  ConstTree::tree([(i.i("panic"), ConstTree::xfn(Panic))])
+  ConstTree::tree([(i.i("panic"), ConstTree::xfn(xfn_1ary(orc_panic)))])
 }

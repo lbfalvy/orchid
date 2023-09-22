@@ -10,7 +10,6 @@
 pub mod error;
 pub mod facade;
 pub mod foreign;
-mod foreign_macros;
 pub mod interner;
 pub mod interpreter;
 mod parse;

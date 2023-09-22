@@ -1,32 +1,18 @@
 use std::fmt::Debug;
 
-use crate::foreign::{Atomic, AtomicReturn};
+use crate::foreign::{ExternFn, XfnResult};
+use crate::interpreted::Clause;
 use crate::interpreter::Context;
 use crate::representations::interpreted::ExprInst;
-use crate::utils::ddispatch::Responder;
-use crate::{write_fn_step, ConstTree, Interner};
-
-write_fn_step! {
-  /// Print and return whatever expression is in the argument without
-  /// normalizing it.
-  Inspect > Inspect1
-}
+use crate::{ConstTree, Interner};
 
 #[derive(Debug, Clone)]
-struct Inspect1 {
-  expr_inst: ExprInst,
-}
-impl Responder for Inspect1 {}
-impl Atomic for Inspect1 {
-  fn as_any(self: Box<Self>) -> Box<dyn std::any::Any> { self }
-  fn as_any_ref(&self) -> &dyn std::any::Any { self }
-  fn run(self: Box<Self>, ctx: Context) -> crate::foreign::AtomicResult {
-    println!("{}", self.expr_inst);
-    Ok(AtomicReturn {
-      clause: self.expr_inst.expr().clause.clone(),
-      gas: ctx.gas.map(|g| g - 1),
-      inert: false,
-    })
+struct Inspect;
+impl ExternFn for Inspect {
+  fn name(&self) -> &str { "inspect" }
+  fn apply(self: Box<Self>, arg: ExprInst, _: Context) -> XfnResult<Clause> {
+    println!("{arg}");
+    Ok(arg.expr().clause.clone())
   }
 }
 

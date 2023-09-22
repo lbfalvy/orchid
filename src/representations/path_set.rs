@@ -15,6 +15,29 @@ pub struct PathSet {
   pub next: Option<(Rc<PathSet>, Rc<PathSet>)>,
 }
 
+impl PathSet {
+  /// Create a path set for more than one target
+  pub fn branch(
+    steps: impl IntoIterator<Item = Side>,
+    left: Self,
+    right: Self,
+  ) -> Self {
+    let steps = Rc::new(steps.into_iter().collect());
+    Self { steps, next: Some((Rc::new(left), Rc::new(right))) }
+  }
+
+  /// Create a path set for one target
+  pub fn end(steps: impl IntoIterator<Item = Side>) -> Self {
+    Self { steps: Rc::new(steps.into_iter().collect()), next: None }
+  }
+
+  /// Create a path set points to a slot that is a direct
+  /// child of the given lambda with no applications. In essence, this means
+  /// that this argument will be picked as the value of the expression after an
+  /// arbitrary amount of subsequent discarded parameters.
+  pub fn pick() -> Self { Self { steps: Rc::new(vec![]), next: None } }
+}
+
 impl Debug for PathSet {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     for s in self.steps.as_ref() {

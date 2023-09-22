@@ -15,8 +15,10 @@ use crate::{Location, Primitive};
 pub fn get_literal(
   exi: ExprInst,
 ) -> Result<(Literal, Location), Rc<dyn ExternError>> {
-  (exi.get_literal())
-    .map_err(|exi| AssertionError::ext(exi.location(), "literal"))
+  (exi.get_literal()).map_err(|exi| {
+    eprintln!("failed to get literal from {:?}", exi.expr().clause);
+    AssertionError::ext(exi.location(), "literal")
+  })
 }
 
 // ######## Automatically ########

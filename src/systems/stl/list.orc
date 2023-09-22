@@ -51,8 +51,8 @@ export const reduce := \list.\f. do{
 ]--
 export const filter := \list.\f. (
   pop list end \head.\tail.
-    if (f el)
-    then cons el (filter tail f)
+    if (f head)
+    then cons head (filter tail f)
     else filter tail f
 )
 

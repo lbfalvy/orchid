@@ -157,6 +157,7 @@ pub fn main() {
     return macro_debug(premacro, sym);
   }
   let mut proc = premacro.build_process(Some(args.macro_limit)).unwrap();
+  proc.validate_refs().unwrap();
   let main = interpreted::Clause::Constant(i.i(&main)).wrap();
   let ret = proc.run(main, None).unwrap();
   let interpreter::Return { gas, state, inert } = ret;

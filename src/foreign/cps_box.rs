@@ -36,7 +36,7 @@ impl<T: CPSPayload> CPSFn<T> {
 }
 impl<T: CPSPayload> ExternFn for CPSFn<T> {
   fn name(&self) -> &str { "CPS function without argument" }
-  fn apply(self: Box<Self>, arg: ExprInst, _ctx: Context) -> XfnResult {
+  fn apply(self: Box<Self>, arg: ExprInst, _ctx: Context) -> XfnResult<Clause> {
     let payload = self.payload.clone();
     let continuations = pushed_ref(&self.continuations, arg);
     if self.argc == 1 {

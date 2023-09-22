@@ -8,5 +8,5 @@ mod instances;
 mod service;
 
 // pub use facade::{io_system, IOStream, IOSystem};
+pub use instances::{wrap_io_error, Sink, Source};
 pub use service::{Service, Stream, StreamTable};
-pub use instances::{wrap_io_error, Source, Sink};

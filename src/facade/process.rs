@@ -1,6 +1,7 @@
 use hashbrown::HashMap;
+use itertools::Itertools;
 
-use crate::error::{ProjectError, ProjectResult};
+use crate::error::{ErrorPosition, ProjectError, ProjectResult};
 use crate::interpreted::{self, ExprInst};
 #[allow(unused)] // for doc
 use crate::interpreter;
@@ -53,24 +54,34 @@ impl<'a> Process<'a> {
   /// unless [interpreted::Clause::Constant]s are created procedurally,
   /// a [interpreter::RuntimeError::MissingSymbol] cannot be produced
   pub fn validate_refs(&self) -> ProjectResult<()> {
+    let mut errors = Vec::new();
     for key in self.symbols.keys() {
-      if let Some((symbol, location)) = self.unbound_refs(key.clone()).pop() {
-        return Err(
-          MissingSymbol { location, referrer: key.clone(), symbol }.rc(),
-        );
-      }
+      errors.extend(self.unbound_refs(key.clone()).into_iter().map(
+        |(symbol, location)| MissingSymbol {
+          symbol,
+          location,
+          referrer: key.clone(),
+        },
+      ));
     }
-    Ok(())
+    match errors.is_empty() {
+      true => Ok(()),
+      false => Err(MissingSymbols { errors }.rc()),
+    }
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MissingSymbol {
   referrer: Sym,
   location: Location,
   symbol: Sym,
 }
-impl ProjectError for MissingSymbol {
+#[derive(Debug)]
+pub struct MissingSymbols {
+  errors: Vec<MissingSymbol>,
+}
+impl ProjectError for MissingSymbols {
   fn description(&self) -> &str {
     "A name not referring to a known symbol was found in the source after \
      macro execution. This can either mean that a symbol name was mistyped, or \
@@ -79,11 +90,21 @@ impl ProjectError for MissingSymbol {
 
   fn message(&self) -> String {
     format!(
-      "The symbol {} referenced in {} does not exist",
-      self.symbol.extern_vec().join("::"),
-      self.referrer.extern_vec().join("::")
+      "The following symbols do not exist:\n{}",
+      (self.errors.iter())
+        .map(|e| format!(
+          "{} referenced in {} ",
+          e.symbol.extern_vec().join("::"),
+          e.referrer.extern_vec().join("::")
+        ))
+        .join("\n")
     )
   }
 
-  fn one_position(&self) -> Location { self.location.clone() }
+  fn positions(&self) -> crate::utils::BoxedIter<crate::error::ErrorPosition> {
+    Box::new(
+      (self.errors.clone().into_iter())
+        .map(|i| ErrorPosition { location: i.location, message: None }),
+    )
+  }
 }

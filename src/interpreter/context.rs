@@ -26,3 +26,27 @@ pub struct Return {
   /// If true, the next run would not modify the expression
   pub inert: bool,
 }
+impl Return {
+  /// Check if gas has run out. Returns false if gas is not being used
+  pub fn preempted(&self) -> bool { self.gas.map_or(false, |g| g == 0) }
+  /// Returns a general report of the return
+  pub fn status(&self) -> ReturnStatus {
+    if self.preempted() {
+      ReturnStatus::Preempted
+    } else if self.inert {
+      ReturnStatus::Inert
+    } else {
+      ReturnStatus::Active
+    }
+  }
+}
+
+/// Possible states of a [Return]
+pub enum ReturnStatus {
+  /// The data is not normalizable any further
+  Inert,
+  /// Gas is being used and it ran out
+  Preempted,
+  /// Normalization stopped for a different reason and should continue.
+  Active,
+}
