@@ -44,7 +44,8 @@
 			"tamasfe.even-better-toml",
 			"yzhang.markdown-all-in-one",
 			"gruntfuggly.todo-tree",
-			"vadimcn.vscode-lldb"
+			"vadimcn.vscode-lldb",
+			"rust-lang.rust-analyzer"
 		]
 	},
 }
