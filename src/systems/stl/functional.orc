@@ -18,11 +18,9 @@ export const pass2 := \a. \b. \cont. cont a b
 ]--
 export const return := \a. \b.a
 
-export ::($, |>, =>)
+export macro ...$prefix $ ...$suffix:1 =0x1p38=> ...$prefix (...$suffix)
+export macro ...$prefix |> $fn ..$suffix:1 =0x2p32=> $fn (...$prefix) ..$suffix
 
-macro ...$prefix $ ...$suffix:1 =0x1p38=> ...$prefix (...$suffix)
-macro ...$prefix |> $fn ..$suffix:1 =0x2p32=> $fn (...$prefix) ..$suffix
-
-macro ($name) => ...$body =0x2p129=> (\$name. ...$body)
-macro ($name, ...$argv) => ...$body =0x2p129=> (\$name. (...$argv) => ...$body)
-macro $name => ...$body =0x1p129=> (\$name. ...$body)
+export macro ($name) => ...$body =0x2p127=> (\$name. ...$body)
+export macro ($name, ...$argv) => ...$body =0x2p127=> (\$name. (...$argv) => ...$body)
+export macro $name => ...$body =0x1p127=> (\$name. ...$body)

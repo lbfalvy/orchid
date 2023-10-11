@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::format;
 use std::rc::Rc;
 
 use hashbrown::HashSet;
@@ -13,6 +12,7 @@ use super::{update_first_seq, RuleError, VectreeMatcher};
 use crate::ast::Rule;
 use crate::interner::Interner;
 use crate::Sym;
+use crate::parse::print_nat16;
 
 #[derive(Debug)]
 pub struct CachedRule<M: Matcher> {
@@ -139,18 +139,11 @@ impl<M: Debug + Matcher> Debug for Repository<M> {
   }
 }
 
-#[must_use]
-fn fmt_hex(num: f64) -> String {
-  let exponent = (num.log2() / 4_f64).floor();
-  let mantissa = num / 16_f64.powf(exponent);
-  format!("0x{:x}p{}", mantissa as i64, exponent as i64)
-}
-
 impl<M: Display + Matcher> Display for Repository<M> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     writeln!(f, "Repository[")?;
     for (rule, deps, p) in self.cache.iter() {
-      let prio = fmt_hex(f64::from(*p));
+      let prio = print_nat16(*p);
       let deps = deps.iter().map(|t| t.extern_vec().join("::")).join(", ");
       writeln!(f, "  priority: {prio}\tdependencies: [{deps}]")?;
       writeln!(f, "    {rule}")?;

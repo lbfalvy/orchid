@@ -62,7 +62,7 @@ pub fn parse_num(string: &str) -> Result<Numeric, NumError> {
   let (base, exponent) = match noprefix.split_once('p') {
     Some((b, e)) => {
       let (s, d, len) = e.strip_prefix('-').map_or((1, e, 0), |ue| (-1, ue, 1));
-      (b, s * int_parse(d, radix, pos + b.len() + 1 + len)? as i32)
+      (b, s * int_parse(d, 10, pos + b.len() + 1 + len)? as i32)
     },
     None => (noprefix, 0),
   };
@@ -142,7 +142,17 @@ mod test {
 
 #[must_use]
 pub fn print_nat16(num: NotNan<f64>) -> String {
+  if *num == 0.0 {
+    return "0x0".to_string()
+  } else if num.is_infinite() {
+    return match num.is_sign_positive() {
+      true => "Infinity".to_string(),
+      false => "-Infinity".to_string(),
+    }
+  } else if num.is_nan() {
+    return "NaN".to_string()
+  }
   let exp = num.log(16.0).floor();
-  let man = num / 16_f64.powf(exp);
-  format!("{man}p{exp:.0}")
+  let man = *num / 16_f64.powf(exp);
+  format!("0x{man}p{exp:.0}")
 }
