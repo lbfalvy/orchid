@@ -2,6 +2,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
+use super::atom::StrictEq;
 use super::{
   Atomic, AtomicResult, AtomicReturn, ExternError, ExternFn, XfnResult,
 };
@@ -9,7 +10,7 @@ use crate::ddispatch::Responder;
 use crate::interpreted::{Clause, ExprInst, TryFromExprInst};
 use crate::interpreter::{run, Context, Return};
 use crate::systems::codegen::{opt, res};
-use crate::{Literal, OrcString};
+use crate::OrcString;
 
 /// A trait for things that are infallibly convertible to [Clause]. These types
 /// can be returned by callbacks passed to the [super::xfn_1ary] family of
@@ -17,6 +18,8 @@ use crate::{Literal, OrcString};
 pub trait ToClause: Clone {
   /// Convert the type to a [Clause].
   fn to_clause(self) -> Clause;
+  /// Convert to an expression instance via [ToClause].
+  fn to_exi(self) -> ExprInst { self.to_clause().wrap() }
 }
 
 impl<T: Atomic + Clone> ToClause for T {
@@ -28,14 +31,8 @@ impl ToClause for Clause {
 impl ToClause for ExprInst {
   fn to_clause(self) -> Clause { self.expr_val().clause }
 }
-impl ToClause for Literal {
-  fn to_clause(self) -> Clause { self.into() }
-}
-impl ToClause for u64 {
-  fn to_clause(self) -> Clause { Literal::Uint(self).into() }
-}
 impl ToClause for String {
-  fn to_clause(self) -> Clause { OrcString::from(self).cls() }
+  fn to_clause(self) -> Clause { OrcString::from(self).atom_cls() }
 }
 impl<T: ToClause> ToClause for Option<T> {
   fn to_clause(self) -> Clause { opt(self.map(|t| t.to_clause().wrap())) }
@@ -59,31 +56,28 @@ pub struct Param<T, U, F> {
   _t: PhantomData<T>,
   _u: PhantomData<U>,
 }
+unsafe impl<T, U, F: Send> Send for Param<T, U, F> {}
 impl<T, U, F> Param<T, U, F> {
   /// Wrap a new function in a parametric struct
   pub fn new(f: F) -> Self
   where
     F: FnOnce(T) -> Result<U, Rc<dyn ExternError>>,
   {
-    Self { data: f, _t: PhantomData::default(), _u: PhantomData::default() }
+    Self { data: f, _t: PhantomData, _u: PhantomData }
   }
   /// Take out the function
   pub fn get(self) -> F { self.data }
 }
 impl<T, U, F: Clone> Clone for Param<T, U, F> {
   fn clone(&self) -> Self {
-    Self {
-      data: self.data.clone(),
-      _t: PhantomData::default(),
-      _u: PhantomData::default(),
-    }
+    Self { data: self.data.clone(), _t: PhantomData, _u: PhantomData }
   }
 }
 
 impl<
   T: 'static + TryFromExprInst,
   U: 'static + ToClause,
-  F: 'static + Clone + FnOnce(T) -> Result<U, Rc<dyn ExternError>>,
+  F: 'static + Clone + Send + FnOnce(T) -> Result<U, Rc<dyn ExternError>>,
 > ToClause for Param<T, U, F>
 {
   fn to_clause(self) -> Clause { self.xfn_cls() }
@@ -92,6 +86,11 @@ impl<
 struct FnMiddleStage<T, U, F> {
   argument: ExprInst,
   f: Param<T, U, F>,
+}
+impl<T, U, F> StrictEq for FnMiddleStage<T, U, F> {
+  fn strict_eq(&self, _other: &dyn std::any::Any) -> bool {
+    unimplemented!("This should never be able to appear in a pattern")
+  }
 }
 
 impl<T, U, F: Clone> Clone for FnMiddleStage<T, U, F> {
@@ -110,7 +109,7 @@ impl<T, U, F> Responder for FnMiddleStage<T, U, F> {}
 impl<
   T: 'static + TryFromExprInst,
   U: 'static + ToClause,
-  F: 'static + Clone + FnOnce(T) -> Result<U, Rc<dyn ExternError>>,
+  F: 'static + Clone + FnOnce(T) -> Result<U, Rc<dyn ExternError>> + Send,
 > Atomic for FnMiddleStage<T, U, F>
 {
   fn as_any(self: Box<Self>) -> Box<dyn std::any::Any> { self }
@@ -128,7 +127,7 @@ impl<
 impl<
   T: 'static + TryFromExprInst,
   U: 'static + ToClause,
-  F: 'static + Clone + FnOnce(T) -> Result<U, Rc<dyn ExternError>>,
+  F: 'static + Clone + Send + FnOnce(T) -> Result<U, Rc<dyn ExternError>>,
 > ExternFn for Param<T, U, F>
 {
   fn name(&self) -> &str { "anonymous Rust function" }
@@ -155,16 +154,16 @@ pub mod constructors {
           " Orchid function. See also Constraints summarized:\n\n"
           "- the callback must live as long as `'static`\n"
           "- All arguments must implement [TryFromExprInst]\n"
-          "- all but the last argument must implement [Clone]\n"
+          "- all but the last argument must implement [Clone] and [Send]\n"
           "- the return type must implement [ToClause].\n\n"
         ]
         #[doc = "Other arities: " $( "[xfn_" $alt "ary], " )+ ]
         pub fn [< xfn_ $number ary >] <
-          $( $t : TryFromExprInst + Clone + 'static, )*
+          $( $t : TryFromExprInst + Clone + Send + 'static, )*
           TLast: TryFromExprInst + 'static,
-          TReturn: ToClause + 'static,
+          TReturn: ToClause + Send + 'static,
           TFunction: FnOnce( $( $t , )* TLast )
-            -> Result<TReturn, Rc<dyn ExternError>> + Clone + 'static
+            -> Result<TReturn, Rc<dyn ExternError>> + Clone + Send + 'static
         >(function: TFunction) -> impl ExternFn {
           xfn_variant!(@BODY_LOOP function
             ( $( ( $t [< $t:lower >] ) )* )

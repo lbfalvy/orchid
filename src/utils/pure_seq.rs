@@ -18,3 +18,11 @@ pub fn pushed_ref<'a, T: Clone + 'a>(
 ) -> Vec<T> {
   vec.into_iter().cloned().chain(iter::once(t)).collect()
 }
+
+/// Pure version of [Iterator::next]
+/// 
+/// Remove an item from the iterator. If successful, returns the item and the
+/// iterator. If the iterator is empty it is consumed.
+pub fn next<I: Iterator>(mut i: I) -> Option<(I::Item, I)> {
+  i.next().map(|item| (item, i))
+}

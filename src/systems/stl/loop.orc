@@ -1,4 +1,6 @@
-import super::proc::(;, do, =)
+import super::procedural::*
+import super::bool::*
+import super::functional::(return, identity)
 import super::known::*
 
 --[
@@ -14,7 +16,7 @@ export const Y := \f.(\x.f (x x))(\x.f (x x))
   non-tail recursion by using cps statements, but it's more ergonomic
   than [Y] and more flexible than [std::list::fold].
 
-  To break out of the loop, use [std::fn::const] in a cps statement
+  To break out of the loop, use [std::fn::return] in a cps statement
 ]--
 export macro loop_over (..$binds) {
   ...$body
@@ -34,6 +36,16 @@ macro parse_binds (...$item) =0x1p250=> (
   parse_bind (...$item)
   ()
 )
+
+-- while loop
+export macro statement (
+  while ..$condition (..$binds) {
+    ...$body
+  }
+) $next =0x5p129=> loop_over (..$binds) {
+  cps if (..$condition) then identity else return $next;
+  ...$body;
+}
 
 -- parse_bind converts items to pairs
 macro parse_bind ($name) =0x1p250=> ($name bind_no_value)

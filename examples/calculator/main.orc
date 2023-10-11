@@ -1,4 +1,4 @@
-import std::(proc::*, to_float, to_string, panic, str::char_at)
+import std::(to_float, to_string, panic, string::char_at)
 
 export const main := do{
   cps print "left operand: ";
@@ -6,7 +6,6 @@ export const main := do{
   let a = to_float data;
   cps print "operator: ";
   cps op = readln;
-  let op = char_at op 0;
   cps println ("you selected \"" ++ op ++ "\"");
   cps print "right operand: ";
   cps data = readln;

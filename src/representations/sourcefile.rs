@@ -8,7 +8,7 @@ use super::namelike::VName;
 use crate::ast::{Constant, Rule};
 use crate::error::{ProjectError, ProjectResult, TooManySupers};
 use crate::interner::{Interner, Tok};
-use crate::utils::pure_push::pushed;
+use crate::utils::pure_seq::pushed;
 use crate::utils::{unwrap_or, BoxedIter};
 use crate::Location;
 
@@ -78,16 +78,11 @@ pub enum MemberKind {
   Constant(Constant),
   /// A prefixed set of other entries
   Module(ModuleBlock),
-  /// Operator declarations
-  Operators(Vec<Tok<String>>),
 }
 
 impl Display for MemberKind {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Self::Operators(opv) => {
-        write!(f, "operators[{}]", opv.iter().map(|t| &**t).join(" "))
-      },
       Self::Constant(c) => c.fmt(f),
       Self::Module(m) => m.fmt(f),
       Self::Rule(r) => r.fmt(f),

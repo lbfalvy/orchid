@@ -3,7 +3,7 @@ use super::error::RuntimeError;
 use super::Return;
 use crate::foreign::AtomicReturn;
 use crate::representations::interpreted::{Clause, ExprInst};
-use crate::representations::{PathSet, Primitive};
+use crate::representations::PathSet;
 use crate::utils::never::{unwrap_always, Always};
 use crate::utils::Side;
 
@@ -77,9 +77,8 @@ pub fn apply(
 ) -> Result<Return, RuntimeError> {
   let (state, (gas, inert)) = f.try_update(|clause, loc| match clause {
     // apply an ExternFn or an internal function
-    Clause::P(Primitive::ExternFn(f)) => {
-      let clause =
-        f.apply(x, ctx.clone()).map_err(|e| RuntimeError::Extern(e))?;
+    Clause::ExternFn(f) => {
+      let clause = f.apply(x, ctx.clone()).map_err(RuntimeError::Extern)?;
       Ok((clause, (ctx.gas.map(|g| g - 1), false)))
     },
     Clause::Lambda { args, body } => Ok(if let Some(args) = args {
@@ -97,7 +96,7 @@ pub fn apply(
       } else {
         Err(RuntimeError::MissingSymbol(name.clone(), loc))
       },
-    Clause::P(Primitive::Atom(atom)) => {
+    Clause::Atom(atom) => {
       // take a step in expanding atom
       let AtomicReturn { clause, gas, inert } = atom.run(ctx.clone())?;
       Ok((Clause::Apply { f: clause.wrap(), x }, (gas, inert)))

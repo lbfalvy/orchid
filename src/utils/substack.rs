@@ -98,7 +98,7 @@ impl<'a, T> SubstackIterator<'a, T> {
 
 impl<'a, T> Copy for SubstackIterator<'a, T> {}
 impl<'a, T> Clone for SubstackIterator<'a, T> {
-  fn clone(&self) -> Self { Self { curr: self.curr } }
+  fn clone(&self) -> Self { *self }
 }
 
 impl<'a, T> Iterator for SubstackIterator<'a, T> {

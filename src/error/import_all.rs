@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use itertools::Itertools;
 
@@ -10,9 +10,9 @@ use crate::VName;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ImportAll {
   /// The file containing the offending import
-  pub offender_file: Rc<VName>,
+  pub offender_file: Arc<VName>,
   /// The module containing the offending import
-  pub offender_mod: Rc<VName>,
+  pub offender_mod: Arc<VName>,
 }
 impl ProjectError for ImportAll {
   fn description(&self) -> &str { "a top-level glob import was used" }

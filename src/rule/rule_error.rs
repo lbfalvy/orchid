@@ -5,6 +5,8 @@ use hashbrown::HashSet;
 
 use crate::ast::{self, search_all_slcs, PHClass, Placeholder, Rule};
 use crate::error::{ErrorPosition, ProjectError};
+#[allow(unused)] // for doc
+use crate::foreign::ExternFn;
 use crate::interner::Tok;
 use crate::utils::BoxedIter;
 use crate::{Location, Sym};
@@ -20,16 +22,20 @@ pub enum RuleError {
   Multiple(Tok<String>),
   /// Two vectorial placeholders are next to each other
   VecNeighbors(Tok<String>, Tok<String>),
+  /// Found an [ExternFn] in the pattern. This is a really unlikely mistake
+  /// caused only by rogue systems.
+  ExternFn,
 }
 impl RuleError {
   /// Convert into a unified error trait object shared by all Orchid errors
   #[must_use]
   pub fn to_project_error(self, rule: &Rule<Sym>) -> Rc<dyn ProjectError> {
     match self {
-      RuleError::Missing(name) => Missing::new(rule, name).rc(),
-      RuleError::Multiple(name) => Multiple::new(rule, name).rc(),
-      RuleError::ArityMismatch(name) => ArityMismatch::new(rule, name).rc(),
-      RuleError::VecNeighbors(n1, n2) => VecNeighbors::new(rule, n1, n2).rc(),
+      Self::Missing(name) => Missing::new(rule, name).rc(),
+      Self::Multiple(name) => Multiple::new(rule, name).rc(),
+      Self::ArityMismatch(name) => ArityMismatch::new(rule, name).rc(),
+      Self::VecNeighbors(n1, n2) => VecNeighbors::new(rule, n1, n2).rc(),
+      Self::ExternFn => ExternFnInPattern(rule.clone()).rc(),
     }
   }
 }
@@ -37,6 +43,7 @@ impl RuleError {
 impl Display for RuleError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
+      Self::ExternFn => write!(f, "Found an ExternFn in the pattern"),
       Self::Missing(key) => write!(f, "Key {key} not in match pattern"),
       Self::ArityMismatch(key) => {
         write!(f, "Key {key} used inconsistently with and without ellipsis")
@@ -44,10 +51,8 @@ impl Display for RuleError {
       Self::Multiple(key) => {
         write!(f, "Key {key} appears multiple times in match pattern")
       },
-      Self::VecNeighbors(left, right) => write!(
-        f,
-        "Keys {left} and {right} are two vectorials right next to each other"
-      ),
+      Self::VecNeighbors(left, right) =>
+        write!(f, "vectorials {left} and {right} are next to each other"),
     }
   }
 }
@@ -230,5 +235,17 @@ impl ProjectError for VecNeighbors {
         .cloned()
         .map(|location| ErrorPosition { location, message: None }),
     )
+  }
+}
+
+/// Not referencing by location because it's most likely unknown
+#[derive(Debug)]
+pub struct ExternFnInPattern(ast::Rule<Sym>);
+impl ProjectError for ExternFnInPattern {
+  fn description(&self) -> &str {
+    "Found an ExternFn in a pattern. Unlikely error caused by a system"
+  }
+  fn message(&self) -> String {
+    format!("Found ExternFn in pattern {}", self.0)
   }
 }

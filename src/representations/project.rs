@@ -31,26 +31,15 @@ impl<N: NameLike> Default for ItemKind<N> {
 #[derive(Debug, Clone, Default)]
 pub struct ProjectItem<N: NameLike> {
   pub kind: ItemKind<N>,
-  pub is_op: bool,
 }
 
 impl<N: NameLike> Display for ProjectItem<N> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match &self.kind {
-      ItemKind::None => match self.is_op {
-        true => write!(f, "operator"),
-        false => write!(f, "keyword"),
-      },
-      ItemKind::Const(c) => match self.is_op {
-        true => write!(f, "operator with value {c}"),
-        false => write!(f, "constant {c}"),
-      },
+      ItemKind::None => write!(f, "keyword"),
+      ItemKind::Const(c) => write!(f, "constant {c}"),
       ItemKind::Alias(alias) => {
-        let origin = Interner::extern_all(alias).join("::");
-        match self.is_op {
-          true => write!(f, "operator alias to {origin}"),
-          false => write!(f, "alias to {origin}"),
-        }
+        write!(f, "alias to {}", Interner::extern_all(alias).join("::"))
       },
     }
   }
@@ -61,9 +50,6 @@ impl<N: NameLike> Display for ProjectItem<N> {
 pub struct ImpReport<N: NameLike> {
   /// Absolute path of the module the symbol is imported from
   pub source: N,
-  /// Whether this symbol should be treated as an operator for the purpose of
-  /// parsing
-  pub is_op: bool,
 }
 
 /// Additional data about a loaded module beyond the list of constants and
@@ -94,8 +80,8 @@ impl<N: NameLike> Add for ProjectExt<N> {
         Interner::extern_all(&self.path).join("::")
       )
     }
-    self.imports_from.extend(imports_from.into_iter());
-    self.rules.extend(rules.into_iter());
+    self.imports_from.extend(imports_from);
+    self.rules.extend(rules);
     if file.is_some() {
       self.file = file
     }
@@ -190,7 +176,6 @@ fn vname_to_sym_tree_rec(
             ModMember::Sub(module) =>
               ModMember::Sub(vname_to_sym_tree_rec(module, i)),
             ModMember::Item(ex) => ModMember::Item(ProjectItem {
-              is_op: ex.is_op,
               kind: match ex.kind {
                 ItemKind::None => ItemKind::None,
                 ItemKind::Alias(n) => ItemKind::Alias(n),
@@ -204,7 +189,7 @@ fn vname_to_sym_tree_rec(
     extra: ProjectExt {
       path: tree.extra.path,
       imports_from: (tree.extra.imports_from.into_iter())
-        .map(|(k, v)| (k, ImpReport { is_op: v.is_op, source: i.i(&v.source) }))
+        .map(|(k, v)| (k, ImpReport { source: i.i(&v.source) }))
         .collect(),
       rules: (tree.extra.rules.into_iter())
         .map(|Rule { pattern, prio, template }| Rule {

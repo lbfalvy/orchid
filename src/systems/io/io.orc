@@ -2,7 +2,7 @@ import std::panic
 import system::io
 import system::async::yield
 
-export const print := \text.\ok. (
+export const print := \text. \ok. (
   io::write_str io::stdout text
     (io::flush io::stdout
       ok
@@ -13,7 +13,7 @@ export const print := \text.\ok. (
     \_. yield
 )
 
-export const println := \line.\ok. (
+export const println := \line. \ok. (
   print (line ++ "\n") ok
 )
 

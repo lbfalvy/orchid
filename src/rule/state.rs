@@ -7,7 +7,7 @@ use crate::ast::{Clause, Expr, PHClass, Placeholder};
 use crate::interner::Tok;
 use crate::utils::unwrap_or;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub enum StateEntry<'a> {
   Vec(&'a [RuleExpr]),
   Scalar(&'a RuleExpr),
@@ -27,7 +27,8 @@ pub fn apply_exprv(template: &[RuleExpr], state: &State) -> Vec<RuleExpr> {
 pub fn apply_expr(template: &RuleExpr, state: &State) -> Vec<RuleExpr> {
   let Expr { location, value } = template;
   match value {
-    Clause::P(_) | Clause::Name(_) => vec![template.clone()],
+    Clause::Atom(_) | Clause::Name(_) | Clause::ExternFn(_) =>
+      vec![template.clone()],
     Clause::S(c, body) => vec![Expr {
       location: location.clone(),
       value: Clause::S(*c, Rc::new(apply_exprv(body.as_slice(), state))),

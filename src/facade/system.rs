@@ -2,6 +2,7 @@ use hashbrown::HashMap;
 
 use crate::error::{ErrorPosition, ProjectError};
 use crate::interpreter::HandlerTable;
+use crate::parse::{LexerPlugin, LineParser};
 use crate::pipeline::file_loader::{IOResult, Loaded};
 use crate::sourcefile::FileEntry;
 use crate::utils::boxed_iter::box_empty;
@@ -23,6 +24,13 @@ pub struct System<'a> {
   pub prelude: Vec<FileEntry>,
   /// Handlers for actions defined in this system
   pub handlers: HandlerTable<'a>,
+  /// Custom lexer for the source code representation atomic data.
+  /// These take priority over builtin lexers so the syntax they
+  /// match should be unambiguous
+  pub lexer_plugin: Option<Box<dyn LexerPlugin>>,
+  /// Parser that processes custom line types into their representation in the
+  /// module tree
+  pub line_parser: Option<Box<dyn LineParser>>,
 }
 impl<'a> System<'a> {
   /// Intern the name of the system so that it can be used as an Orchid

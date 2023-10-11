@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use super::{ErrorPosition, ProjectError};
 use crate::representations::location::Location;
@@ -25,14 +25,14 @@ impl ProjectError for NotExported {
     Box::new(
       [
         ErrorPosition {
-          location: Location::File(Rc::new(self.file.clone())),
+          location: Location::File(Arc::new(self.file.clone())),
           message: Some(format!(
             "{} isn't exported",
             Interner::extern_all(&self.subpath).join("::")
           )),
         },
         ErrorPosition {
-          location: Location::File(Rc::new(self.referrer_file.clone())),
+          location: Location::File(Arc::new(self.referrer_file.clone())),
           message: Some(format!(
             "{} cannot see this symbol",
             Interner::extern_all(&self.referrer_subpath).join("::")

@@ -17,12 +17,12 @@ impl RuntimeError {
     message: String,
     operation: &'static str,
   ) -> Result<T, Rc<dyn ExternError>> {
-    return Err(Self { message, operation }.into_extern());
+    Err(Self { message, operation }.into_extern())
   }
 
   /// Construct and upcast to [ExternError]
   pub fn ext(message: String, operation: &'static str) -> Rc<dyn ExternError> {
-    return Self { message, operation }.into_extern();
+    Self { message, operation }.into_extern()
   }
 }
 

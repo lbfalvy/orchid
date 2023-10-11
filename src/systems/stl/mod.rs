@@ -1,18 +1,18 @@
 //! Basic types and their functions, frequently used tools with no environmental
 //! dependencies.
 mod arithmetic_error;
-mod bin;
+mod binary;
 mod bool;
 mod conv;
 mod inspect;
-mod num;
+mod number;
 mod panic;
 mod state;
 mod stl_system;
-mod str;
+mod string;
+mod exit_status;
 pub use arithmetic_error::ArithmeticError;
-pub use bin::Binary;
-pub use num::Numeric;
+pub use binary::Binary;
+pub use number::Numeric;
 pub use stl_system::StlConfig;
-
-pub use self::bool::Boolean;
+pub use exit_status::ExitStatus;

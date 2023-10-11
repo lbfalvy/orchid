@@ -3,6 +3,7 @@ use super::file_loader::IOResult;
 use super::{project_tree, source_loader};
 use crate::error::ProjectResult;
 use crate::interner::{Interner, Tok};
+use crate::parse::{LexerPlugin, LineParser};
 use crate::representations::sourcefile::FileEntry;
 use crate::representations::VName;
 use crate::utils::never;
@@ -21,10 +22,14 @@ pub fn parse_layer<'a>(
   loader: &impl Fn(&[Tok<String>]) -> IOResult,
   environment: &'a ProjectTree<VName>,
   prelude: &[FileEntry],
+  lexer_plugins: &[&dyn LexerPlugin],
+  line_parsers: &[&dyn LineParser],
   i: &Interner,
 ) -> ProjectResult<ProjectTree<VName>> {
+  let sl_ctx =
+    source_loader::Context { prelude, i, lexer_plugins, line_parsers };
   let (preparsed, source) =
-    source_loader::load_source(targets, prelude, i, loader, &|path| {
+    source_loader::load_source(targets, sl_ctx, loader, &|path| {
       environment.0.walk_ref(&[], path, false).is_ok()
     })?;
   let tree =

@@ -7,7 +7,7 @@ use crate::interpreted::ExprInst;
 use crate::systems::codegen::call;
 use crate::systems::scheduler::{Canceller, SharedHandle};
 use crate::systems::stl::Binary;
-use crate::Literal;
+use crate::OrcString;
 
 /// Any type that we can read controlled amounts of data from
 pub type Source = BufReader<Box<dyn Read + Send>>;
@@ -63,10 +63,14 @@ impl IOCmd for ReadCmd {
       Self::RStr(sread) => {
         let mut buf = String::new();
         let sresult = match &sread {
-          SRead::All => stream.read_to_string(&mut buf),
-          SRead::Line => stream.read_line(&mut buf),
+          SRead::All => stream.read_to_string(&mut buf).map(|_| ()),
+          SRead::Line => stream.read_line(&mut buf).map(|_| {
+            if buf.ends_with('\n') {
+              buf.pop();
+            }
+          }),
         };
-        ReadResult::RStr(sread, sresult.map(|_| buf))
+        ReadResult::RStr(sread, sresult.map(|()| buf))
       },
     }
   }
@@ -88,14 +92,14 @@ impl ReadResult {
         vec![call(succ, [arg]).wrap()]
       },
       ReadResult::RStr(_, Ok(text)) => {
-        vec![call(succ, [Literal::Str(text.into()).into()]).wrap()]
+        vec![call(succ, [OrcString::from(text).atom_exi()]).wrap()]
       },
     }
   }
 }
 
 /// Function to convert [io::Error] to Orchid data
-pub fn wrap_io_error(_e: io::Error) -> ExprInst { Literal::Uint(0u64).into() }
+pub fn wrap_io_error(_e: io::Error) -> ExprInst { 0usize.atom_exi() }
 
 /// Writing command (string or binary)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

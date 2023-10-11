@@ -35,7 +35,8 @@ pub fn clause<F: FnMut(Rc<Vec<RuleExpr>>) -> Option<Rc<Vec<RuleExpr>>>>(
   pred: &mut F,
 ) -> Option<Clause<Sym>> {
   match c {
-    Clause::P(_) | Clause::Placeh { .. } | Clause::Name { .. } => None,
+    Clause::Atom(_) | Clause::Placeh { .. } | Clause::Name { .. } => None,
+    Clause::ExternFn(_) => None,
     Clause::Lambda(arg, body) =>
       if let Some(arg) = exprv(arg.clone(), pred) {
         Some(Clause::Lambda(arg, body.clone()))

@@ -1,6 +1,5 @@
-use std::cell::RefCell;
 use std::ops::Deref;
-use std::rc::Rc;
+use std::sync::{Arc, RwLock};
 
 use crate::foreign::cps_box::{const_cps, init_cps, CPSBox};
 use crate::foreign::{xfn_1ary, Atomic, InertAtomic, XfnResult};
@@ -10,9 +9,9 @@ use crate::systems::codegen::call;
 use crate::{ConstTree, Interner};
 
 #[derive(Debug, Clone)]
-pub struct State(Rc<RefCell<ExprInst>>);
+pub struct State(Arc<RwLock<ExprInst>>);
 impl InertAtomic for State {
-  fn type_str() -> &'static str { "a stateful container" }
+  fn type_str() -> &'static str { "State" }
 }
 
 #[derive(Debug, Clone)]
@@ -30,21 +29,21 @@ fn set_state(s: State) -> XfnResult<Clause> { Ok(init_cps(2, SetStateCmd(s))) }
 
 fn new_state_handler<E>(cmd: CPSBox<NewStateCmd>) -> Result<ExprInst, E> {
   let (_, default, handler) = cmd.unpack2();
-  let state = State(Rc::new(RefCell::new(default)));
+  let state = State(Arc::new(RwLock::new(default)));
   Ok(call(handler, [state.atom_exi()]).wrap())
 }
 
 fn set_state_handler<E>(cmd: CPSBox<SetStateCmd>) -> Result<ExprInst, E> {
   let (SetStateCmd(state), value, handler) = cmd.unpack2();
-  *state.0.as_ref().borrow_mut() = value;
+  *state.0.as_ref().write().unwrap() = value;
   Ok(handler)
 }
 
 fn get_state_handler<E>(cmd: CPSBox<GetStateCmd>) -> Result<ExprInst, E> {
   let (GetStateCmd(state), handler) = cmd.unpack1();
-  let val = match Rc::try_unwrap(state.0) {
-    Ok(cell) => cell.into_inner(),
-    Err(rc) => rc.as_ref().borrow().deref().clone(),
+  let val = match Arc::try_unwrap(state.0) {
+    Ok(lock) => lock.into_inner().unwrap(),
+    Err(arc) => arc.as_ref().read().unwrap().deref().clone(),
   };
   Ok(call(handler, [val]).wrap())
 }

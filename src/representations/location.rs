@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 use std::ops::Range;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use itertools::Itertools;
 
@@ -13,15 +13,15 @@ pub enum Location {
   /// Location information lost or code generated on the fly
   Unknown,
   /// Only the file is known
-  File(Rc<VName>),
+  File(Arc<VName>),
   /// Character slice of the code
   Range {
     /// Argument to the file loading callback that produced this code
-    file: Rc<VName>,
+    file: Arc<VName>,
     /// Index of the unicode code points associated with the code
     range: Range<usize>,
     /// The full source code as received by the parser
-    source: Rc<String>,
+    source: Arc<String>,
   },
 }
 
@@ -38,7 +38,7 @@ impl Location {
 
   /// File, if known
   #[must_use]
-  pub fn file(&self) -> Option<Rc<VName>> {
+  pub fn file(&self) -> Option<Arc<VName>> {
     if let Self::File(file) | Self::Range { file, .. } = self {
       Some(file.clone())
     } else {
@@ -48,7 +48,7 @@ impl Location {
 
   /// Associated source code, if known
   #[must_use]
-  pub fn source(&self) -> Option<Rc<String>> {
+  pub fn source(&self) -> Option<Arc<String>> {
     if let Self::Range { source, .. } = self {
       Some(source.clone())
     } else {

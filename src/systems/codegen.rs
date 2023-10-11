@@ -39,11 +39,11 @@ pub fn tuple(data: impl IntoIterator<Item = ExprInst>) -> Clause {
 
 #[cfg(test)]
 mod test {
-  use crate::systems::codegen::tuple;
+  use crate::{systems::codegen::tuple, foreign::Atomic};
 
   #[test]
   fn tuple_printer() {
-    println!("Binary tuple: {}", tuple([0.into(), 1.into()]))
+    println!("Binary tuple: {}", tuple([0usize.atom_exi(), 1usize.atom_exi()]))
   }
 }
 

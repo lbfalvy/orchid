@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::fmt::{Debug, Display};
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use hashbrown::HashMap;
@@ -17,23 +18,30 @@ use crate::interpreted::{Clause, ExprInst};
 use crate::interpreter::HandlerTable;
 use crate::pipeline::file_loader::embed_to_map;
 use crate::systems::codegen::call;
-use crate::systems::stl::Boolean;
 use crate::utils::poller::{PollEvent, Poller};
 use crate::utils::unwrap_or;
 use crate::{ConstTree, Interner};
 
 #[derive(Debug, Clone)]
 struct Timer {
-  recurring: Boolean,
+  recurring: bool,
   delay: NotNan<f64>,
 }
 
-pub fn set_timer(recurring: Boolean, delay: NotNan<f64>) -> XfnResult<Clause> {
+pub fn set_timer(recurring: bool, delay: NotNan<f64>) -> XfnResult<Clause> {
   Ok(init_cps(2, Timer { recurring, delay }))
 }
 
 #[derive(Clone)]
-struct CancelTimer(Rc<dyn Fn()>);
+struct CancelTimer(Arc<Mutex<dyn Fn() + Send>>);
+impl CancelTimer {
+  pub fn new(f: impl Fn() + Send + 'static) -> Self {
+    Self(Arc::new(Mutex::new(f)))
+  }
+  pub fn cancel(&self) {
+    self.0.lock().unwrap()()
+  }
+}
 impl Debug for CancelTimer {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "opaque cancel operation")
@@ -134,17 +142,16 @@ impl<'a> IntoSystem<'a> for AsynchSystem<'a> {
         let mut polly = polly.borrow_mut();
         let (timeout, action, cont) = t.unpack2();
         let duration = Duration::from_secs_f64(*timeout.delay);
-        let cancel_timer = if timeout.recurring.0 {
-          CancelTimer(Rc::new(polly.set_interval(duration, action)))
-        } else {
-          CancelTimer(Rc::new(polly.set_timeout(duration, action)))
+        let cancel_timer = match timeout.recurring {
+          true => CancelTimer::new(polly.set_interval(duration, action)),
+          false => CancelTimer::new(polly.set_timeout(duration, action)),
         };
         Ok(call(cont, [init_cps(1, cancel_timer).wrap()]).wrap())
       }
     });
     handler_table.register(move |t: Box<CPSBox<CancelTimer>>| {
       let (command, cont) = t.unpack1();
-      command.0.as_ref()();
+      command.cancel();
       Ok(cont)
     });
     handler_table.register({
@@ -165,7 +172,7 @@ impl<'a> IntoSystem<'a> for AsynchSystem<'a> {
             PollEvent::Event(ev) => {
               let handler = (handlers.get_mut(&ev.as_ref().type_id()))
                 .unwrap_or_else(|| {
-                  panic!("Unhandled messgae type: {:?}", ev.type_id())
+                  panic!("Unhandled messgae type: {:?}", (*ev).type_id())
                 });
               let events = handler(ev);
               // we got new microtasks
@@ -181,6 +188,8 @@ impl<'a> IntoSystem<'a> for AsynchSystem<'a> {
     });
     System {
       name: vec!["system".to_string(), "asynch".to_string()],
+      lexer_plugin: None,
+      line_parser: None,
       constants: ConstTree::namespace(
         [i.i("system"), i.i("async")],
         ConstTree::tree([

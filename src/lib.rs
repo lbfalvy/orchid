@@ -29,8 +29,8 @@ pub use representations::project::{
   collect_consts, collect_rules, vname_to_sym_tree, ProjectTree,
 };
 pub use representations::{
-  ast, from_const_tree, interpreted, sourcefile, tree, ConstTree, Literal,
-  Location, NameLike, OrcString, PathSet, Primitive, Sym, VName,
+  ast, from_const_tree, interpreted, sourcefile, tree, ConstTree, Location,
+  NameLike, OrcString, PathSet, Sym, VName,
 };
 pub use utils::substack::Substack;
 pub use utils::{ddispatch, take_with_output, thread_pool, IdMap, Side};

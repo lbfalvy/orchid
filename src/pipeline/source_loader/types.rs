@@ -1,7 +1,6 @@
 use std::fmt::Display;
 use std::ops::Add;
 
-use crate::ast::Expr;
 use crate::error::ProjectResult;
 use crate::sourcefile::Import;
 use crate::tree::Module;
@@ -9,34 +8,27 @@ use crate::{Interner, Location, VName};
 
 #[derive(Debug, Clone)]
 pub struct PreItem {
-  pub is_op: bool,
   pub has_value: bool,
   pub location: Location,
 }
 
 impl Display for PreItem {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    let Self { has_value, is_op, location } = self;
-    let description = match (is_op, has_value) {
-      (true, true) => "operator with value",
-      (true, false) => "operator",
-      (false, true) => "value",
-      (false, false) => "keyword",
-    };
+    let Self { has_value, location } = self;
+    let description = if *has_value { "value" } else { "keyword" };
     write!(f, "{description} {location}")
   }
 }
 
 impl Default for PreItem {
   fn default() -> Self {
-    PreItem { is_op: false, has_value: false, location: Location::Unknown }
+    PreItem { has_value: false, location: Location::Unknown }
   }
 }
 
 #[derive(Debug, Clone)]
 pub struct PreSubExt {
   pub imports: Vec<Import>,
-  pub patterns: Vec<Vec<Expr<VName>>>,
 }
 
 #[derive(Debug, Clone)]

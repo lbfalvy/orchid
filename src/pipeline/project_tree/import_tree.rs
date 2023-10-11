@@ -11,7 +11,7 @@ use crate::representations::project::ImpReport;
 use crate::sourcefile::{absolute_path, Import};
 use crate::tree::{ErrKind, ModEntry, ModMember, Module, WalkError};
 use crate::utils::boxed_iter::{box_chain, box_once};
-use crate::utils::pure_push::pushed_ref;
+use crate::utils::pure_seq::pushed_ref;
 use crate::utils::{unwrap_or, BoxedIter};
 use crate::{Interner, ProjectTree, Tok, VName};
 
@@ -65,17 +65,13 @@ pub fn assert_visible_overlay<'a>(
   })
 }
 
-pub fn process_donor_module<'a, TItem: Clone>(
-  module: &'a Module<TItem, impl Clone>,
+pub fn process_donor_module<TItem: Clone>(
+  module: &Module<TItem, impl Clone>,
   abs_path: Rc<VName>,
-  is_op: impl Fn(&TItem) -> bool + 'a,
-) -> impl Iterator<Item = (Tok<String>, VName, bool)> + 'a {
-  (module.entries.iter()).filter(|(_, ent)| ent.exported).map(
-    move |(n, ent)| {
-      let is_op = ent.item().map_or(false, &is_op);
-      (n.clone(), pushed_ref(abs_path.as_ref(), n.clone()), is_op)
-    },
-  )
+) -> impl Iterator<Item = (Tok<String>, VName)> + '_ {
+  (module.entries.iter())
+    .filter(|(_, ent)| ent.exported)
+    .map(move |(n, _)| (n.clone(), pushed_ref(abs_path.as_ref(), n.clone())))
 }
 
 pub fn import_tree(
@@ -99,14 +95,7 @@ pub fn import_tree(
             // println!("Old root: {:#?}", &prev_root.0);
             panic!("{}", e.at(location))
           })?;
-        let is_op = (root.0.walk1_ref(&[], &abs_path, false))
-          .map(|(ent, _)| ent.item().map_or(false, |i| i.is_op))
-          .or_else(|e| if e.kind == ErrKind::Missing {
-            (prev_root.0.walk1_ref(&[], &abs_path, false))
-              .map(|(ent, _)| ent.item().map_or(false, |i| i.is_op))
-          } else {Err(e)})
-          .map_err(|e| e.at(location))?;
-        box_once((name.clone(), abs_path, is_op))
+        box_once((name.clone(), abs_path))
       } else {
         let rc_path = Rc::new(abs_path);
         // wildcard imports are validated
@@ -116,8 +105,7 @@ pub fn import_tree(
         let new_imports = match (root.0).walk_ref(&[], &rc_path, false) {
           Err(e) if e.kind == ErrKind::Missing => Err(e),
           Err(e) => return Err(e.at(location)),
-          Ok(module)
-            => Ok(process_donor_module(module, rc_path.clone(), |i| i.is_op))
+          Ok(module) => Ok(process_donor_module(module, rc_path.clone()))
         };
         let old_m = match (prev_root.0).walk_ref(&[], &rc_path, false) {
           Err(e) if e.kind != ErrKind::Missing => return Err(e.at(location)),
@@ -134,7 +122,7 @@ pub fn import_tree(
           },
           Ok(old_m) => old_m,
         };
-        let it1 = process_donor_module(old_m, rc_path.clone(), |i| i.is_op);
+        let it1 = process_donor_module(old_m, rc_path.clone());
         match new_imports {
           Err(_) => Box::new(it1),
           Ok(it2) => box_chain!(it1, it2)
@@ -144,10 +132,10 @@ pub fn import_tree(
     // leaf sets flattened to leaves
     .flatten_ok()
     // translated to entries
-    .map_ok(|(name, source, is_op)| {
+    .map_ok(|(name, source)| {
       (name, ModEntry {
         exported: false, // this is irrelevant but needed
-        member: ModMember::Item(ImpReport { source, is_op }),
+        member: ModMember::Item(ImpReport { source }),
       })
     })
     .chain(

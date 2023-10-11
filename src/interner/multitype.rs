@@ -2,7 +2,7 @@ use std::any::{Any, TypeId};
 use std::borrow::Borrow;
 use std::cell::{RefCell, RefMut};
 use std::hash::Hash;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use hashbrown::HashMap;
 
@@ -13,7 +13,7 @@ use super::token::Tok;
 /// that implements [ToOwned]. Objects of the same type are stored together in a
 /// [TypedInterner].
 pub struct Interner {
-  interners: RefCell<HashMap<TypeId, Rc<dyn Any>>>,
+  interners: RefCell<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
 }
 impl Interner {
   /// Create a new interner
@@ -24,7 +24,7 @@ impl Interner {
   #[must_use]
   pub fn i<Q: ?Sized + Eq + Hash + ToOwned>(&self, q: &Q) -> Tok<Q::Owned>
   where
-    Q::Owned: 'static + Eq + Hash + Clone + Borrow<Q>,
+    Q::Owned: 'static + Eq + Hash + Clone + Borrow<Q> + Send + Sync,
   {
     let mut interners = self.interners.borrow_mut();
     let interner = get_interner(&mut interners);
@@ -44,9 +44,9 @@ impl Default for Interner {
 
 /// Get or create an interner for a given type.
 #[must_use]
-fn get_interner<T: 'static + Eq + Hash + Clone>(
-  interners: &mut RefMut<HashMap<TypeId, Rc<dyn Any>>>,
-) -> Rc<TypedInterner<T>> {
+fn get_interner<T: 'static + Eq + Hash + Clone + Send + Sync>(
+  interners: &mut RefMut<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+) -> Arc<TypedInterner<T>> {
   let boxed = interners
     .raw_entry_mut()
     .from_key(&TypeId::of::<T>())

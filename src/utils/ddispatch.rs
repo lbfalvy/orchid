@@ -5,16 +5,23 @@ use std::any::Any;
 /// A request for a value of an unknown type
 pub struct Request<'a>(&'a mut dyn Any);
 impl<'a> Request<'a> {
-  /// Checks whether a value of the given type would serve the request
-  pub fn can_serve<T: 'static>(&self) -> bool { self.0.is::<Option<T>>() }
+  /// Checks if a value of the given type would serve the request, and the
+  /// request had not yet been served
+  pub fn can_serve<T: 'static>(&self) -> bool {
+    self.0.downcast_ref::<Option<T>>().map_or(false, Option::is_none)
+  }
 
   /// Serve a value if it's the correct type
-  pub fn serve<T: 'static>(&mut self, value: T) { self.serve_with(|| value) }
+  pub fn serve<T: 'static>(&mut self, value: T) {
+    self.serve_with::<T>(|| value)
+  }
 
   /// Invoke the callback to serve the request only if the return type matches
   pub fn serve_with<T: 'static>(&mut self, provider: impl FnOnce() -> T) {
-    if let Some(slot) = self.0.downcast_mut() {
-      *slot = provider();
+    if let Some(slot) = self.0.downcast_mut::<Option<T>>() {
+      if slot.is_none() {
+        *slot = Some(provider());
+      }
     }
   }
 }

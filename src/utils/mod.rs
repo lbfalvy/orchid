@@ -6,7 +6,7 @@ mod id_map;
 mod iter_find;
 pub mod never;
 pub mod poller;
-pub mod pure_push;
+pub mod pure_seq;
 pub mod rc_tools;
 mod replace_first;
 mod side;

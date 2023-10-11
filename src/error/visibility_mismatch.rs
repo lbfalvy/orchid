@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use super::project_error::ProjectError;
 use crate::representations::location::Location;
@@ -23,6 +23,6 @@ impl ProjectError for VisibilityMismatch {
     )
   }
   fn one_position(&self) -> Location {
-    Location::File(Rc::new(self.file.clone()))
+    Location::File(Arc::new(self.file.clone()))
   }
 }

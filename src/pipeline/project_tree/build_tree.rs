@@ -13,7 +13,7 @@ use crate::sourcefile::{
 };
 use crate::tree::{ModEntry, ModMember, Module};
 use crate::utils::get_or::get_or_default;
-use crate::utils::pure_push::pushed_ref;
+use crate::utils::pure_seq::pushed_ref;
 use crate::{Tok, VName};
 
 #[must_use = "A submodule may not be integrated into the tree"]
@@ -28,7 +28,7 @@ pub struct TreeReport {
 pub fn build_tree(
   path: &VName,
   source: Vec<FileEntry>,
-  Module { entries, extra }: PreMod,
+  Module { entries, .. }: PreMod,
   imports: ImpMod,
   prelude: &[FileEntry],
 ) -> ProjectResult<TreeReport> {
@@ -56,20 +56,11 @@ pub fn build_tree(
         MemberKind::Constant(Constant { name, value }) => {
           consts.insert(name, value /* .prefix(path, &|_| false) */);
         },
-        MemberKind::Operators(_) => (),
         MemberKind::Rule(rule) => rule_fragments.push(rule),
       },
     }
   }
-  let mod_details = extra.details().expect("Directories handled elsewhere");
-  let rules = (mod_details.patterns.iter())
-    .zip(rule_fragments.into_iter())
-    .map(|(p, Rule { prio, template: t, .. })| {
-      // let p = p.iter().map(|e| e.prefix(path, &|_| false)).collect();
-      // let t = t.into_iter().map(|e| e.prefix(path, &|_| false)).collect();
-      Rule { pattern: p.clone(), prio, template: t }
-    })
-    .collect();
+  let rules = rule_fragments;
   let (pre_subs, pre_items) = (entries.into_iter())
     .partition_map::<HashMap<_, _>, HashMap<_, _>, _, _, _>(
       |(k, ModEntry { exported, member })| match member {
@@ -98,7 +89,7 @@ pub fn build_tree(
       Ok((k, ModEntry { exported, member }))
     })
     .chain((pre_items.into_iter()).map(
-      |(k, (exported, PreItem { has_value, is_op, location }))| {
+      |(k, (exported, PreItem { has_value, location }))| {
         let item = match imports_from.get(&k) {
           Some(_) if has_value => {
             // Local value cannot be assigned to imported key
@@ -112,12 +103,10 @@ pub fn build_tree(
           },
           None => {
             let k = consts.remove(&k).map_or(ItemKind::None, ItemKind::Const);
-            ProjectItem { is_op, kind: k }
+            ProjectItem { kind: k }
           },
-          Some(report) => ProjectItem {
-            is_op: is_op | report.is_op,
-            kind: ItemKind::Alias(report.source.clone()),
-          },
+          Some(report) =>
+            ProjectItem { kind: ItemKind::Alias(report.source.clone()) },
         };
         Ok((k, ModEntry { exported, member: ModMember::Item(item) }))
       },
@@ -129,7 +118,6 @@ pub fn build_tree(
         exported: false,
         member: ModMember::Item(ProjectItem {
           kind: ItemKind::Alias(from.source.clone()),
-          is_op: from.is_op,
         }),
       })
     });

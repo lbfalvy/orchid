@@ -1,4 +1,4 @@
-import super::(bool::*, fn::*, known::*, list, option, loop::*, proc::*)
+import super::(bool::*, functional::*, known::*, list, option, loop::*, procedural::*)
 import std::panic
 
 -- utilities for using lists as pairs
@@ -17,7 +17,7 @@ export const snd := \l. (
 -- constructors
 
 export const empty := list::end
-export const add := \m.\k.\v. (
+export const add := \m. \k. \v. (
   list::cons
     list::new[k, v]
     m
@@ -26,7 +26,7 @@ export const add := \m.\k.\v. (
 -- queries
 
 -- return the last occurrence of a key if exists
-export const get := \m.\key. (
+export const get := \m. \key. (
   loop_over (m) {
     cps record, m = list::pop m option::none;
     cps if fst record == key
@@ -38,20 +38,20 @@ export const get := \m.\key. (
 -- commands
 
 -- remove one occurrence of a key
-export const del := \m.\k. (
+export const del := \m. \k. (
   recursive r (m)
-    list::pop m list::end \head.\tail.
+    list::pop m list::end \head. \tail.
       if fst head == k then tail
       else list::cons head $ r tail
 )
 
 -- remove all occurrences of a key
-export const delall := \m.\k. (
+export const delall := \m. \k. (
   list::filter m \record. fst record != k
 )
 
 -- replace at most one occurrence of a key
-export const set := \m.\k.\v. (
+export const set := \m. \k. \v. (
   m
   |> del k
   |> add k v
@@ -60,7 +60,7 @@ export const set := \m.\k.\v. (
 -- ensure that there's only one instance of each key in the map
 export const normalize := \m. (
   recursive r (m, normal=empty)
-    list::pop m normal \head.\tail.
+    list::pop m normal \head. \tail.
       r tail $ set normal (fst head) (snd head)
 )
 

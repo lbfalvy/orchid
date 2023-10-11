@@ -8,7 +8,6 @@ use super::{run, Context, Return, RuntimeError};
 use crate::foreign::{Atom, Atomic, ExternError};
 use crate::interpreted::{Clause, Expr, ExprInst};
 use crate::utils::take_with_output;
-use crate::Primitive;
 
 trait_set! {
   trait Handler = FnMut(Box<dyn Any>) -> HandlerRes;
@@ -71,9 +70,9 @@ pub fn run_handler(
   loop {
     let mut ret = run(expr, ctx.clone())?;
     let quit = take_with_output(&mut ret.state, |exi| match exi.expr_val() {
-      Expr { clause: Clause::P(Primitive::Atom(a)), .. } => {
+      Expr { clause: Clause::Atom(a), .. } => {
         match handlers.dispatch(a.0) {
-          Err(b) => (Clause::P(Primitive::Atom(Atom(b))).wrap(), Ok(true)),
+          Err(b) => (Clause::Atom(Atom(b)).wrap(), Ok(true)),
           Ok(e) => match e {
             Ok(expr) => (expr, Ok(false)),
             Err(e) => (Clause::Bottom.wrap(), Err(e)),

@@ -7,12 +7,12 @@ use trait_set::trait_set;
 use super::{Atomic, ExternFn, InertAtomic, XfnResult};
 use crate::interpreted::{Clause, ExprInst};
 use crate::interpreter::{Context, HandlerRes};
-use crate::utils::pure_push::pushed_ref;
+use crate::utils::pure_seq::pushed_ref;
 use crate::ConstTree;
 
 trait_set! {
   /// A "well behaved" type that can be used as payload in a CPS box
-  pub trait CPSPayload = Clone + Debug + 'static;
+  pub trait CPSPayload = Clone + Debug + Send + 'static;
   /// A function to handle a CPS box with a specific payload
   pub trait CPSHandler<T: CPSPayload> = FnMut(&T, &ExprInst) -> HandlerRes;
 }

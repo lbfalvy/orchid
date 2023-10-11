@@ -1,12 +1,10 @@
 use std::rc::Rc;
 
-use chumsky::prelude::Simple;
 use itertools::Itertools;
 
 use super::{Entry, Lexeme};
-use crate::error::{ErrorPosition, ProjectError};
-use crate::utils::BoxedIter;
-use crate::{Location, Tok, VName};
+use crate::error::ProjectError;
+use crate::{Location, Tok};
 
 #[derive(Debug)]
 pub struct LineNeedsPrefix {
@@ -14,10 +12,10 @@ pub struct LineNeedsPrefix {
 }
 impl ProjectError for LineNeedsPrefix {
   fn description(&self) -> &str { "This linetype requires a prefix" }
+  fn one_position(&self) -> Location { self.entry.location() }
   fn message(&self) -> String {
     format!("{} cannot appear at the beginning of a line", self.entry)
   }
-  fn one_position(&self) -> Location { self.entry.location() }
 }
 
 #[derive(Debug)]
@@ -27,14 +25,12 @@ pub struct UnexpectedEOL {
 }
 impl ProjectError for UnexpectedEOL {
   fn description(&self) -> &str { "The line ended abruptly" }
-
+  fn one_position(&self) -> Location { self.entry.location() }
   fn message(&self) -> String {
     "The line ends unexpectedly here. In Orchid, all line breaks outside \
      parentheses start a new declaration"
       .to_string()
   }
-
-  fn one_position(&self) -> Location { self.entry.location() }
 }
 
 pub struct ExpectedEOL {
@@ -58,10 +54,8 @@ impl ExpectedName {
   }
 }
 impl ProjectError for ExpectedName {
-  fn description(&self) -> &str {
-    "A name was expected here, but something else was found"
-  }
-
+  fn description(&self) -> &str { "A name was expected" }
+  fn one_position(&self) -> Location { self.entry.location() }
   fn message(&self) -> String {
     if self.entry.is_keyword() {
       format!(
@@ -72,8 +66,6 @@ impl ProjectError for ExpectedName {
       format!("Expected a name, found {}", self.entry)
     }
   }
-
-  fn one_position(&self) -> Location { self.entry.location() }
 }
 
 #[derive()]
@@ -84,18 +76,15 @@ pub struct Expected {
 }
 impl Expected {
   pub fn expect(l: Lexeme, e: &Entry) -> Result<(), Rc<dyn ProjectError>> {
-    if e.lexeme != l {
-      return Err(
-        Self { expected: vec![l], or_name: false, found: e.clone() }.rc(),
-      );
+    if e.lexeme.strict_eq(&l) {
+      return Ok(());
     }
-    Ok(())
+    Err(Self { expected: vec![l], or_name: false, found: e.clone() }.rc())
   }
 }
 impl ProjectError for Expected {
-  fn description(&self) -> &str {
-    "A concrete token was expected but something else was found"
-  }
+  fn description(&self) -> &str { "A concrete token was expected" }
+  fn one_position(&self) -> Location { self.found.location() }
   fn message(&self) -> String {
     let list = match &self.expected[..] {
       &[] => return "Unsatisfiable expectation".to_string(),
@@ -108,21 +97,15 @@ impl ProjectError for Expected {
     let or_name = if self.or_name { " or a name" } else { "" };
     format!("Expected {list}{or_name} but found {}", self.found)
   }
-
-  fn one_position(&self) -> Location { self.found.location() }
 }
 
 pub struct ReservedToken {
   pub entry: Entry,
 }
 impl ProjectError for ReservedToken {
-  fn description(&self) -> &str {
-    "A token reserved for future use was found in the code"
-  }
-
-  fn message(&self) -> String { format!("{} is a reserved token", self.entry) }
-
+  fn description(&self) -> &str { "Syntax reserved for future use" }
   fn one_position(&self) -> Location { self.entry.location() }
+  fn message(&self) -> String { format!("{} is a reserved token", self.entry) }
 }
 
 pub struct BadTokenInRegion {
@@ -130,15 +113,11 @@ pub struct BadTokenInRegion {
   pub region: &'static str,
 }
 impl ProjectError for BadTokenInRegion {
-  fn description(&self) -> &str {
-    "A token was found in a region where it should not appear"
-  }
-
+  fn description(&self) -> &str { "An unexpected token was found" }
+  fn one_position(&self) -> Location { self.entry.location() }
   fn message(&self) -> String {
     format!("{} cannot appear in {}", self.entry, self.region)
   }
-
-  fn one_position(&self) -> Location { self.entry.location() }
 }
 
 pub struct NotFound {
@@ -146,70 +125,90 @@ pub struct NotFound {
   pub location: Location,
 }
 impl ProjectError for NotFound {
-  fn description(&self) -> &str {
-    "A specific lexeme was expected but not found in the given range"
-  }
-
-  fn message(&self) -> String { format!("{} was expected", self.expected) }
-
+  fn description(&self) -> &str { "A specific lexeme was expected" }
   fn one_position(&self) -> Location { self.location.clone() }
+  fn message(&self) -> String { format!("{} was expected", self.expected) }
 }
 
-pub struct LeadingNS {
-  pub location: Location,
-}
+pub struct LeadingNS(pub Location);
 impl ProjectError for LeadingNS {
   fn description(&self) -> &str { ":: can only follow a name token" }
-  fn one_position(&self) -> Location { self.location.clone() }
+  fn one_position(&self) -> Location { self.0.clone() }
 }
 
-pub struct MisalignedParen {
-  pub entry: Entry,
-}
+pub struct MisalignedParen(pub Entry);
 impl ProjectError for MisalignedParen {
-  fn description(&self) -> &str {
-    "Parentheses (), [] and {} must always pair up"
-  }
-  fn message(&self) -> String { format!("This {} has no pair", self.entry) }
-  fn one_position(&self) -> Location { self.entry.location() }
+  fn description(&self) -> &str { "(), [] and {} must always pair up" }
+  fn one_position(&self) -> Location { self.0.location() }
+  fn message(&self) -> String { format!("This {} has no pair", self.0) }
 }
 
-pub struct NamespacedExport {
-  pub location: Location,
-}
+pub struct NamespacedExport(pub Location);
 impl ProjectError for NamespacedExport {
-  fn description(&self) -> &str {
-    "Exports can only refer to unnamespaced names in the local namespace"
-  }
-  fn one_position(&self) -> Location { self.location.clone() }
+  fn description(&self) -> &str { "Only local names may be exported" }
+  fn one_position(&self) -> Location { self.0.clone() }
 }
 
-pub struct GlobExport {
-  pub location: Location,
-}
+pub struct GlobExport(pub Location);
 impl ProjectError for GlobExport {
-  fn description(&self) -> &str {
-    "Exports can only refer to concrete names, globstars are not allowed"
-  }
-  fn one_position(&self) -> Location { self.location.clone() }
+  fn description(&self) -> &str { "Globstars are not allowed in exports" }
+  fn one_position(&self) -> Location { self.0.clone() }
 }
 
-pub struct LexError {
-  pub errors: Vec<Simple<char>>,
-  pub source: Rc<String>,
-  pub file: VName,
+pub struct NoStringEnd(pub Location);
+impl ProjectError for NoStringEnd {
+  fn description(&self) -> &str { "A string literal was not closed with `\"`" }
+  fn one_position(&self) -> Location { self.0.clone() }
 }
-impl ProjectError for LexError {
-  fn description(&self) -> &str { "An error occured during tokenization" }
-  fn positions(&self) -> BoxedIter<ErrorPosition> {
-    let file = self.file.clone();
-    Box::new(self.errors.iter().map(move |s| ErrorPosition {
-      location: Location::Range {
-        file: Rc::new(file.clone()),
-        range: s.span(),
-        source: self.source.clone(),
-      },
-      message: Some(format!("{}", s)),
-    }))
+
+pub struct NoCommentEnd(pub Location);
+impl ProjectError for NoCommentEnd {
+  fn description(&self) -> &str { "a comment was not closed with `]--`" }
+  fn one_position(&self) -> Location { self.0.clone() }
+}
+
+pub struct FloatPlacehPrio(pub Location);
+impl ProjectError for FloatPlacehPrio {
+  fn description(&self) -> &str {
+    "a placeholder priority has a decimal point or a negative exponent"
   }
+  fn one_position(&self) -> Location { self.0.clone() }
+}
+
+pub struct NaNLiteral(pub Location);
+impl ProjectError for NaNLiteral {
+  fn description(&self) -> &str { "float literal decoded to NaN" }
+  fn one_position(&self) -> Location { self.0.clone() }
+}
+
+pub struct LiteralOverflow(pub Location);
+impl ProjectError for LiteralOverflow {
+  fn description(&self) -> &str { "number literal described number greater than usize::MAX" }
+  fn one_position(&self) -> Location { self.0.clone() }
+}
+
+pub struct ExpectedDigit(pub Location);
+impl ProjectError for ExpectedDigit {
+  fn description(&self) -> &str { "expected a digit" }
+  fn one_position(&self) -> Location { self.0.clone() }
+}
+
+pub struct NotHex(pub Location);
+impl ProjectError for NotHex {
+  fn description(&self) -> &str { "Expected a hex digit" }
+  fn one_position(&self) -> Location { self.0.clone() }
+}
+
+pub struct BadCodePoint(pub Location);
+impl ProjectError for BadCodePoint {
+  fn description(&self) -> &str {
+    "\\uXXXX escape sequence does not describe valid code point"
+  }
+  fn one_position(&self) -> Location { self.0.clone() }
+}
+
+pub struct BadEscapeSequence(pub Location);
+impl ProjectError for BadEscapeSequence {
+  fn description(&self) -> &str { "Unrecognized escape sequence" }
+  fn one_position(&self) -> Location { self.0.clone() }
 }

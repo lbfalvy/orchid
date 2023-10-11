@@ -55,7 +55,7 @@ pub struct Poller<TEv, TOnce, TRec: Clone> {
   receiver: Receiver<TEv>,
 }
 
-impl<TEv, TOnce, TRec: Clone> Poller<TEv, TOnce, TRec> {
+impl<TEv, TOnce, TRec: Clone + Send> Poller<TEv, TOnce, TRec> {
   pub fn new() -> (Sender<TEv>, Self) {
     let (sender, receiver) = channel();
     let this = Self { receiver, timers: BinaryHeap::new() };
@@ -79,7 +79,7 @@ impl<TEv, TOnce, TRec: Clone> Poller<TEv, TOnce, TRec> {
     &mut self,
     period: Duration,
     data: TRec,
-  ) -> impl Fn() + Clone {
+  ) -> impl Fn() + Send + Clone {
     let data_cell = DeleteCell::new(data);
     self.timers.push(Timer {
       expires: Instant::now() + period,

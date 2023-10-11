@@ -20,6 +20,6 @@ mod loaded_source;
 mod preparse;
 mod types;
 
-pub use load_source::load_source;
+pub use load_source::{load_source, Context};
 pub use loaded_source::{LoadedSource, LoadedSourceTable};
 pub use types::{PreExtra, PreFileExt, PreItem, PreMod, PreSubExt, Preparsed};

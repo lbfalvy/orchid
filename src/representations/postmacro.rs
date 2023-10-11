@@ -2,7 +2,7 @@ use std::fmt::{Debug, Write};
 use std::rc::Rc;
 
 use super::location::Location;
-use super::primitive::Primitive;
+use crate::foreign::{ExFn, Atom};
 use crate::utils::string_from_charset;
 use crate::Sym;
 
@@ -42,7 +42,10 @@ pub enum Clause {
   Lambda(Rc<Expr>),
   Constant(Sym),
   LambdaArg(usize),
-  P(Primitive),
+  /// An opaque function, eg. an effectful function employing CPS
+  ExternFn(ExFn),
+  /// An opaque non-callable value, eg. a file handle
+  Atom(Atom),
 }
 
 const ARGNAME_CHARSET: &str = "abcdefghijklmnopqrstuvwxyz";
@@ -75,7 +78,8 @@ impl Clause {
     Wrap(wl, wr): Wrap,
   ) -> std::fmt::Result {
     match self {
-      Self::P(p) => write!(f, "{p:?}"),
+      Self::Atom(a) => write!(f, "{a:?}"),
+      Self::ExternFn(fun) => write!(f, "{fun:?}"),
       Self::Lambda(body) => parametric_fmt(f, depth, "\\", body, wr),
       Self::LambdaArg(skip) => {
         let lambda_depth = (depth - skip - 1).try_into().unwrap();

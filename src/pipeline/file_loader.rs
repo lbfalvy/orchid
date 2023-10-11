@@ -1,6 +1,6 @@
 //! Source loader callback definition and builtin implementations
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 use std::{fs, io};
 
 use hashbrown::{HashMap, HashSet};
@@ -25,7 +25,7 @@ impl ProjectError for FileLoadingError {
     "Neither a file nor a directory could be read from the requested path"
   }
   fn one_position(&self) -> crate::Location {
-    Location::File(Rc::new(self.path.clone()))
+    Location::File(Arc::new(self.path.clone()))
   }
   fn message(&self) -> String {
     format!("File: {}\nDirectory: {}", self.file, self.dir)
@@ -37,10 +37,10 @@ impl ProjectError for FileLoadingError {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Loaded {
   /// Conceptually equivalent to a sourcefile
-  Code(Rc<String>),
+  Code(Arc<String>),
   /// Conceptually equivalent to the list of *.orc files in a folder, without
   /// the extension
-  Collection(Rc<Vec<String>>),
+  Collection(Arc<Vec<String>>),
 }
 impl Loaded {
   /// Is the loaded item source code (not a collection)?
@@ -56,7 +56,7 @@ pub fn load_file(root: &Path, path: &[Tok<String>]) -> IOResult {
   let full_path = path.iter().fold(root.to_owned(), |p, t| p.join(t.as_str()));
   let file_path = full_path.with_extension("orc");
   let file_error = match fs::read_to_string(file_path) {
-    Ok(string) => return Ok(Loaded::Code(Rc::new(string))),
+    Ok(string) => return Ok(Loaded::Code(Arc::new(string))),
     Err(err) => err,
   };
   let dir = match fs::read_dir(&full_path) {
@@ -83,7 +83,7 @@ pub fn load_file(root: &Path, path: &[Tok<String>]) -> IOResult {
       })
     })
     .collect();
-  Ok(Loaded::Collection(Rc::new(names)))
+  Ok(Loaded::Collection(Arc::new(names)))
 }
 
 /// Generates a cached file loader for a directory
@@ -102,7 +102,7 @@ pub fn load_embed<T: 'static + RustEmbed>(path: &str, ext: &str) -> IOResult {
   if let Some(file) = T::get(&file_path) {
     let s =
       String::from_utf8(file.data.to_vec()).expect("Embed must be valid UTF-8");
-    Ok(Loaded::Code(Rc::new(s)))
+    Ok(Loaded::Code(Arc::new(s)))
   } else {
     let entries = T::iter()
       .map(|c| c.to_string())
@@ -121,7 +121,7 @@ pub fn load_embed<T: 'static + RustEmbed>(path: &str, ext: &str) -> IOResult {
         })
       })
       .collect::<Vec<String>>();
-    Ok(Loaded::Collection(Rc::new(entries)))
+    Ok(Loaded::Collection(Arc::new(entries)))
   }
 }
 
@@ -165,9 +165,9 @@ pub fn embed_to_map<T: 'static + RustEmbed>(
     }
   }
   (files.into_iter())
-    .map(|(k, s)| (k, Loaded::Code(Rc::new(s))))
+    .map(|(k, s)| (k, Loaded::Code(Arc::new(s))))
     .chain((dirs.into_iter()).map(|(k, entv)| {
-      (k, Loaded::Collection(Rc::new(entv.into_iter().collect())))
+      (k, Loaded::Collection(Arc::new(entv.into_iter().collect())))
     }))
     .collect()
 }

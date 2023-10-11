@@ -174,7 +174,7 @@ impl<TItem: Clone, TExt: Clone> Module<TItem, TExt> {
         (_, right) => new_items.insert(key, right),
       };
     }
-    new_items.extend(self.entries.into_iter());
+    new_items.extend(self.entries);
     Ok(Module { entries: new_items, extra: (self.extra + extra)? })
   }
 }

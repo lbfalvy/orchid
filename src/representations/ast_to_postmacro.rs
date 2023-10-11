@@ -107,7 +107,8 @@ fn expr_rec<'a>(
     Ok(postmacro::Expr { value: expr.value, location: location.clone() })
   } else {
     let value = match value {
-      ast::Clause::P(p) => postmacro::Clause::P(p.clone()),
+      ast::Clause::Atom(a) => postmacro::Clause::Atom(a.clone()),
+      ast::Clause::ExternFn(fun) => postmacro::Clause::ExternFn(fun.clone()),
       ast::Clause::Lambda(arg, b) => {
         let name = match &arg[..] {
           [ast::Expr { value: ast::Clause::Name(name), .. }] => name,

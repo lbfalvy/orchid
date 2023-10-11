@@ -2,12 +2,6 @@ This document is a wishlist, its items aren't ordered in any way other than inli
 
 # Language
 
-## Operator declarations
-A dedicated (exportable) line type for declaring operators. Still just names, only you can write them next to other things without whitespace
-
-- ops may not contain c-ident-safe characters
-- clusters of operator characters are broken up with a greedy algorithm
-
 ## Typeclasses
 Elixir-style protocols probably, only with n-ary dispatch which I saw in SICP-js
 
@@ -36,11 +30,6 @@ Error tokens with rules to lift them out. Kinda depends on preservation of locat
 
 ## Async
 Join allows to run code when a tuple of pending events all resolve on the event poller
-
-## New: FS
-Exposes tree operations to Orchid
-Uses existing IO to open and read files
-Uses the event bus to read directories in batches without blocking other Orchid code
 
 ## New: Network
 Event-driven I/O with single-fire events and resubscription to relay backpressure to the OS. Initially TCP

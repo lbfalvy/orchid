@@ -1,31 +1,31 @@
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::foreign::{xfn_1ary, xfn_2ary, xfn_3ary, XfnResult};
+use crate::error::RuntimeError;
+use crate::foreign::{
+  xfn_1ary, xfn_2ary, xfn_3ary, Atomic, ToClause, XfnResult,
+};
 use crate::interner::Interner;
 use crate::interpreted::Clause;
 use crate::representations::OrcString;
 use crate::systems::codegen::{opt, tuple};
-use crate::systems::RuntimeError;
 use crate::utils::iter_find;
-use crate::{ConstTree, Literal};
+use crate::ConstTree;
 
-pub fn len(s: OrcString) -> XfnResult<u64> {
-  Ok(s.graphemes(true).count() as u64)
-}
+pub fn len(s: OrcString) -> XfnResult<usize> { Ok(s.graphemes(true).count()) }
 
-pub fn size(s: OrcString) -> XfnResult<u64> { Ok(s.as_bytes().len() as u64) }
+pub fn size(s: OrcString) -> XfnResult<usize> { Ok(s.as_bytes().len()) }
 
 /// Append a string to another
 pub fn concatenate(a: OrcString, b: OrcString) -> XfnResult<String> {
   Ok(a.get_string() + b.as_str())
 }
 
-pub fn slice(s: OrcString, i: u64, len: u64) -> XfnResult<String> {
+pub fn slice(s: OrcString, i: usize, len: usize) -> XfnResult<String> {
   let graphs = s.as_str().graphemes(true);
   if i == 0 {
-    return Ok(graphs.take(len as usize).collect::<String>());
+    return Ok(graphs.take(len).collect::<String>());
   }
-  let mut prefix = graphs.skip(i as usize - 1);
+  let mut prefix = graphs.skip(i - 1);
   if prefix.next().is_none() {
     return Err(RuntimeError::ext(
       "Character index out of bounds".to_string(),
@@ -33,7 +33,7 @@ pub fn slice(s: OrcString, i: u64, len: u64) -> XfnResult<String> {
     ));
   }
   let mut count = 0;
-  let ret = (prefix.take(len as usize))
+  let ret = (prefix.take(len))
     .map(|x| {
       count += 1;
       x
@@ -52,19 +52,19 @@ pub fn slice(s: OrcString, i: u64, len: u64) -> XfnResult<String> {
 pub fn find(haystack: OrcString, needle: OrcString) -> XfnResult<Clause> {
   let haystack_graphs = haystack.as_str().graphemes(true);
   let found = iter_find(haystack_graphs, needle.as_str().graphemes(true));
-  Ok(opt(found.map(|x| Literal::Uint(x as u64).into())))
+  Ok(opt(found.map(|x| x.atom_exi())))
 }
 
-pub fn split(s: OrcString, i: u64) -> XfnResult<Clause> {
+pub fn split(s: OrcString, i: usize) -> XfnResult<Clause> {
   let mut graphs = s.as_str().graphemes(true);
-  let a = graphs.by_ref().take(i as usize).collect::<String>();
+  let a = graphs.by_ref().take(i).collect::<String>();
   let b = graphs.collect::<String>();
-  Ok(tuple([a.into(), b.into()]))
+  Ok(tuple([a.to_exi(), b.to_exi()]))
 }
 
 pub fn str(i: &Interner) -> ConstTree {
   ConstTree::tree([(
-    i.i("str"),
+    i.i("string"),
     ConstTree::tree([
       (i.i("concat"), ConstTree::xfn(xfn_2ary(concatenate))),
       (i.i("slice"), ConstTree::xfn(xfn_3ary(slice))),

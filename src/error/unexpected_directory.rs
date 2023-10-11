@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use super::ProjectError;
 use crate::{Interner, Location, VName};
@@ -16,7 +16,7 @@ impl ProjectError for UnexpectedDirectory {
      to a directory"
   }
   fn one_position(&self) -> crate::Location {
-    Location::File(Rc::new(self.path.clone()))
+    Location::File(Arc::new(self.path.clone()))
   }
 
   fn message(&self) -> String {

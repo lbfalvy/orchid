@@ -113,6 +113,8 @@ impl<'a, ST: IntoIterator<Item = (&'a str, Stream)>> IntoSystem<'static>
           name: None,
         }]),
       }],
+      lexer_plugin: None,
+      line_parser: None,
     }
   }
 }

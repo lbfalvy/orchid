@@ -1,13 +1,13 @@
 use super::flow::IOCmdHandlePack;
 use super::instances::{BRead, ReadCmd, SRead, Sink, Source, WriteCmd};
+use crate::error::RuntimeError;
 use crate::foreign::cps_box::init_cps;
-use crate::foreign::{xfn_1ary, xfn_2ary, Atom, Atomic, XfnResult};
+use crate::foreign::{xfn_1ary, xfn_2ary, Atomic, XfnResult, Atom};
 use crate::interpreted::Clause;
 use crate::representations::OrcString;
 use crate::systems::scheduler::SharedHandle;
 use crate::systems::stl::Binary;
-use crate::systems::RuntimeError;
-use crate::{ast, ConstTree, Interner, Primitive};
+use crate::{ConstTree, Interner, ast};
 
 type WriteHandle = SharedHandle<Sink>;
 type ReadHandle = SharedHandle<Source>;
@@ -21,11 +21,11 @@ pub fn read_line(handle: ReadHandle) -> XfnResult<Clause> {
 pub fn read_bin(handle: ReadHandle) -> XfnResult<Clause> {
   Ok(init_cps(3, IOCmdHandlePack { handle, cmd: ReadCmd::RBytes(BRead::All) }))
 }
-pub fn read_bytes(handle: ReadHandle, n: u64) -> XfnResult<Clause> {
-  let cmd = ReadCmd::RBytes(BRead::N(n.try_into().unwrap()));
+pub fn read_bytes(handle: ReadHandle, n: usize) -> XfnResult<Clause> {
+  let cmd = ReadCmd::RBytes(BRead::N(n));
   Ok(init_cps(3, IOCmdHandlePack { cmd, handle }))
 }
-pub fn read_until(handle: ReadHandle, pattern: u64) -> XfnResult<Clause> {
+pub fn read_until(handle: ReadHandle, pattern: usize) -> XfnResult<Clause> {
   let delim = pattern.try_into().map_err(|_| {
     let msg = "greater than 255".to_string();
     RuntimeError::ext(msg, "converting number to byte")
@@ -63,8 +63,7 @@ pub fn io_bindings<'a>(
       std_streams
         .into_iter()
         .map(|(n, at)| {
-          let expr = ast::Clause::P(Primitive::Atom(Atom(at))).into_expr();
-          (i.i(n), ConstTree::Const(expr))
+          (i.i(n), ConstTree::clause(ast::Clause::Atom(Atom(at))))
         })
         .collect(),
     ),

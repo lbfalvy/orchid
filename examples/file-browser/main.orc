@@ -1,18 +1,17 @@
 import system::(io, directfs, async)
-import std::proc::*
 import std::(to_string, to_uint, inspect)
 
-const folder_view := \path.\next. do{
+const folder_view := \path. \next. do{
   cps println $ "Contents of " ++ directfs::os_print path;
   cps entries = async::block_on $ directfs::read_dir path;
   cps list::enumerate entries
-    |> list::map (pass \id. pass \name.\is_dir.
+    |> list::map (pass \id. pass \name. \is_dir.
       println $ to_string id ++ ": " ++ directfs::os_print name ++ if is_dir then "/" else ""
     )
     |> list::chain;
   cps print "select an entry, or .. to move up: ";
   cps choice = readln;
-  if (choice == "..\n") then do {
+  if (choice == "..") then do {
     let parent_path = directfs::pop_path path
       |> option::unwrap
       |> tuple::pick 0 2;

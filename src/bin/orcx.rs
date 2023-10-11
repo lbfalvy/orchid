@@ -3,13 +3,13 @@ mod cli;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
-use std::process;
+use std::process::ExitCode;
 
 use clap::Parser;
 use itertools::Itertools;
 use orchidlang::facade::{Environment, PreMacro};
 use orchidlang::systems::asynch::AsynchSystem;
-use orchidlang::systems::stl::StlConfig;
+use orchidlang::systems::stl::{ExitStatus, StlConfig};
 use orchidlang::systems::{directfs, io, scheduler};
 use orchidlang::{ast, interpreted, interpreter, Interner, Sym, VName};
 
@@ -80,7 +80,7 @@ fn print_for_debug(e: &ast::Expr<Sym>) {
 }
 
 /// A little utility to step through the resolution of a macro set
-pub fn macro_debug(premacro: PreMacro, sym: Sym) {
+pub fn macro_debug(premacro: PreMacro, sym: Sym) -> ExitCode {
   let (mut code, location) = (premacro.consts.get(&sym))
     .unwrap_or_else(|| {
       panic!(
@@ -111,7 +111,7 @@ pub fn macro_debug(premacro: PreMacro, sym: Sym) {
         },
       "p" | "print" => print_for_debug(&code),
       "d" | "dump" => print!("Rules: {}", premacro.repo),
-      "q" | "quit" => return,
+      "q" | "quit" => return ExitCode::SUCCESS,
       "h" | "help" => print!(
         "Available commands:
         \t<blank>, n, next\t\ttake a step
@@ -128,7 +128,7 @@ pub fn macro_debug(premacro: PreMacro, sym: Sym) {
   }
 }
 
-pub fn main() {
+pub fn main() -> ExitCode {
   let args = Args::parse();
   args.chk_proj().unwrap_or_else(|e| panic!("{e}"));
   let dir = PathBuf::try_from(args.dir).unwrap();
@@ -150,7 +150,7 @@ pub fn main() {
   let premacro = env.load_dir(&dir, &main).unwrap();
   if args.dump_repo {
     println!("Parsed rules: {}", premacro.repo);
-    return;
+    return ExitCode::SUCCESS;
   }
   if !args.macro_debug.is_empty() {
     let sym = i.i(&to_vname(&args.macro_debug, &i));
@@ -160,15 +160,15 @@ pub fn main() {
   proc.validate_refs().unwrap();
   let main = interpreted::Clause::Constant(i.i(&main)).wrap();
   let ret = proc.run(main, None).unwrap();
-  let interpreter::Return { gas, state, inert } = ret;
+  let interpreter::Return { state, inert, .. } = ret;
   drop(proc);
-  if inert {
-    println!("Settled at {}", state.expr().clause);
-    if let Some(g) = gas {
-      println!("Remaining gas: {g}")
-    }
-  } else if gas == Some(0) {
-    eprintln!("Ran out of gas!");
-    process::exit(-1);
+  assert!(inert, "Gas is not used, only inert data should be yielded");
+  match state.clone().downcast::<ExitStatus>() {
+    Ok(ExitStatus::Success) => ExitCode::SUCCESS,
+    Ok(ExitStatus::Failure) => ExitCode::FAILURE,
+    Err(_) => {
+      println!("{}", state.expr().clause);
+      ExitCode::SUCCESS
+    },
   }
 }

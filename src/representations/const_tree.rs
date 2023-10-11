@@ -4,12 +4,12 @@ use hashbrown::HashMap;
 
 use super::project::{ItemKind, ProjectItem};
 use crate::ast::{Clause, Expr};
-use crate::foreign::{Atom, Atomic, ExternFn};
+use crate::foreign::{Atom, Atomic, ExFn, ExternFn};
 use crate::interner::Tok;
 use crate::representations::location::Location;
 use crate::representations::project::{ProjectExt, ProjectMod, ProjectTree};
 use crate::representations::tree::{ModEntry, ModMember, Module};
-use crate::representations::{Primitive, VName};
+use crate::representations::VName;
 use crate::utils::substack::Substack;
 
 /// A lightweight module tree that can be built declaratively by hand to
@@ -25,21 +25,18 @@ pub enum ConstTree {
 impl ConstTree {
   /// Describe a [Primitive]
   #[must_use]
-  pub fn primitive(primitive: Primitive) -> Self {
-    Self::Const(Expr {
-      location: Location::Unknown,
-      value: Clause::P(primitive),
-    })
+  pub fn clause(value: Clause<VName>) -> Self {
+    Self::Const(Expr { location: Location::Unknown, value })
   }
   /// Describe an [ExternFn]
   #[must_use]
   pub fn xfn(xfn: impl ExternFn + 'static) -> Self {
-    Self::primitive(Primitive::ExternFn(Box::new(xfn)))
+    Self::clause(Clause::ExternFn(ExFn(Box::new(xfn))))
   }
   /// Describe an [Atomic]
   #[must_use]
   pub fn atom(atom: impl Atomic + 'static) -> Self {
-    Self::primitive(Primitive::Atom(Atom(Box::new(atom))))
+    Self::clause(Clause::Atom(Atom(Box::new(atom))))
   }
   /// Describe a module
   #[must_use]
@@ -85,7 +82,7 @@ impl Add for ConstTree {
           product.insert(key, i1);
         }
       }
-      product.extend(t2.into_iter());
+      product.extend(t2);
       Self::Tree(product)
     } else {
       panic!("cannot combine tree and value fields")
@@ -104,10 +101,8 @@ fn from_const_tree_rec(
     items.insert(name.clone(), ModEntry {
       exported: true,
       member: match item {
-        ConstTree::Const(c) => ModMember::Item(ProjectItem {
-          kind: ItemKind::Const(c),
-          is_op: false,
-        }),
+        ConstTree::Const(c) =>
+          ModMember::Item(ProjectItem { kind: ItemKind::Const(c) }),
         ConstTree::Tree(t) =>
           ModMember::Sub(from_const_tree_rec(path.push(name), t, file)),
       },

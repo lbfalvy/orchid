@@ -8,7 +8,7 @@ use crate::representations::project::{
   ItemKind, ProjectExt, ProjectItem, ProjectMod,
 };
 use crate::tree::{ModEntry, ModMember, Module};
-use crate::utils::pure_push::pushed;
+use crate::utils::pure_seq::pushed;
 use crate::{Interner, ProjectTree, Tok, VName};
 
 #[must_use]
@@ -74,7 +74,6 @@ fn resolve_aliases_rec(
             ModMember::Sub(module) =>
               ModMember::Sub(resolve_aliases_rec(root, module, updated, false)),
             ModMember::Item(item) => ModMember::Item(ProjectItem {
-              is_op: item.is_op,
               kind: match &item.kind {
                 ItemKind::Const(value) => ItemKind::Const(process_expr(value)),
                 other => other.clone(),

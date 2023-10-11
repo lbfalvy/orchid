@@ -1,15 +1,17 @@
 #![allow(non_upper_case_globals)]
+
 use hashbrown::HashMap;
 use rust_embed::RustEmbed;
 
-use super::bin::bin;
+use super::binary::bin;
 use super::bool::bool;
 use super::conv::conv;
+use super::exit_status::exit_status;
 use super::inspect::inspect;
-use super::num::num;
+use super::number::num;
 use super::panic::panic;
 use super::state::{state_handlers, state_lib};
-use super::str::str;
+use super::string::str;
 use crate::facade::{IntoSystem, System};
 use crate::interner::Interner;
 use crate::pipeline::file_loader::embed_to_map;
@@ -32,10 +34,16 @@ struct StlEmbed;
 
 impl IntoSystem<'static> for StlConfig {
   fn into_system(self, i: &Interner) -> System<'static> {
-    let pure_fns =
-      conv(i) + bool(i) + str(i) + num(i) + bin(i) + panic(i) + state_lib(i);
+    let pure_tree = bin(i)
+      + bool(i)
+      + conv(i)
+      + exit_status(i)
+      + num(i)
+      + panic(i)
+      + state_lib(i)
+      + str(i);
     let mk_impure_fns = || inspect(i);
-    let fns = if self.impure { pure_fns + mk_impure_fns() } else { pure_fns };
+    let fns = if self.impure { pure_tree + mk_impure_fns() } else { pure_tree };
     System {
       name: vec!["std".to_string()],
       constants: HashMap::from([(i.i("std"), fns)]),
@@ -49,6 +57,8 @@ impl IntoSystem<'static> for StlConfig {
         }]),
       }],
       handlers: state_handlers(),
+      lexer_plugin: None,
+      line_parser: None,
     }
   }
 }

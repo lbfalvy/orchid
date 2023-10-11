@@ -1,5 +1,5 @@
 use std::iter;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use hashbrown::HashMap;
 
@@ -50,7 +50,7 @@ impl<'a> PreMacro<'a> {
                 .unwrap_or_else(|_| panic!("path sourced from symbol names"));
               (origin.extra.file.as_ref()).cloned()
             })
-            .map(|p| Location::File(Rc::new(p)))
+            .map(|p| Location::File(Arc::new(p)))
             .unwrap_or(Location::Unknown);
           (name, (expr, location))
         })

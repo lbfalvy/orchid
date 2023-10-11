@@ -2,20 +2,18 @@
 //!
 //! This code may be generated to minimize the number of states external
 //! functions have to define
-use std::cell::RefCell;
 use std::fmt::{Debug, Display};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
+use std::sync::{Arc, TryLockError, Mutex};
 
 #[allow(unused)] // for doc
 use super::ast;
 use super::location::Location;
 use super::path_set::PathSet;
-use super::primitive::Primitive;
-use super::Literal;
 #[allow(unused)] // for doc
 use crate::foreign::Atomic;
-use crate::foreign::ExternError;
+use crate::foreign::{Atom, ExFn, ExternError};
 use crate::utils::ddispatch::request;
 use crate::utils::take_with_output;
 use crate::Sym;
@@ -40,10 +38,11 @@ impl Debug for Expr {
 
 impl Display for Expr {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    match &self.location {
-      Location::Unknown => write!(f, "{}", self.clause),
-      loc => write!(f, "{}:({})", loc, self.clause),
-    }
+    write!(f, "{}", self.clause)
+    // match &self.location {
+    //   Location::Unknown => write!(f, "{}", self.clause),
+    //   loc => write!(f, "{}:({})", loc, self.clause),
+    // }
   }
 }
 
@@ -64,20 +63,20 @@ impl TryFromExprInst for ExprInst {
 /// A wrapper around expressions to handle their multiple occurences in
 /// the tree together
 #[derive(Clone)]
-pub struct ExprInst(pub Rc<RefCell<Expr>>);
+pub struct ExprInst(pub Arc<Mutex<Expr>>);
 impl ExprInst {
   /// Wrap an [Expr] in a shared container so that normalizatoin steps are
   /// applied to all references
   #[must_use]
-  pub fn new(expr: Expr) -> Self { Self(Rc::new(RefCell::new(expr))) }
+  pub fn new(expr: Expr) -> Self { Self(Arc::new(Mutex::new(expr))) }
 
   /// Take the [Expr] out of this container if it's the last reference to it, or
   /// clone it out.
   #[must_use]
   pub fn expr_val(self) -> Expr {
-    Rc::try_unwrap(self.0)
-      .map(|c| c.into_inner())
-      .unwrap_or_else(|rc| rc.as_ref().borrow().deref().clone())
+    Arc::try_unwrap(self.0)
+      .map(|c| c.into_inner().unwrap())
+      .unwrap_or_else(|arc| arc.lock().unwrap().clone())
   }
 
   /// Read-only access to the shared expression instance
@@ -87,7 +86,7 @@ impl ExprInst {
   /// if the expression is already borrowed in read-write mode
   #[must_use]
   pub fn expr(&self) -> impl Deref<Target = Expr> + '_ {
-    self.0.as_ref().borrow()
+    self.0.lock().unwrap()
   }
 
   /// Read-Write access to the shared expression instance
@@ -97,7 +96,7 @@ impl ExprInst {
   /// if the expression is already borrowed
   #[must_use]
   pub fn expr_mut(&self) -> impl DerefMut<Target = Expr> + '_ {
-    self.0.as_ref().borrow_mut()
+    self.0.lock().unwrap()
   }
 
   /// Call a normalization function on the expression. The expr is
@@ -137,26 +136,6 @@ impl ExprInst {
     predicate(&self.expr().clause)
   }
 
-  /// Call the predicate on the value inside this expression if it is a
-  /// primitive
-  pub fn get_literal(self) -> Result<(Literal, Location), Self> {
-    Rc::try_unwrap(self.0).map_or_else(
-      |rc| {
-        if let Expr { clause: Clause::P(Primitive::Literal(li)), location } =
-          rc.as_ref().borrow().deref()
-        {
-          return Ok((li.clone(), location.clone()));
-        }
-        Err(Self(rc))
-      },
-      |cell| match cell.into_inner() {
-        Expr { clause: Clause::P(Primitive::Literal(li)), location } =>
-          Ok((li, location)),
-        expr => Err(Self::new(expr)),
-      },
-    )
-  }
-
   /// Visit all expressions in the tree. The search can be exited early by
   /// returning [Some]
   ///
@@ -174,7 +153,8 @@ impl ExprInst {
       Clause::Lambda { body, .. } => body.search_all(predicate),
       Clause::Constant(_)
       | Clause::LambdaArg
-      | Clause::P(_)
+      | Clause::Atom(_)
+      | Clause::ExternFn(_)
       | Clause::Bottom => None,
     })
   }
@@ -195,7 +175,7 @@ impl ExprInst {
   #[must_use = "your request might not have succeeded"]
   pub fn request<T: 'static>(&self) -> Option<T> {
     match &self.expr().clause {
-      Clause::P(Primitive::Atom(a)) => request(&*a.0),
+      Clause::Atom(a) => request(&*a.0),
       _ => None,
     }
   }
@@ -203,18 +183,20 @@ impl ExprInst {
 
 impl Debug for ExprInst {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    match self.0.try_borrow() {
+    match self.0.try_lock() {
       Ok(expr) => write!(f, "{expr:?}"),
-      Err(_) => write!(f, "<borrowed>"),
+      Err(TryLockError::Poisoned(_)) => write!(f, "<poisoned>"),
+      Err(TryLockError::WouldBlock) => write!(f, "<locked>"),
     }
   }
 }
 
 impl Display for ExprInst {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    match self.0.try_borrow() {
+    match self.0.try_lock() {
       Ok(expr) => write!(f, "{expr}"),
-      Err(_) => write!(f, "<borrowed>"),
+      Err(TryLockError::Poisoned(_)) => write!(f, "<poisoned>"),
+      Err(TryLockError::WouldBlock) => write!(f, "<locked>"),
     }
   }
 }
@@ -224,8 +206,10 @@ impl Display for ExprInst {
 pub enum Clause {
   /// An expression that causes an error
   Bottom,
-  /// An unintrospectable unit
-  P(Primitive),
+  /// An opaque function, eg. an effectful function employing CPS
+  ExternFn(ExFn),
+  /// An opaque non-callable value, eg. a file handle
+  Atom(Atom),
   /// A function application
   Apply {
     /// Function to be applied
@@ -252,7 +236,7 @@ impl Clause {
   /// copied or moved clauses as it does not have debug information and
   /// does not share a normalization cache list with them.
   pub fn wrap(self) -> ExprInst {
-    ExprInst(Rc::new(RefCell::new(Expr {
+    ExprInst(Arc::new(Mutex::new(Expr {
       location: Location::Unknown,
       clause: self,
     })))
@@ -284,7 +268,8 @@ impl Clause {
 impl Display for Clause {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Clause::P(p) => write!(f, "{p:?}"),
+      Clause::ExternFn(fun) => write!(f, "{fun:?}"),
+      Clause::Atom(a) => write!(f, "{a:?}"),
       Clause::Bottom => write!(f, "bottom"),
       Clause::LambdaArg => write!(f, "arg"),
       Clause::Apply { f: fun, x } => write!(f, "({fun} {x})"),
@@ -295,12 +280,4 @@ impl Display for Clause {
       Clause::Constant(t) => write!(f, "{}", t.extern_vec().join("::")),
     }
   }
-}
-
-impl<T: Into<Literal>> From<T> for Clause {
-  fn from(value: T) -> Self { Self::P(Primitive::Literal(value.into())) }
-}
-
-impl<T: Into<Clause>> From<T> for ExprInst {
-  fn from(value: T) -> Self { value.into().wrap() }
 }

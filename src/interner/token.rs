@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
-use std::rc::{Rc, Weak};
+use std::sync::{Arc, Weak};
 
 use super::TypedInterner;
 
@@ -13,13 +13,13 @@ use super::TypedInterner;
 /// currently not enforced.
 #[derive(Clone)]
 pub struct Tok<T: Eq + Hash + Clone + 'static> {
-  data: Rc<T>,
+  data: Arc<T>,
   interner: Weak<TypedInterner<T>>,
 }
 impl<T: Eq + Hash + Clone + 'static> Tok<T> {
   /// Create a new token. Used exclusively by the interner
   #[must_use]
-  pub(crate) fn new(data: Rc<T>, interner: Weak<TypedInterner<T>>) -> Self {
+  pub(crate) fn new(data: Arc<T>, interner: Weak<TypedInterner<T>>) -> Self {
     Self { data, interner }
   }
   /// Take the ID number out of a token

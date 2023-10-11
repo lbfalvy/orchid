@@ -41,12 +41,12 @@ impl Subresult {
   }
 }
 
-fn parse_multiname_branch(
-  cursor: Stream<'_>,
-  ctx: impl Context,
-) -> ProjectResult<(BoxedIter<Subresult>, Stream<'_>)> {
+fn parse_multiname_branch<'a>(
+  cursor: Stream<'a>,
+  ctx: &impl Context,
+) -> ProjectResult<(BoxedIter<'a, Subresult>, Stream<'a>)> {
   let comma = ctx.interner().i(",");
-  let (subnames, cursor) = parse_multiname_rec(cursor, ctx.clone())?;
+  let (subnames, cursor) = parse_multiname_rec(cursor, ctx)?;
   let (delim, cursor) = cursor.trim().pop()?;
   match &delim.lexeme {
     Lexeme::Name(n) if n == &comma => {
@@ -65,10 +65,10 @@ fn parse_multiname_branch(
   }
 }
 
-fn parse_multiname_rec(
-  curosr: Stream<'_>,
-  ctx: impl Context,
-) -> ProjectResult<(BoxedIter<Subresult>, Stream<'_>)> {
+fn parse_multiname_rec<'a>(
+  curosr: Stream<'a>,
+  ctx: &impl Context,
+) -> ProjectResult<(BoxedIter<'a, Subresult>, Stream<'a>)> {
   let star = ctx.interner().i("*");
   let comma = ctx.interner().i(",");
   let (head, mut cursor) = curosr.trim().pop()?;
@@ -103,7 +103,7 @@ fn parse_multiname_rec(
       Ok((box_once(Subresult::new_glob(head.location())), cursor)),
     Lexeme::Name(n) if ![comma, star].contains(n) => {
       let cursor = cursor.trim();
-      if cursor.get(0).ok().map(|e| &e.lexeme) == Some(&Lexeme::NS) {
+      if cursor.get(0).map_or(false, |e| e.lexeme.strict_eq(&Lexeme::NS)) {
         let cursor = cursor.step()?;
         let (out, cursor) = parse_multiname_rec(cursor, ctx)?;
         let out = Box::new(out.map(|sr| sr.push_front(n.clone())));
@@ -123,10 +123,10 @@ fn parse_multiname_rec(
   }
 }
 
-pub fn parse_multiname(
-  cursor: Stream<'_>,
-  ctx: impl Context,
-) -> ProjectResult<(Vec<Import>, Stream<'_>)> {
+pub fn parse_multiname<'a>(
+  cursor: Stream<'a>,
+  ctx: &impl Context,
+) -> ProjectResult<(Vec<Import>, Stream<'a>)> {
   let (output, cont) = parse_multiname_rec(cursor, ctx)?;
   Ok((output.map(|sr| sr.finalize()).collect(), cont))
 }

@@ -3,7 +3,6 @@ use super::context::{Context, Return};
 use super::error::RuntimeError;
 use crate::foreign::AtomicReturn;
 use crate::representations::interpreted::{Clause, ExprInst};
-use crate::representations::Primitive;
 
 /// Normalize an expression using beta reduction with memoization
 pub fn run(expr: ExprInst, mut ctx: Context) -> Result<Return, RuntimeError> {
@@ -19,7 +18,7 @@ pub fn run(expr: ExprInst, mut ctx: Context) -> Result<Return, RuntimeError> {
             ctx.gas = res.gas;
             cls = res.state.expr().clause.clone();
           },
-          Clause::P(Primitive::Atom(data)) => {
+          Clause::Atom(data) => {
             let AtomicReturn { clause, gas, inert } = data.run(ctx.clone())?;
             if inert {
               return Ok((clause, (gas, true)));

@@ -1,5 +1,4 @@
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use super::path_set::PathSet;
 use super::{interpreted, postmacro};
@@ -18,12 +17,12 @@ fn collect_paths_cls_rec(
   depth: usize,
 ) -> Option<PathSet> {
   match cls {
-    postmacro::Clause::P(_) | postmacro::Clause::Constant(_) => None,
+    postmacro::Clause::Atom(_) | postmacro::Clause::ExternFn(_) => None,
+    postmacro::Clause::Constant(_) => None,
     postmacro::Clause::LambdaArg(h) =>
-      if *h != depth {
-        None
-      } else {
-        Some(PathSet { next: None, steps: Rc::new(vec![]) })
+      match *h != depth {
+        true => None,
+        false => Some(PathSet::pick())
       },
     postmacro::Clause::Lambda(b) => collect_paths_expr_rec(b, depth + 1),
     postmacro::Clause::Apply(f, x) => {
@@ -43,7 +42,8 @@ pub fn clause(cls: &postmacro::Clause) -> interpreted::Clause {
   match cls {
     postmacro::Clause::Constant(name) =>
       interpreted::Clause::Constant(name.clone()),
-    postmacro::Clause::P(p) => interpreted::Clause::P(p.clone()),
+    postmacro::Clause::Atom(a) => interpreted::Clause::Atom(a.clone()),
+    postmacro::Clause::ExternFn(fun) => interpreted::Clause::ExternFn(fun.clone()),
     postmacro::Clause::Apply(f, x) =>
       interpreted::Clause::Apply { f: expr(f.as_ref()), x: expr(x.as_ref()) },
     postmacro::Clause::Lambda(body) => interpreted::Clause::Lambda {
@@ -55,7 +55,7 @@ pub fn clause(cls: &postmacro::Clause) -> interpreted::Clause {
 }
 
 pub fn expr(expr: &postmacro::Expr) -> interpreted::ExprInst {
-  interpreted::ExprInst(Rc::new(RefCell::new(interpreted::Expr {
+  interpreted::ExprInst(Arc::new(Mutex::new(interpreted::Expr {
     location: expr.location.clone(),
     clause: clause(&expr.value),
   })))

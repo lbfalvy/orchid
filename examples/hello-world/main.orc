@@ -1,5 +1,7 @@
+import std::exit_status
+
 const main := (
   println "Hello, world!"
-    "success"
+    exit_status::success
 )
 -- main := "Hello, World!\n"

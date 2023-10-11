@@ -1,10 +1,10 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Deref;
-use std::rc::Rc;
+use std::sync::Arc;
 
-use crate::interpreted::{Clause, ExprInst};
-use crate::{Literal, Primitive, Tok};
+use crate::foreign::InertAtomic;
+use crate::{Interner, Tok};
 
 /// An Orchid string which may or may not be interned
 #[derive(Clone, Eq)]
@@ -12,7 +12,7 @@ pub enum OrcString {
   /// An interned string. Equality-conpared by reference.
   Interned(Tok<String>),
   /// An uninterned bare string. Equality-compared by character
-  Runtime(Rc<String>),
+  Runtime(Arc<String>),
 }
 
 impl Debug for OrcString {
@@ -25,23 +25,21 @@ impl Debug for OrcString {
 }
 
 impl OrcString {
+  /// Intern the contained string
+  pub fn intern(&mut self, i: &Interner) {
+    if let Self::Runtime(t) = self {
+      *self = Self::Interned(i.i(t.as_str()))
+    }
+  }
   /// Clone out the plain Rust [String]
   #[must_use]
   pub fn get_string(self) -> String {
     match self {
       Self::Interned(s) => s.as_str().to_owned(),
       Self::Runtime(rc) =>
-        Rc::try_unwrap(rc).unwrap_or_else(|rc| (*rc).clone()),
+        Arc::try_unwrap(rc).unwrap_or_else(|rc| (*rc).clone()),
     }
   }
-
-  /// Wrap in a [Clause] for returning from extern functions
-  pub fn cls(self) -> Clause {
-    Clause::P(Primitive::Literal(Literal::Str(self)))
-  }
-
-  /// Wrap in an [ExprInst] for embedding in runtime-generated code
-  pub fn exi(self) -> ExprInst { self.cls().wrap() }
 }
 
 impl Deref for OrcString {
@@ -62,7 +60,7 @@ impl Hash for OrcString {
 }
 
 impl From<String> for OrcString {
-  fn from(value: String) -> Self { Self::Runtime(Rc::new(value)) }
+  fn from(value: String) -> Self { Self::Runtime(Arc::new(value)) }
 }
 
 impl From<Tok<String>> for OrcString {
@@ -76,4 +74,9 @@ impl PartialEq for OrcString {
       _ => **self == **other,
     }
   }
+}
+
+impl InertAtomic for OrcString {
+  fn type_str() -> &'static str { "OrcString" }
+  fn strict_eq(&self, other: &Self) -> bool { self == other }
 }

@@ -42,6 +42,8 @@ impl<'a> Environment<'a> {
       let system_tree = from_const_tree(sys.constants.clone(), &sys.vname(i));
       tree = ProjectTree(never::unwrap_always(tree.0.overlay(system_tree.0)));
     }
+    let mut lexer_plugins = vec![];
+    let mut line_parsers = vec![];
     let mut prelude = vec![];
     for sys in systems.iter() {
       if !sys.code.is_empty() {
@@ -50,9 +52,13 @@ impl<'a> Environment<'a> {
           &|k| sys.load_file(k),
           &tree,
           &prelude,
+          &lexer_plugins,
+          &line_parsers,
           i,
         )?;
       }
+      lexer_plugins.extend(sys.lexer_plugin.as_deref().iter());
+      line_parsers.extend(sys.line_parser.as_deref().iter());
       prelude.extend_from_slice(&sys.prelude);
     }
     Ok(CompiledEnv { prelude, tree, systems })
@@ -67,11 +73,19 @@ impl<'a> Environment<'a> {
     let i = self.i;
     let CompiledEnv { prelude, systems, tree } = self.compile()?;
     let file_cache = file_loader::mk_dir_cache(dir.to_path_buf());
+    let lexer_plugins = (systems.iter())
+      .filter_map(|s| s.lexer_plugin.as_deref())
+      .collect::<Vec<_>>();
+    let line_parsers = (systems.iter())
+      .filter_map(|s| s.line_parser.as_deref())
+      .collect::<Vec<_>>();
     let vname_tree = parse_layer(
       iter::once(target),
       &|path| file_cache.find(path),
       &tree,
       &prelude,
+      &lexer_plugins,
+      &line_parsers,
       i,
     )?;
     let tree = vname_to_sym_tree(vname_tree, i);

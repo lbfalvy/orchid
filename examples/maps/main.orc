@@ -1,4 +1,4 @@
-import std::(proc::*, to_string)
+import std::to_string
 
 export const main := do{
   let foo = map::new[

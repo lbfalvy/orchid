@@ -8,24 +8,27 @@ use itertools::Itertools;
 
 use super::osstring::os_string_lib;
 use crate::ddispatch::Responder;
+use crate::error::RuntimeError;
 use crate::facade::{IntoSystem, System};
 use crate::foreign::cps_box::{init_cps, CPSBox};
 use crate::foreign::{
-  xfn_1ary, xfn_2ary, Atomic, AtomicReturn, InertAtomic, XfnResult,
+  xfn_1ary, xfn_2ary, Atomic, AtomicReturn, InertAtomic, StrictEq, XfnResult,
 };
 use crate::interpreted::{Clause, ExprInst};
 use crate::interpreter::HandlerTable;
 use crate::systems::codegen::{call, list, opt, tuple};
 use crate::systems::io::{wrap_io_error, Source};
 use crate::systems::scheduler::{SeqScheduler, SharedHandle};
-use crate::systems::stl::Boolean;
-use crate::systems::RuntimeError;
 use crate::utils::unwrap_or;
 use crate::ConstTree;
 
 #[derive(Debug, Clone)]
 pub struct CurrentDir;
 impl Responder for CurrentDir {}
+impl StrictEq for CurrentDir {
+  // never appears in macros
+  fn strict_eq(&self, _: &dyn std::any::Any) -> bool { false }
+}
 impl Atomic for CurrentDir {
   fn as_any(self: Box<Self>) -> Box<dyn std::any::Any> { self }
   fn as_any_ref(&self) -> &dyn std::any::Any { self }
@@ -95,7 +98,7 @@ fn read_dir(sched: &SeqScheduler, cmd: CPSBox<ReadDirCmd>) -> ExprInst {
       Err(e) => vec![call(fail, [wrap_io_error(e)]).wrap()],
       Ok(os_namev) => {
         let converted = (os_namev.into_iter())
-          .map(|(n, d)| Ok(tuple([n.atom_exi(), Boolean(d).atom_exi()]).wrap()))
+          .map(|(n, d)| Ok(tuple([n.atom_exi(), d.atom_exi()]).wrap()))
           .collect::<Result<Vec<_>, Clause>>();
         match converted {
           Err(e) => vec![call(fail, [e.wrap()]).wrap()],
@@ -115,7 +118,7 @@ pub fn write_file(sched: &SeqScheduler, cmd: CPSBox<WriteFile>) -> ExprInst {
     |file, _| match file {
       Err(e) => vec![call(fail, [wrap_io_error(e)]).wrap()],
       Ok(f) => {
-        let handle = SharedHandle::wrap(Box::new(f) as Box<dyn Write>);
+        let handle = SharedHandle::wrap(Box::new(f) as Box<dyn Write + Send>);
         vec![call(succ, [handle.atom_exi()]).wrap()]
       },
     },
@@ -180,6 +183,8 @@ impl IntoSystem<'static> for DirectFS {
       name: ["system", "directfs"].into_iter().map_into().collect(),
       code: HashMap::new(),
       prelude: Vec::new(),
+      lexer_plugin: None,
+      line_parser: None,
       constants: ConstTree::namespace(
         [i.i("system"), i.i("directfs")],
         ConstTree::tree([

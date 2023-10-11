@@ -5,15 +5,15 @@ use itertools::Itertools;
 
 use super::any_match::any_match;
 use super::build::mk_any;
+use crate::foreign::Atom;
 use crate::interner::Tok;
-use crate::representations::Primitive;
 use crate::rule::matcher::{Matcher, RuleExpr};
 use crate::rule::state::State;
 use crate::utils::Side;
 use crate::{Sym, VName};
 
 pub enum ScalMatcher {
-  P(Primitive),
+  Atom(Atom),
   Name(Sym),
   S(char, Box<AnyMatcher>),
   Lambda(Box<AnyMatcher>, Box<AnyMatcher>),
@@ -68,7 +68,7 @@ impl Matcher for AnyMatcher {
 impl Display for ScalMatcher {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Self::P(p) => write!(f, "{:?}", p),
+      Self::Atom(a) => write!(f, "{a:?}"),
       Self::Placeh(n) => write!(f, "${n}"),
       Self::Name(n) => write!(f, "{}", n.extern_vec().join("::")),
       Self::S(c, body) => {

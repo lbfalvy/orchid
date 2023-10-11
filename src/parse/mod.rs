@@ -1,19 +1,18 @@
-mod comment;
 mod context;
-mod decls;
 mod errors;
 mod facade;
 mod lexer;
 mod multiname;
-mod name;
-mod number;
-mod operators;
-mod placeholder;
+mod numeric;
 mod sourcefile;
 mod stream;
 mod string;
 
-pub use context::ParsingContext;
+pub use context::{ParsingContext, Context, LexerPlugin, LineParser};
 pub use facade::parse2;
-pub use lexer::{lexer, Entry, Lexeme};
-pub use number::{float_parser, int_parser, print_nat16};
+pub use lexer::{namechar, namestart, opchar, split_filter, Entry, Lexeme};
+pub use numeric::{
+  lex_numeric, numchar, numstart, parse_num, print_nat16, NumError,
+  NumErrorKind,
+};
+pub use string::{lex_string, parse_string, StringError, StringErrorKind};

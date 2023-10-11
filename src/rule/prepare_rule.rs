@@ -30,11 +30,11 @@ fn pad(mut rule: Rule<Sym>, i: &Interner) -> Rule<Sym> {
   let prefix_v = if prefix_explicit { empty } else { prefix };
   let suffix_v = if suffix_explicit { empty } else { suffix };
   rule.pattern = (prefix_v.iter().cloned())
-    .chain(rule.pattern.into_iter())
+    .chain(rule.pattern)
     .chain(suffix_v.iter().cloned())
     .collect();
   rule.template = (prefix_v.iter().cloned())
-    .chain(rule.template.into_iter())
+    .chain(rule.template)
     .chain(suffix_v.iter().cloned())
     .collect();
   rule
@@ -60,7 +60,8 @@ fn check_rec_expr(
   in_template: bool,
 ) -> Result<(), RuleError> {
   match &expr.value {
-    Clause::Name(_) | Clause::P(_) => Ok(()),
+    Clause::Name(_) | Clause::Atom(_) => Ok(()),
+    Clause::ExternFn(_) => Err(RuleError::ExternFn),
     Clause::Placeh(Placeholder { name, class }) => {
       let typ = (*class).into();
       // in a template, the type must be known and identical

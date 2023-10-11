@@ -8,7 +8,7 @@ use crate::rule::vec_attrs::vec_attrs;
 use crate::utils::Side;
 
 pub type MaxVecSplit<'a> =
-  (&'a [RuleExpr], (Tok<String>, u64, bool), &'a [RuleExpr]);
+  (&'a [RuleExpr], (Tok<String>, usize, bool), &'a [RuleExpr]);
 
 /// Derive the details of the central vectorial and the two sides from a
 /// slice of Expr's
@@ -107,7 +107,8 @@ fn mk_vec(pattern: &[RuleExpr]) -> VecMatcher {
 #[must_use]
 fn mk_scalar(pattern: &RuleExpr) -> ScalMatcher {
   match &pattern.value {
-    Clause::P(p) => ScalMatcher::P(p.clone()),
+    Clause::Atom(a) => ScalMatcher::Atom(a.clone()),
+    Clause::ExternFn(_) => panic!("Cannot match on ExternFn"),
     Clause::Name(n) => ScalMatcher::Name(n.clone()),
     Clause::Placeh(Placeholder { name, class }) => {
       debug_assert!(

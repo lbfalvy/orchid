@@ -55,7 +55,7 @@ pub fn vec_match<'a>(
       // Valid combinations of locations for the separators
       let mut pos_pairs = lposv
         .into_iter()
-        .cartesian_product(rposv.into_iter())
+        .cartesian_product(rposv)
         .filter(|((lpos, _), (rpos, _))| lpos + left_sep.len() <= *rpos)
         .map(|((lpos, mut lstate), (rpos, rstate))| {
           lstate.extend(rstate);

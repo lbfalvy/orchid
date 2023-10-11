@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use hashbrown::HashMap;
 
 use super::loaded_source::{LoadedSource, LoadedSourceTable};
@@ -7,13 +9,22 @@ use crate::error::{
   NoTargets, ProjectError, ProjectResult, UnexpectedDirectory,
 };
 use crate::interner::{Interner, Tok};
+use crate::parse::{self, LexerPlugin, LineParser, ParsingContext};
 use crate::pipeline::file_loader::{IOResult, Loaded};
 use crate::pipeline::import_abs_path::import_abs_path;
 use crate::representations::sourcefile::FileEntry;
 use crate::tree::Module;
-use crate::utils::pure_push::pushed_ref;
+use crate::utils::pure_seq::pushed_ref;
 use crate::utils::{split_max_prefix, unwrap_or};
 use crate::Location;
+
+#[derive(Clone, Copy)]
+pub struct Context<'a> {
+  pub prelude: &'a [FileEntry],
+  pub i: &'a Interner,
+  pub lexer_plugins: &'a [&'a dyn LexerPlugin],
+  pub line_parsers: &'a [&'a dyn LineParser],
+}
 
 /// Load the source at the given path or all within if it's a collection,
 /// and all sources imported from these.
@@ -21,10 +32,9 @@ fn load_abs_path_rec(
   abs_path: &[Tok<String>],
   mut all: Preparsed,
   source: &mut LoadedSourceTable,
-  prelude: &[FileEntry],
-  i: &Interner,
   get_source: &impl Fn(&[Tok<String>]) -> IOResult,
   is_injected_module: &impl Fn(&[Tok<String>]) -> bool,
+  ctx @ Context { i, lexer_plugins, line_parsers, prelude }: Context,
 ) -> ProjectResult<Preparsed> {
   // # Termination
   //
@@ -47,8 +57,15 @@ fn load_abs_path_rec(
     let text = unwrap_or!(get_source(filename)? => Loaded::Code; {
       return Err(UnexpectedDirectory { path: filename.to_vec() }.rc())
     });
-    source.insert(filename.to_vec(), LoadedSource { text: text.clone() });
-    let preparsed = preparse(filename.to_vec(), text.as_str(), prelude, i)?;
+    let entries = parse::parse2(ParsingContext::new(
+      i,
+      Arc::new(filename.to_vec()),
+      text,
+      lexer_plugins,
+      line_parsers,
+    ))?;
+    let preparsed = preparse(filename.to_vec(), entries.clone(), prelude)?;
+    source.insert(filename.to_vec(), LoadedSource { entries });
     // recurse on all imported modules
     // will be taken and returned by the closure. None iff an error is thrown
     all = preparsed.0.search_all(all, &mut |modpath,
@@ -73,10 +90,9 @@ fn load_abs_path_rec(
           &abs_pathv,
           all,
           source,
-          prelude,
-          i,
           get_source,
           is_injected_module,
+          ctx,
         )?;
       }
       Ok(all)
@@ -105,10 +121,9 @@ fn load_abs_path_rec(
         &abs_subpath,
         all,
         source,
-        prelude,
-        i,
         get_source,
         is_injected_module,
+        ctx,
       )?;
     }
     Ok(all)
@@ -123,8 +138,7 @@ fn load_abs_path_rec(
 /// injected data (the ProjectTree doesn't make a distinction between the two)
 pub fn load_source<'a>(
   targets: impl Iterator<Item = &'a [Tok<String>]>,
-  prelude: &[FileEntry],
-  i: &Interner,
+  ctx: Context,
   get_source: &impl Fn(&[Tok<String>]) -> IOResult,
   is_injected_module: &impl Fn(&[Tok<String>]) -> bool,
 ) -> ProjectResult<(Preparsed, LoadedSourceTable)> {
@@ -138,10 +152,9 @@ pub fn load_source<'a>(
       target,
       all,
       &mut table,
-      prelude,
-      i,
       get_source,
       is_injected_module,
+      ctx,
     )?;
   }
   if any_target { Ok((all, table)) } else { Err(NoTargets.rc()) }

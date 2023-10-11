@@ -10,7 +10,8 @@ pub fn scal_match<'a>(
   expr: &'a RuleExpr,
 ) -> Option<State<'a>> {
   match (matcher, &expr.value) {
-    (ScalMatcher::P(p1), Clause::P(p2)) if p1 == p2 => Some(State::new()),
+    (ScalMatcher::Atom(a1), Clause::Atom(a2)) if a1.0.strict_eq(&a2.0) =>
+      Some(State::new()),
     (ScalMatcher::Name(n1), Clause::Name(n2)) if n1 == n2 => Some(State::new()),
     (ScalMatcher::Placeh(key), _) =>
       Some(State::from([(key.clone(), StateEntry::Scalar(expr))])),

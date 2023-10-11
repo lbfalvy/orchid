@@ -15,13 +15,13 @@ use ordered_float::NotNan;
 use super::interpreted;
 use super::location::Location;
 use super::namelike::{NameLike, VName};
-use super::primitive::Primitive;
+use crate::foreign::{Atom, ExFn};
 use crate::interner::Tok;
 use crate::parse::print_nat16;
 use crate::utils::rc_tools::map_rc;
 
 /// A [Clause] with associated metadata
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Expr<N: NameLike> {
   /// The actual value
   pub value: Clause<N>,
@@ -100,7 +100,7 @@ pub enum PHClass {
     /// If true, must match at least one clause
     nonzero: bool,
     /// Greediness in the allocation of tokens
-    prio: u64,
+    prio: usize,
   },
   /// Matches exactly one token, lambda or parenthesized group
   Scalar,
@@ -129,10 +129,12 @@ impl Display for Placeholder {
 }
 
 /// An S-expression as read from a source file
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub enum Clause<N: NameLike> {
-  /// A primitive
-  P(Primitive),
+  /// An opaque function, eg. an effectful function employing CPS
+  ExternFn(ExFn),
+  /// An opaque non-callable value, eg. a file handle
+  Atom(Atom),
   /// A c-style name or an operator, eg. `+`, `i`, `foo::bar`
   Name(N),
   /// A parenthesized expression
@@ -214,7 +216,7 @@ impl<N: NameLike> Clause<N> {
   #[must_use]
   pub fn map_names(&self, pred: &impl Fn(&N) -> Option<N>) -> Option<Self> {
     match self {
-      Clause::P(_) | Clause::Placeh(_) => None,
+      Clause::Atom(_) | Clause::ExternFn(_) | Clause::Placeh(_) => None,
       Clause::Name(name) => pred(name).map(Clause::Name),
       Clause::S(c, body) => {
         let mut any_some = false;
@@ -262,7 +264,8 @@ impl<N: NameLike> Clause<N> {
     match self {
       Self::Name(n) => Clause::Name(pred(n)),
       Self::Placeh(p) => Clause::Placeh(p),
-      Self::P(p) => Clause::P(p),
+      Self::Atom(a) => Clause::Atom(a),
+      Self::ExternFn(f) => Clause::ExternFn(f),
       Self::Lambda(n, b) => Clause::Lambda(
         map_rc(n, |n| n.into_iter().map(|e| e.transform_names(pred)).collect()),
         map_rc(b, |b| b.into_iter().map(|e| e.transform_names(pred)).collect()),
@@ -282,7 +285,8 @@ impl<N: NameLike> Clause<N> {
     match self {
       Clause::Lambda(arg, body) =>
         arg.iter().chain(body.iter()).find_map(|expr| expr.search_all(f)),
-      Clause::Name(_) | Clause::P(_) | Clause::Placeh(_) => None,
+      Clause::Name(_) | Clause::Atom(_) => None,
+      Clause::ExternFn(_) | Clause::Placeh(_) => None,
       Clause::S(_, body) => body.iter().find_map(|expr| expr.search_all(f)),
     }
   }
@@ -295,7 +299,8 @@ impl<N: NameLike> Clause<N> {
     match self {
       Clause::Lambda(arg, body) =>
         search_all_slcs(arg, f).or_else(|| search_all_slcs(body, f)),
-      Clause::Name(_) | Clause::P(_) | Clause::Placeh(_) => None,
+      Clause::Name(_) | Clause::Atom(_) => None,
+      Clause::ExternFn(_) | Clause::Placeh(_) => None,
       Clause::S(_, body) => search_all_slcs(body, f),
     }
   }
@@ -325,7 +330,8 @@ impl Clause<VName> {
 impl<N: NameLike> Display for Clause<N> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Self::P(p) => write!(f, "{:?}", p),
+      Self::ExternFn(fun) => write!(f, "{fun:?}"),
+      Self::Atom(a) => write!(f, "{a:?}"),
       Self::Name(name) => write!(f, "{}", name.to_strv().join("::")),
       Self::S(del, items) => {
         let body = items.iter().join(" ");
@@ -348,7 +354,7 @@ impl<N: NameLike> Display for Clause<N> {
 }
 
 /// A substitution rule as read from the source
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Rule<N: NameLike> {
   /// Tree fragment in the source code that activates this rule
   pub pattern: Vec<Expr<N>>,
@@ -407,7 +413,7 @@ impl<N: NameLike> Display for Rule<N> {
 }
 
 /// A named constant
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Constant {
   /// Used to reference the constant
   pub name: Tok<String>,
