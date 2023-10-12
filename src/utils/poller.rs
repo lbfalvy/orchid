@@ -101,7 +101,7 @@ impl<TEv, TOnce, TRec: Clone + Send> Poller<TEv, TOnce, TRec> {
       TimerKind::Recurring { period, data_cell } => {
         let data = data_cell.clone_out()?;
         self.timers.push(Timer {
-          expires,
+          expires: expires + period,
           kind: TimerKind::Recurring { period, data_cell },
         });
         PollEvent::Recurring(data)
