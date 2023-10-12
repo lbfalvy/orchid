@@ -186,7 +186,7 @@ impl IntoSystem<'static> for DirectFS {
       lexer_plugin: None,
       line_parser: None,
       constants: ConstTree::namespace(
-        [i.i("system"), i.i("directfs")],
+        [i.i("system"), i.i("fs")],
         ConstTree::tree([
           (i.i("read_file"), ConstTree::xfn(xfn_1ary(open_file_read_cmd))),
           (i.i("read_dir"), ConstTree::xfn(xfn_1ary(read_dir_cmd))),
