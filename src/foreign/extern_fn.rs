@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::rc::Rc;
 
-use dyn_clone::{DynClone, clone_box};
+use dyn_clone::{clone_box, DynClone};
 
 use super::XfnResult;
 use crate::interpreted::ExprInst;
@@ -81,7 +81,5 @@ impl ExFn {
   }
 }
 impl Clone for ExFn {
-  fn clone(&self) -> Self {
-    Self(clone_box(self.0.as_ref()))
-  }
+  fn clone(&self) -> Self { Self(clone_box(self.0.as_ref())) }
 }

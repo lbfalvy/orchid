@@ -111,7 +111,10 @@ mod test {
     let (data, tail) = lex_string(source, &MockContext(&i))
       .expect("the snippet starts with a quote")
       .expect("it contains a valid string");
-    assert_eq!(data.try_downcast::<OrcString>().unwrap().as_str(), "hello world!");
+    assert_eq!(
+      data.try_downcast::<OrcString>().unwrap().as_str(),
+      "hello world!"
+    );
     assert_eq!(tail, " - says the programmer");
   }
 }

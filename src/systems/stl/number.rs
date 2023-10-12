@@ -4,7 +4,7 @@ use ordered_float::NotNan;
 
 use super::ArithmeticError;
 use crate::error::AssertionError;
-use crate::foreign::{xfn_2ary, ExternError, ToClause, XfnResult, Atomic};
+use crate::foreign::{xfn_2ary, Atomic, ExternError, ToClause, XfnResult};
 use crate::interpreted::TryFromExprInst;
 use crate::representations::interpreted::{Clause, ExprInst};
 use crate::{ConstTree, Interner, Location};

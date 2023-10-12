@@ -11,7 +11,7 @@ mod inert;
 use std::rc::Rc;
 
 pub use atom::{Atom, Atomic, AtomicResult, AtomicReturn, StrictEq};
-pub use extern_fn::{ExternError, ExternFn, ExFn};
+pub use extern_fn::{ExFn, ExternError, ExternFn};
 pub use fn_bridge::constructors::{
   xfn_1ary, xfn_2ary, xfn_3ary, xfn_4ary, xfn_5ary, xfn_6ary, xfn_7ary,
   xfn_8ary, xfn_9ary,

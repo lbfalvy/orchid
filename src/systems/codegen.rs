@@ -39,7 +39,8 @@ pub fn tuple(data: impl IntoIterator<Item = ExprInst>) -> Clause {
 
 #[cfg(test)]
 mod test {
-  use crate::{systems::codegen::tuple, foreign::Atomic};
+  use crate::foreign::Atomic;
+  use crate::systems::codegen::tuple;
 
   #[test]
   fn tuple_printer() {

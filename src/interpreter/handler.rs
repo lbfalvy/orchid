@@ -70,14 +70,12 @@ pub fn run_handler(
   loop {
     let mut ret = run(expr, ctx.clone())?;
     let quit = take_with_output(&mut ret.state, |exi| match exi.expr_val() {
-      Expr { clause: Clause::Atom(a), .. } => {
-        match handlers.dispatch(a.0) {
-          Err(b) => (Clause::Atom(Atom(b)).wrap(), Ok(true)),
-          Ok(e) => match e {
-            Ok(expr) => (expr, Ok(false)),
-            Err(e) => (Clause::Bottom.wrap(), Err(e)),
-          },
-        }
+      Expr { clause: Clause::Atom(a), .. } => match handlers.dispatch(a.0) {
+        Err(b) => (Clause::Atom(Atom(b)).wrap(), Ok(true)),
+        Ok(e) => match e {
+          Ok(expr) => (expr, Ok(false)),
+          Err(e) => (Clause::Bottom.wrap(), Err(e)),
+        },
       },
       expr => (ExprInst::new(expr), Ok(true)),
     })?;

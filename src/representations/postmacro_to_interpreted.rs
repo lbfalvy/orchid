@@ -19,11 +19,10 @@ fn collect_paths_cls_rec(
   match cls {
     postmacro::Clause::Atom(_) | postmacro::Clause::ExternFn(_) => None,
     postmacro::Clause::Constant(_) => None,
-    postmacro::Clause::LambdaArg(h) =>
-      match *h != depth {
-        true => None,
-        false => Some(PathSet::pick())
-      },
+    postmacro::Clause::LambdaArg(h) => match *h != depth {
+      true => None,
+      false => Some(PathSet::pick()),
+    },
     postmacro::Clause::Lambda(b) => collect_paths_expr_rec(b, depth + 1),
     postmacro::Clause::Apply(f, x) => {
       let f_opt = collect_paths_expr_rec(f, depth);
@@ -43,7 +42,8 @@ pub fn clause(cls: &postmacro::Clause) -> interpreted::Clause {
     postmacro::Clause::Constant(name) =>
       interpreted::Clause::Constant(name.clone()),
     postmacro::Clause::Atom(a) => interpreted::Clause::Atom(a.clone()),
-    postmacro::Clause::ExternFn(fun) => interpreted::Clause::ExternFn(fun.clone()),
+    postmacro::Clause::ExternFn(fun) =>
+      interpreted::Clause::ExternFn(fun.clone()),
     postmacro::Clause::Apply(f, x) =>
       interpreted::Clause::Apply { f: expr(f.as_ref()), x: expr(x.as_ref()) },
     postmacro::Clause::Lambda(body) => interpreted::Clause::Lambda {

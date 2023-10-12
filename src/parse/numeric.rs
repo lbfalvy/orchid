@@ -143,14 +143,14 @@ mod test {
 #[must_use]
 pub fn print_nat16(num: NotNan<f64>) -> String {
   if *num == 0.0 {
-    return "0x0".to_string()
+    return "0x0".to_string();
   } else if num.is_infinite() {
     return match num.is_sign_positive() {
       true => "Infinity".to_string(),
       false => "-Infinity".to_string(),
-    }
+    };
   } else if num.is_nan() {
-    return "NaN".to_string()
+    return "NaN".to_string();
   }
   let exp = num.log(16.0).floor();
   let man = *num / 16_f64.powf(exp);

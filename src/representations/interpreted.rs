@@ -5,7 +5,7 @@
 use std::fmt::{Debug, Display};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
-use std::sync::{Arc, TryLockError, Mutex};
+use std::sync::{Arc, Mutex, TryLockError};
 
 #[allow(unused)] // for doc
 use super::ast;

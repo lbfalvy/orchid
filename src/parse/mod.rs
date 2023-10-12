@@ -8,7 +8,7 @@ mod sourcefile;
 mod stream;
 mod string;
 
-pub use context::{ParsingContext, Context, LexerPlugin, LineParser};
+pub use context::{Context, LexerPlugin, LineParser, ParsingContext};
 pub use facade::parse2;
 pub use lexer::{namechar, namestart, opchar, split_filter, Entry, Lexeme};
 pub use numeric::{

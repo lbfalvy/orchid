@@ -37,8 +37,7 @@ pub trait StrictEq {
 }
 
 /// Functionality the interpreter needs to handle a value
-pub trait Atomic:
-  Any + Debug + DynClone + StrictEq + Responder + Send
+pub trait Atomic: Any + Debug + DynClone + StrictEq + Responder + Send
 where
   Self: 'static,
 {

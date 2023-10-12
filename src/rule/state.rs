@@ -27,8 +27,9 @@ pub fn apply_exprv(template: &[RuleExpr], state: &State) -> Vec<RuleExpr> {
 pub fn apply_expr(template: &RuleExpr, state: &State) -> Vec<RuleExpr> {
   let Expr { location, value } = template;
   match value {
-    Clause::Atom(_) | Clause::Name(_) | Clause::ExternFn(_) =>
-      vec![template.clone()],
+    Clause::Atom(_) | Clause::Name(_) | Clause::ExternFn(_) => {
+      vec![template.clone()]
+    },
     Clause::S(c, body) => vec![Expr {
       location: location.clone(),
       value: Clause::S(*c, Rc::new(apply_exprv(body.as_slice(), state))),

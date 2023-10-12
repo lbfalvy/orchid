@@ -1,4 +1,5 @@
-use std::{rc::Rc, sync::Arc};
+use std::rc::Rc;
+use std::sync::Arc;
 
 pub fn rc_to_owned<T: Clone>(rc: Rc<T>) -> T {
   Rc::try_unwrap(rc).unwrap_or_else(|rc| rc.as_ref().clone())

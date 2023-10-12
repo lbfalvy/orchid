@@ -11,7 +11,12 @@ pub fn parse2(ctx: impl Context) -> ProjectResult<Vec<FileEntry>> {
     Ok(Vec::new())
   } else {
     parse_module_body(Stream::from_slice(&tokens), &ctx).map_err(|error| {
-      ParseErrorWithTokens { error, full_source: ctx.source().to_string(), tokens }.rc()
+      ParseErrorWithTokens {
+        error,
+        full_source: ctx.source().to_string(),
+        tokens,
+      }
+      .rc()
     })
   }
 }

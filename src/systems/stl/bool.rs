@@ -1,10 +1,9 @@
-use crate::foreign::{xfn_1ary, xfn_2ary, XfnResult, Atom};
+use super::Numeric;
+use crate::error::AssertionError;
+use crate::foreign::{xfn_1ary, xfn_2ary, Atom, XfnResult};
 use crate::interner::Interner;
 use crate::representations::interpreted::Clause;
-use crate::error::AssertionError;
 use crate::{ConstTree, Location, OrcString};
-
-use super::Numeric;
 
 /// Takes a boolean and two branches, runs the first if the bool is true, the
 /// second if it's false.
@@ -23,11 +22,12 @@ pub fn if_then_else(b: bool) -> XfnResult<Clause> {
 /// - both are bool,
 /// - both are either uint or num
 pub fn equals(a: Atom, b: Atom) -> XfnResult<bool> {
-  let (a, b) = match (a.try_downcast::<OrcString>(), b.try_downcast::<OrcString>()) {
-    (Ok(a), Ok(b)) => return Ok(a == b),
-    (Err(a), Err(b)) => (a, b),
-    _ => return Ok(false),
-  };
+  let (a, b) =
+    match (a.try_downcast::<OrcString>(), b.try_downcast::<OrcString>()) {
+      (Ok(a), Ok(b)) => return Ok(a == b),
+      (Err(a), Err(b)) => (a, b),
+      _ => return Ok(false),
+    };
   match (a.request::<Numeric>(), b.request::<Numeric>()) {
     (Some(a), Some(b)) => return Ok(a.as_float() == b.as_float()),
     (None, None) => (),

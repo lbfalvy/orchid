@@ -51,8 +51,9 @@ impl Display for RuleError {
       Self::Multiple(key) => {
         write!(f, "Key {key} appears multiple times in match pattern")
       },
-      Self::VecNeighbors(left, right) =>
-        write!(f, "vectorials {left} and {right} are next to each other"),
+      Self::VecNeighbors(left, right) => {
+        write!(f, "vectorials {left} and {right} are next to each other")
+      },
     }
   }
 }

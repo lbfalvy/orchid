@@ -20,7 +20,7 @@ pub fn pushed_ref<'a, T: Clone + 'a>(
 }
 
 /// Pure version of [Iterator::next]
-/// 
+///
 /// Remove an item from the iterator. If successful, returns the item and the
 /// iterator. If the iterator is empty it is consumed.
 pub fn next<I: Iterator>(mut i: I) -> Option<(I::Item, I)> {

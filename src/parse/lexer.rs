@@ -5,15 +5,15 @@ use std::sync::Arc;
 use itertools::Itertools;
 use ordered_float::NotNan;
 
-use super::LexerPlugin;
 use super::context::Context;
 use super::errors::{FloatPlacehPrio, NoCommentEnd};
-use super::numeric::{parse_num, print_nat16, numstart};
+use super::numeric::{numstart, parse_num, print_nat16};
+use super::LexerPlugin;
 use crate::ast::{PHClass, Placeholder};
-use crate::error::{ProjectResult, ProjectError};
+use crate::error::{ProjectError, ProjectResult};
 use crate::foreign::Atom;
 use crate::interner::Tok;
-use crate::parse::numeric::{numchar, lex_numeric};
+use crate::parse::numeric::{lex_numeric, numchar};
 use crate::parse::string::lex_string;
 use crate::systems::stl::Numeric;
 use crate::utils::pure_seq::next;
@@ -210,7 +210,7 @@ pub fn lex(
   ctx: &impl Context,
 ) -> ProjectResult<Vec<Entry>> {
   let mut prev_len = data.len() + 1;
-  'tail:loop {
+  'tail: loop {
     if prev_len == data.len() {
       panic!("got stuck at {data:?}, parsed {:?}", tokens.last().unwrap());
     }
@@ -234,12 +234,13 @@ pub fn lex(
     }
     for (prefix, lexeme) in lit_table() {
       if let Some(tail) = data.strip_prefix(prefix) {
-        tokens.push(Entry::new(ctx.location(prefix.len(), tail), lexeme.clone()));
+        tokens
+          .push(Entry::new(ctx.location(prefix.len(), tail), lexeme.clone()));
         data = tail;
         continue 'tail;
       }
     }
-    
+
     if let Some(tail) = data.strip_prefix(',') {
       let lexeme = Lexeme::Name(ctx.interner().i(","));
       tokens.push(Entry::new(ctx.location(1, tail), lexeme));
@@ -267,7 +268,11 @@ pub fn lex(
       if tail.chars().next().map_or(false, numstart) {
         let (num, post_num) = split_filter(tail, numchar);
         if let Some(tail) = post_num.strip_prefix("=>") {
-          let lexeme = Lexeme::Arrow(parse_num(num).map_err(|e| e.into_proj(num.len(), post_num, ctx))?.as_float());
+          let lexeme = Lexeme::Arrow(
+            parse_num(num)
+              .map_err(|e| e.into_proj(num.len(), post_num, ctx))?
+              .as_float(),
+          );
           let location = ctx.location(num.len() + 3, tail);
           tokens.push(Entry::new(location, lexeme));
           data = tail;
@@ -281,7 +286,8 @@ pub fn lex(
       if !name.is_empty() {
         let name = ctx.interner().i(name);
         let location = ctx.location(name.len() + 1, tail);
-        let lexeme = Lexeme::Placeh(Placeholder { name, class: PHClass::Scalar });
+        let lexeme =
+          Lexeme::Placeh(Placeholder { name, class: PHClass::Scalar });
         tokens.push(Entry::new(location, lexeme));
         data = tail;
         continue 'tail;
@@ -302,13 +308,14 @@ pub fn lex(
                 .map_err(|e| e.into_proj(num_str.len(), tail, ctx))
                 .and_then(|num| {
                   Ok(unwrap_or!(num => Numeric::Uint; {
-                    return Err(FloatPlacehPrio(ctx.location(num_str.len(), tail)).rc())
+                    let location = ctx.location(num_str.len(), tail);
+                    return Err(FloatPlacehPrio(location).rc())
                   }))
                 })
                 .map(|p| (p, num_str.len() + 1, tail))
             })
             .unwrap_or(Ok((0, 0, tail)))?;
-          let byte_len =  if nonzero { 4 } else { 3 } + priolen + name.len();
+          let byte_len = if nonzero { 4 } else { 3 } + priolen + name.len();
           let name = ctx.interner().i(name);
           let class = PHClass::Vec { nonzero, prio };
           let lexeme = Lexeme::Placeh(Placeholder { name, class });

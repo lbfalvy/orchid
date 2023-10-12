@@ -5,5 +5,6 @@ mod busy;
 mod canceller;
 mod system;
 
+pub use busy::HandlerRes;
 pub use canceller::Canceller;
 pub use system::{SealedOrTaken, SeqScheduler, SharedHandle, SharedState};

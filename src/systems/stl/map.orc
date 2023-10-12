@@ -3,12 +3,12 @@ import std::panic
 
 -- utilities for using lists as pairs
 
-export const fst := \l. (
+const fst := \l. (
   list::get l 0
     (panic "nonempty expected")
     \x.x
 )
-export const snd := \l. (
+const snd := \l. (
   list::get l 1
     (panic "2 elements expected")
     \x.x

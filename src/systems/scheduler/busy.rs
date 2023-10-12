@@ -5,12 +5,13 @@ use super::Canceller;
 use crate::interpreted::ExprInst;
 
 pub type SyncResult<T> = (T, Box<dyn Any + Send>);
+/// Output from handlers contains the resource being processed and any Orchid
+/// handlers executed as a result of the operation
+pub type HandlerRes<T> = (T, Vec<ExprInst>);
 pub type SyncOperation<T> =
   Box<dyn FnOnce(T, Canceller) -> SyncResult<T> + Send>;
 pub type SyncOpResultHandler<T> = Box<
-  dyn FnOnce(T, Box<dyn Any + Send>, Canceller) -> (T, Vec<ExprInst>)
-   
-    + Send,
+  dyn FnOnce(T, Box<dyn Any + Send>, Canceller) -> (T, Vec<ExprInst>) + Send,
 >;
 
 struct SyncQueueItem<T> {
@@ -43,10 +44,7 @@ pub struct BusyState<T> {
 }
 impl<T> BusyState<T> {
   pub fn new<U: 'static + Send>(
-    handler: impl FnOnce(T, U, Canceller) -> (T, Vec<ExprInst>)
-   
-    + Send
-    + 'static,
+    handler: impl FnOnce(T, U, Canceller) -> HandlerRes<T> + Send + 'static,
   ) -> Self {
     BusyState {
       handler: Box::new(|t, payload, cancel| {
@@ -65,8 +63,8 @@ impl<T> BusyState<T> {
   pub fn enqueue<U: 'static + Send>(
     &mut self,
     operation: impl FnOnce(T, Canceller) -> (T, U) + Send + 'static,
-    handler: impl FnOnce(T, U, Canceller) -> (T, Vec<ExprInst>) + Send + 'static,
-    early_cancel: impl FnOnce(T) -> (T, Vec<ExprInst>) + Send + 'static,
+    handler: impl FnOnce(T, U, Canceller) -> HandlerRes<T> + Send + 'static,
+    early_cancel: impl FnOnce(T) -> HandlerRes<T> + Send + 'static,
   ) -> Option<Canceller> {
     if self.seal.is_some() {
       return None;
@@ -80,28 +78,31 @@ impl<T> BusyState<T> {
         (t, Box::new(r))
       }),
       handler: Box::new(|t, u, c| {
-        let u = u.downcast().expect("mismatched handler and operation");
+        let u: Box<U> = u.downcast().expect("mismatched handler and operation");
         handler(t, *u, c)
       }),
     });
     Some(cancelled)
   }
 
-  pub fn seal(&mut self, recipient: impl FnOnce(T) -> Vec<ExprInst> + Send + 'static) {
+  pub fn seal(
+    &mut self,
+    recipient: impl FnOnce(T) -> Vec<ExprInst> + Send + 'static,
+  ) {
     assert!(self.seal.is_none(), "Already sealed");
     self.seal = Some(Box::new(recipient))
   }
 
   pub fn is_sealed(&self) -> bool { self.seal.is_some() }
 
-  pub fn rotate<U: Send + 'static>(
+  pub fn rotate(
     mut self,
     instance: T,
-    result: U,
+    result: Box<dyn Any + Send>,
     cancelled: Canceller,
   ) -> NextItemReport<T> {
     let (mut instance, mut events) =
-      (self.handler)(instance, Box::new(result), cancelled);
+      (self.handler)(instance, result, cancelled);
     let next_item = loop {
       if let Some(candidate) = self.queue.pop_front() {
         if candidate.cancelled.is_cancelled() {

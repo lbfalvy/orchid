@@ -18,6 +18,7 @@ use crate::interpreted::{Clause, ExprInst};
 use crate::interpreter::HandlerTable;
 use crate::pipeline::file_loader::embed_to_map;
 use crate::systems::codegen::call;
+use crate::systems::stl::Numeric;
 use crate::utils::poller::{PollEvent, Poller};
 use crate::utils::unwrap_or;
 use crate::{ConstTree, Interner};
@@ -28,8 +29,8 @@ struct Timer {
   delay: NotNan<f64>,
 }
 
-pub fn set_timer(recurring: bool, delay: NotNan<f64>) -> XfnResult<Clause> {
-  Ok(init_cps(2, Timer { recurring, delay }))
+pub fn set_timer(recurring: bool, delay: Numeric) -> XfnResult<Clause> {
+  Ok(init_cps(2, Timer { recurring, delay: delay.as_float() }))
 }
 
 #[derive(Clone)]
@@ -38,9 +39,7 @@ impl CancelTimer {
   pub fn new(f: impl Fn() + Send + 'static) -> Self {
     Self(Arc::new(Mutex::new(f)))
   }
-  pub fn cancel(&self) {
-    self.0.lock().unwrap()()
-  }
+  pub fn cancel(&self) { self.0.lock().unwrap()() }
 }
 impl Debug for CancelTimer {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

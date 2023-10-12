@@ -2,7 +2,7 @@ use std::fmt::{Debug, Write};
 use std::rc::Rc;
 
 use super::location::Location;
-use crate::foreign::{ExFn, Atom};
+use crate::foreign::{Atom, ExFn};
 use crate::utils::string_from_charset;
 use crate::Sym;
 

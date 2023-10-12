@@ -2,12 +2,12 @@ use super::flow::IOCmdHandlePack;
 use super::instances::{BRead, ReadCmd, SRead, Sink, Source, WriteCmd};
 use crate::error::RuntimeError;
 use crate::foreign::cps_box::init_cps;
-use crate::foreign::{xfn_1ary, xfn_2ary, Atomic, XfnResult, Atom};
+use crate::foreign::{xfn_1ary, xfn_2ary, Atom, Atomic, XfnResult};
 use crate::interpreted::Clause;
 use crate::representations::OrcString;
 use crate::systems::scheduler::SharedHandle;
 use crate::systems::stl::Binary;
-use crate::{ConstTree, Interner, ast};
+use crate::{ast, ConstTree, Interner};
 
 type WriteHandle = SharedHandle<Sink>;
 type ReadHandle = SharedHandle<Source>;
@@ -62,9 +62,7 @@ pub fn io_bindings<'a>(
     ]) + ConstTree::Tree(
       std_streams
         .into_iter()
-        .map(|(n, at)| {
-          (i.i(n), ConstTree::clause(ast::Clause::Atom(Atom(at))))
-        })
+        .map(|(n, at)| (i.i(n), ConstTree::clause(ast::Clause::Atom(Atom(at)))))
         .collect(),
     ),
   )

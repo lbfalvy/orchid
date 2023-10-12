@@ -1,6 +1,6 @@
 use std::borrow::Borrow;
 use std::hash::{BuildHasher, Hash};
-use std::sync::{RwLock, Arc};
+use std::sync::{Arc, RwLock};
 
 use hashbrown::HashMap;
 

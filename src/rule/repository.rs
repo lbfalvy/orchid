@@ -11,8 +11,8 @@ use super::state::apply_exprv;
 use super::{update_first_seq, RuleError, VectreeMatcher};
 use crate::ast::Rule;
 use crate::interner::Interner;
-use crate::Sym;
 use crate::parse::print_nat16;
+use crate::Sym;
 
 #[derive(Debug)]
 pub struct CachedRule<M: Matcher> {

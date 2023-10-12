@@ -183,7 +183,9 @@ impl ProjectError for NaNLiteral {
 
 pub struct LiteralOverflow(pub Location);
 impl ProjectError for LiteralOverflow {
-  fn description(&self) -> &str { "number literal described number greater than usize::MAX" }
+  fn description(&self) -> &str {
+    "number literal described number greater than usize::MAX"
+  }
   fn one_position(&self) -> Location { self.0.clone() }
 }
 
