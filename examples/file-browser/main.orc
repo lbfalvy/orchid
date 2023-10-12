@@ -1,7 +1,7 @@
 import system::(io, fs, async)
 import std::(to_string, to_uint, inspect)
 
-const folder_view := \path. \next. do{
+const folder_view := (path, next) => do{
   cps println $ "Contents of " ++ fs::os_print path;
   cps entries = async::block_on $ fs::read_dir path;
   cps list::enumerate entries
