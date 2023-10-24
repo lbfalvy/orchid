@@ -9,7 +9,7 @@ use super::context::Context;
 use super::errors::{FloatPlacehPrio, NoCommentEnd};
 use super::numeric::{numstart, parse_num, print_nat16};
 use super::LexerPlugin;
-use crate::ast::{PHClass, Placeholder};
+use crate::ast::{PHClass, PType, Placeholder};
 use crate::error::{ProjectError, ProjectResult};
 use crate::foreign::Atom;
 use crate::interner::Tok;
@@ -20,9 +20,12 @@ use crate::utils::pure_seq::next;
 use crate::utils::unwrap_or;
 use crate::{Location, VName};
 
+/// A lexeme and the location where it was found
 #[derive(Clone, Debug)]
 pub struct Entry {
+  /// the lexeme
   pub lexeme: Lexeme,
+  /// the location. Always a range
   pub location: Location,
 }
 impl Entry {
@@ -32,27 +35,17 @@ impl Entry {
     matches!(self.lexeme, Lexeme::Comment(_) | Lexeme::BR)
   }
 
-  #[must_use]
-  pub fn is_keyword(&self) -> bool {
-    false
-    // matches!(
-    //   self.lexeme,
-    //   Lexeme::Const
-    //     | Lexeme::Export
-    //     | Lexeme::Import
-    //     | Lexeme::Macro
-    //     | Lexeme::Module
-    // )
-  }
-
+  /// Get location
   #[must_use]
   pub fn location(&self) -> Location { self.location.clone() }
 
+  /// Get range from location
   #[must_use]
   pub fn range(&self) -> Range<usize> {
     self.location.range().expect("An Entry can only have a known location")
   }
 
+  /// Get file path from location
   #[must_use]
   pub fn file(&self) -> Arc<VName> {
     self.location.file().expect("An Entry can only have a range location")
@@ -73,32 +66,34 @@ impl AsRef<Location> for Entry {
   fn as_ref(&self) -> &Location { &self.location }
 }
 
+/// A unit of syntax
 #[derive(Clone, Debug)]
 pub enum Lexeme {
+  /// Atoms parsed by plugins
   Atom(Atom),
+  /// Keyword or name
   Name(Tok<String>),
+  /// Macro operator `=`number`=>`
   Arrow(NotNan<f64>),
-  /// Walrus operator (formerly shorthand macro)
+  /// `:=`
   Walrus,
   /// Line break
   BR,
-  /// Namespace separator
+  /// `::`
   NS,
-  /// Left paren
-  LP(char),
-  /// Right paren
-  RP(char),
-  /// Backslash
+  /// Left paren `([{`
+  LP(PType),
+  /// Right paren `)]}`
+  RP(PType),
+  /// `\`
   BS,
+  /// `@``
   At,
-  // Dot,
-  Type, // type operator
+  /// `:`
+  Type,
+  /// comment
   Comment(Arc<String>),
-  // Export,
-  // Import,
-  // Module,
-  // Macro,
-  // Const,
+  /// placeholder in a macro.
   Placeh(Placeholder),
 }
 
@@ -110,53 +105,26 @@ impl Display for Lexeme {
       Self::Walrus => write!(f, ":="),
       Self::Arrow(prio) => write!(f, "={}=>", print_nat16(*prio)),
       Self::NS => write!(f, "::"),
-      Self::LP(l) => write!(f, "{}", l),
-      Self::RP(l) => match l {
-        '(' => write!(f, ")"),
-        '[' => write!(f, "]"),
-        '{' => write!(f, "}}"),
-        _ => f.debug_tuple("RP").field(l).finish(),
-      },
+      Self::LP(t) => write!(f, "{}", t.l()),
+      Self::RP(t) => write!(f, "{}", t.r()),
       Self::BR => writeln!(f),
       Self::BS => write!(f, "\\"),
       Self::At => write!(f, "@"),
       Self::Type => write!(f, ":"),
       Self::Comment(text) => write!(f, "--[{}]--", text),
-      // Self::Export => write!(f, "export"),
-      // Self::Import => write!(f, "import"),
-      // Self::Module => write!(f, "module"),
-      // Self::Const => write!(f, "const"),
-      // Self::Macro => write!(f, "macro"),
-      Self::Placeh(Placeholder { name, class }) => match *class {
-        PHClass::Scalar => write!(f, "${}", **name),
-        PHClass::Vec { nonzero, prio } => {
-          if nonzero { write!(f, "...") } else { write!(f, "..") }?;
-          write!(f, "${}", **name)?;
-          if prio != 0 {
-            write!(f, ":{}", prio)?;
-          };
-          Ok(())
-        },
-      },
+      Self::Placeh(ph) => write!(f, "{ph}"),
     }
   }
 }
 
 impl Lexeme {
-  #[must_use]
-  pub fn rule(prio: impl Into<f64>) -> Self {
-    Lexeme::Arrow(
-      NotNan::new(prio.into()).expect("Rule priority cannot be NaN"),
-    )
-  }
-
+  /// Compare lexemes for equality. It's `strict` because for atoms it uses the
+  /// strict equality comparison
   pub fn strict_eq(&self, other: &Self) -> bool {
     match (self, other) {
       (Self::Arrow(f1), Self::Arrow(f2)) => f1 == f2,
       (Self::At, Self::At) | (Self::BR, Self::BR) => true,
-      (Self::BS, Self::BS) /*| (Self::Const, Self::Const)*/ => true,
-      // (Self::Export, Self::Export) | (Self::Import, Self::Import) => true,
-      // (Self::Macro, Self::Macro) | (Self::Module, Self::Module) => true,
+      (Self::BS, Self::BS) => true,
       (Self::NS, Self::NS) | (Self::Type, Self::Type) => true,
       (Self::Walrus, Self::Walrus) => true,
       (Self::Atom(a1), Self::Atom(a2)) => a1.0.strict_eq(&a2.0),
@@ -164,20 +132,25 @@ impl Lexeme {
       (Self::LP(p1), Self::LP(p2)) | (Self::RP(p1), Self::RP(p2)) => p1 == p2,
       (Self::Name(n1), Self::Name(n2)) => n1 == n2,
       (Self::Placeh(ph1), Self::Placeh(ph2)) => ph1 == ph2,
-      (_, _) => false,
+      (..) => false,
     }
   }
 }
 
+/// Neatly format source code
 #[allow(unused)]
 pub fn format(lexed: &[Entry]) -> String { lexed.iter().join(" ") }
 
+/// Character filter that can appear in a keyword or name
 pub fn namechar(c: char) -> bool { c.is_alphanumeric() | (c == '_') }
+/// Character filter that can start a name
 pub fn namestart(c: char) -> bool { c.is_alphabetic() | (c == '_') }
+/// Character filter that can appear in operators.
 pub fn opchar(c: char) -> bool {
   !namestart(c) && !numstart(c) && !c.is_whitespace() && !"()[]{},".contains(c)
 }
 
+/// Split off all characters from the beginning that match a filter
 pub fn split_filter(
   s: &str,
   mut pred: impl FnMut(char) -> bool,
@@ -189,12 +162,12 @@ fn lit_table() -> impl IntoIterator<Item = (&'static str, Lexeme)> {
   [
     ("\\", Lexeme::BS),
     ("@", Lexeme::At),
-    ("(", Lexeme::LP('(')),
-    ("[", Lexeme::LP('[')),
-    ("{", Lexeme::LP('{')),
-    (")", Lexeme::RP('(')),
-    ("]", Lexeme::RP('[')),
-    ("}", Lexeme::RP('{')),
+    ("(", Lexeme::LP(PType::Par)),
+    ("[", Lexeme::LP(PType::Sqr)),
+    ("{", Lexeme::LP(PType::Curl)),
+    (")", Lexeme::RP(PType::Par)),
+    ("]", Lexeme::RP(PType::Sqr)),
+    ("}", Lexeme::RP(PType::Curl)),
     ("\n", Lexeme::BR),
     (":=", Lexeme::Walrus),
     ("::", Lexeme::NS),
@@ -282,20 +255,22 @@ pub fn lex(
     }
     // todo: parse placeholders, don't forget vectorials!
     if let Some(tail) = data.strip_prefix('$') {
+      let (nameonly, tail) =
+        tail.strip_prefix('_').map_or((false, tail), |t| (true, t));
       let (name, tail) = split_filter(tail, namechar);
       if !name.is_empty() {
         let name = ctx.interner().i(name);
         let location = ctx.location(name.len() + 1, tail);
-        let lexeme =
-          Lexeme::Placeh(Placeholder { name, class: PHClass::Scalar });
+        let class = if nameonly { PHClass::Name } else { PHClass::Scalar };
+        let lexeme = Lexeme::Placeh(Placeholder { name, class });
         tokens.push(Entry::new(location, lexeme));
         data = tail;
         continue 'tail;
       }
     }
-    if let Some(vec) = data.strip_prefix("..") {
+    if let Some(tail) = data.strip_prefix("..") {
       let (nonzero, tail) =
-        vec.strip_prefix('.').map_or((false, vec), |t| (true, t));
+        tail.strip_prefix('.').map_or((false, tail), |t| (true, t));
       if let Some(tail) = tail.strip_prefix('$') {
         let (name, tail) = split_filter(tail, namechar);
         if !name.is_empty() {

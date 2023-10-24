@@ -332,8 +332,8 @@ impl IntoSystem<'static> for SeqScheduler {
       prelude: Vec::new(),
       code: HashMap::new(),
       handlers,
-      lexer_plugin: None,
-      line_parser: None,
+      lexer_plugins: vec![],
+      line_parsers: vec![],
       constants: ConstTree::namespace(
         [i.i("system"), i.i("scheduler")],
         ConstTree::tree([

@@ -8,7 +8,8 @@ pub type AstError = ast_to_postmacro::Error;
 #[allow(unused)]
 pub fn ast_to_interpreted(
   ast: &ast::Expr<Sym>,
+  symbol: Sym,
 ) -> Result<interpreted::ExprInst, AstError> {
-  let pmtree = ast_to_postmacro::expr(ast)?;
+  let pmtree = ast_to_postmacro::expr(ast, symbol)?;
   Ok(postmacro_to_interpreted::expr(&pmtree))
 }

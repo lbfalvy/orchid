@@ -4,6 +4,7 @@ use super::context::Context;
 use super::errors::Expected;
 use super::stream::Stream;
 use super::Lexeme;
+use crate::ast::PType;
 use crate::error::{ProjectError, ProjectResult};
 use crate::sourcefile::Import;
 use crate::utils::boxed_iter::{box_chain, box_once};
@@ -43,7 +44,7 @@ impl Subresult {
 
 fn parse_multiname_branch<'a>(
   cursor: Stream<'a>,
-  ctx: &impl Context,
+  ctx: &(impl Context + ?Sized),
 ) -> ProjectResult<(BoxedIter<'a, Subresult>, Stream<'a>)> {
   let comma = ctx.interner().i(",");
   let (subnames, cursor) = parse_multiname_rec(cursor, ctx)?;
@@ -53,10 +54,10 @@ fn parse_multiname_branch<'a>(
       let (tail, cont) = parse_multiname_branch(cursor, ctx)?;
       Ok((box_chain!(subnames, tail), cont))
     },
-    Lexeme::RP('(') => Ok((subnames, cursor)),
+    Lexeme::RP(PType::Par) => Ok((subnames, cursor)),
     _ => Err(
       Expected {
-        expected: vec![Lexeme::Name(comma), Lexeme::RP('(')],
+        expected: vec![Lexeme::Name(comma), Lexeme::RP(PType::Par)],
         or_name: false,
         found: delim.clone(),
       }
@@ -67,24 +68,24 @@ fn parse_multiname_branch<'a>(
 
 fn parse_multiname_rec<'a>(
   curosr: Stream<'a>,
-  ctx: &impl Context,
+  ctx: &(impl Context + ?Sized),
 ) -> ProjectResult<(BoxedIter<'a, Subresult>, Stream<'a>)> {
   let star = ctx.interner().i("*");
   let comma = ctx.interner().i(",");
   let (head, mut cursor) = curosr.trim().pop()?;
   match &head.lexeme {
-    Lexeme::LP('(') => parse_multiname_branch(cursor, ctx),
-    Lexeme::LP('[') => {
+    Lexeme::LP(PType::Par) => parse_multiname_branch(cursor, ctx),
+    Lexeme::LP(PType::Sqr) => {
       let mut names = Vec::new();
       loop {
         let head;
         (head, cursor) = cursor.trim().pop()?;
         match &head.lexeme {
           Lexeme::Name(n) => names.push((n, head.location())),
-          Lexeme::RP('[') => break,
+          Lexeme::RP(PType::Sqr) => break,
           _ => {
             let err = Expected {
-              expected: vec![Lexeme::RP('[')],
+              expected: vec![Lexeme::RP(PType::Sqr)],
               or_name: true,
               found: head.clone(),
             };
@@ -114,7 +115,7 @@ fn parse_multiname_rec<'a>(
     },
     _ => Err(
       Expected {
-        expected: vec![Lexeme::LP('(')],
+        expected: vec![Lexeme::LP(PType::Par)],
         or_name: true,
         found: head.clone(),
       }
@@ -123,9 +124,25 @@ fn parse_multiname_rec<'a>(
   }
 }
 
+/// Parse a tree that describes several names. The tree can be
+/// 
+/// - name (except `,` or `*`)
+/// - name (except `,` or `*`) `::` tree
+/// - `(` tree `,` tree ... `)`
+/// - `*` (wildcard)
+/// - `[` name name ... `]` (including `,` or `*`).
+/// 
+/// Examples of valid syntax:
+/// 
+/// ```txt
+/// foo
+/// foo::bar::baz
+/// foo::bar::(baz, quz::quux, fimble::*)
+/// foo::bar::[baz quz * +]
+/// ```
 pub fn parse_multiname<'a>(
   cursor: Stream<'a>,
-  ctx: &impl Context,
+  ctx: &(impl Context + ?Sized),
 ) -> ProjectResult<(Vec<Import>, Stream<'a>)> {
   let (output, cont) = parse_multiname_rec(cursor, ctx)?;
   Ok((output.map(|sr| sr.finalize()).collect(), cont))

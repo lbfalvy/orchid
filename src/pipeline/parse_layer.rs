@@ -19,7 +19,7 @@ use crate::ProjectTree;
 /// import pointing to a module in the environment.
 pub fn parse_layer<'a>(
   targets: impl Iterator<Item = &'a [Tok<String>]>,
-  loader: &impl Fn(&[Tok<String>]) -> IOResult,
+  loader: &impl Fn(&[Tok<String>], &[Tok<String>]) -> IOResult,
   environment: &'a ProjectTree<VName>,
   prelude: &[FileEntry],
   lexer_plugins: &[&dyn LexerPlugin],

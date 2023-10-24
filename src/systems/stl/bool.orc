@@ -1,3 +1,5 @@
+import std::match
+
 export ::(!=, ==)
 
 export const not := \bool. if bool then false else true
@@ -7,4 +9,38 @@ export macro ...$a and ...$b =0x4p36=> (ifthenelse (...$a) (...$b) false)
 export macro ...$a or ...$b =0x4p36=> (ifthenelse (...$a) true (...$b))
 export macro if ...$cond then ...$true else ...$false:1 =0x1p84=> (
   ifthenelse (...$cond) (...$true) (...$false)
+)
+
+(
+  macro match::request (== ...$other)
+  =0x1p230=> match::response (
+    if match::value == (...$other)
+    then match::pass
+    else match::fail
+  )
+  ( match::no_binds )
+)
+
+(
+  macro match::request (!= ...$other)
+  =0x1p230=> match::response (
+    if match::value != (...$other)
+    then match::pass
+    else match::fail
+  )
+  ( match::no_binds )
+)
+
+(
+  macro match::request (true)
+  =0x1p230=> match::response
+    (if match::value then match::pass else match::fail)
+    ( match::no_binds )
+)
+
+(
+  macro match::request (false)
+  =0x1p230=> match::response
+    (if match::value then match::fail else match::pass)
+    ( match::no_binds )
 )

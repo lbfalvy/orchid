@@ -8,14 +8,18 @@ use crate::Location;
 #[must_use = "streams represent segments of code that must be parsed"]
 #[derive(Clone, Copy)]
 pub struct Stream<'a> {
+  /// Entry to place in errors if the stream contains no tokens
   pub fallback: &'a Entry,
+  /// Tokens to parse
   pub data: &'a [Entry],
 }
 impl<'a> Stream<'a> {
+  /// Create a new stream
   pub fn new(fallback: &'a Entry, data: &'a [Entry]) -> Self {
     Self { fallback, data }
   }
 
+  /// Remove comments and line breaks from both ends of the text
   pub fn trim(self) -> Self {
     let Self { data, fallback } = self;
     let front = data.iter().take_while(|e| e.is_filler()).count();
@@ -25,12 +29,14 @@ impl<'a> Stream<'a> {
     Self { fallback, data }
   }
 
+  /// Discard the first entry
   pub fn step(self) -> ProjectResult<Self> {
     let (fallback, data) = (self.data.split_first())
       .ok_or_else(|| UnexpectedEOL { entry: self.fallback.clone() }.rc())?;
     Ok(Stream { data, fallback })
   }
 
+  /// Get the first entry
   pub fn pop(self) -> ProjectResult<(&'a Entry, Stream<'a>)> {
     Ok((self.get(0)?, self.step()?))
   }
@@ -43,6 +49,7 @@ impl<'a> Stream<'a> {
     })
   }
 
+  /// Area covered by this stream
   #[must_use]
   pub fn location(self) -> Location {
     self.data.first().map_or_else(
@@ -51,6 +58,8 @@ impl<'a> Stream<'a> {
     )
   }
 
+  /// Find a given token, split the stream there and read some value from the
+  /// separator. See also [Stream::find]
   pub fn find_map<T>(
     self,
     expected: &'static str,
@@ -65,6 +74,8 @@ impl<'a> Stream<'a> {
     Ok((Self::new(fallback, left), output, Self::new(middle_ent, right)))
   }
 
+  /// Split the stream at a token and return just the two sides.
+  /// See also [Stream::find_map].
   pub fn find(
     self,
     expected: &'static str,
@@ -75,6 +86,7 @@ impl<'a> Stream<'a> {
     Ok((left, right))
   }
 
+  /// Remove the last item from the stream
   pub fn pop_back(self) -> ProjectResult<(&'a Entry, Self)> {
     let Self { data, fallback } = self;
     let (last, data) = (data.split_last())
@@ -91,6 +103,7 @@ impl<'a> Stream<'a> {
     Self { data, fallback }
   }
 
+  /// Assert that the stream is empty.
   pub fn expect_empty(self) -> ProjectResult<()> {
     if let Some(x) = self.data.first() {
       Err(ExpectedEOL { location: x.location() }.rc())

@@ -1,6 +1,5 @@
 //! Building blocks of a source file
 use std::fmt::Display;
-use std::iter;
 
 use itertools::{Either, Itertools};
 
@@ -9,7 +8,7 @@ use crate::ast::{Constant, Rule};
 use crate::error::{ProjectError, ProjectResult, TooManySupers};
 use crate::interner::{Interner, Tok};
 use crate::utils::pure_seq::pushed;
-use crate::utils::{unwrap_or, BoxedIter};
+use crate::utils::BoxedIter;
 use crate::Location;
 
 /// An import pointing at another module, either specifying the symbol to be
@@ -79,6 +78,12 @@ pub enum MemberKind {
   /// A prefixed set of other entries
   Module(ModuleBlock),
 }
+impl MemberKind {
+  /// Convert to [FileEntry]
+  pub fn to_entry(self, exported: bool, location: Location) -> FileEntry {
+    FileEntryKind::Member(Member { exported, kind: self }).wrap(location)
+  }
+}
 
 impl Display for MemberKind {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -121,6 +126,12 @@ pub enum FileEntryKind {
   /// A list of tokens exported explicitly. This can also create new exported
   /// tokens that the local module doesn't actually define a role for
   Export(Vec<(Tok<String>, Location)>),
+}
+impl FileEntryKind {
+  /// Wrap with no location
+  pub fn wrap(self, location: Location) -> FileEntry {
+    FileEntry { kind: self, locations: vec![location] }
+  }
 }
 
 impl Display for FileEntryKind {
@@ -239,25 +250,22 @@ pub fn absolute_path(
 
 #[must_use = "this could be None which means that there are too many supers"]
 fn absolute_path_rec(
-  abs_location: &[Tok<String>],
-  rel_path: &[Tok<String>],
+  mut abs_location: &[Tok<String>],
+  mut rel_path: &[Tok<String>],
   i: &Interner,
 ) -> Option<VName> {
-  let (head, tail) = unwrap_or!(rel_path.split_first();
-    return Some(vec![])
-  );
-  if *head == i.i("super") {
-    let (_, new_abs) = abs_location.split_last()?;
-    if tail.is_empty() {
-      Some(new_abs.to_vec())
-    } else {
-      let new_rel =
-        iter::once(i.i("self")).chain(tail.iter().cloned()).collect::<Vec<_>>();
-      absolute_path_rec(new_abs, &new_rel, i)
-    }
-  } else if *head == i.i("self") {
-    Some(abs_location.iter().chain(tail.iter()).cloned().collect())
-  } else {
-    Some(rel_path.to_vec())
+  let mut relative = false;
+  while rel_path.first() == Some(&i.i("super")) {
+    abs_location = abs_location.split_last()?.1;
+    rel_path = rel_path.split_first().expect("checked above").1;
+    relative = true;
+  }
+  if rel_path.first() == Some(&i.i("self")) {
+    relative = true;
+    rel_path = rel_path.split_first().expect("checked above").1;
+  }
+  match relative {
+    true => Some(abs_location.iter().chain(rel_path).cloned().collect()),
+    false => Some(rel_path.to_vec()),
   }
 }

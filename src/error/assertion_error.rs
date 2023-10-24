@@ -1,7 +1,7 @@
 use std::fmt::Display;
-use std::rc::Rc;
+use std::sync::Arc;
 
-use crate::foreign::ExternError;
+use crate::foreign::{ExternError, XfnResult};
 use crate::Location;
 
 /// Some expectation (usually about the argument types of a function) did not
@@ -15,15 +15,15 @@ pub struct AssertionError {
 impl AssertionError {
   /// Construct, upcast and wrap in a Result that never succeeds for easy
   /// short-circuiting
-  pub fn fail<T>(
-    location: Location,
-    message: &'static str,
-  ) -> Result<T, Rc<dyn ExternError>> {
+  pub fn fail<T>(location: Location, message: &'static str) -> XfnResult<T> {
     Err(Self::ext(location, message))
   }
 
   /// Construct and upcast to [ExternError]
-  pub fn ext(location: Location, message: &'static str) -> Rc<dyn ExternError> {
+  pub fn ext(
+    location: Location,
+    message: &'static str,
+  ) -> Arc<dyn ExternError> {
     Self { location, message }.into_extern()
   }
 }

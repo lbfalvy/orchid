@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use dyn_clone::{clone_box, DynClone};
 
@@ -9,16 +9,17 @@ use super::XfnResult;
 use crate::interpreted::ExprInst;
 use crate::interpreter::Context;
 use crate::representations::interpreted::Clause;
+use crate::{ast, NameLike};
 
 /// Errors produced by external code
-pub trait ExternError: Display {
+pub trait ExternError: Display + Send + Sync + DynClone {
   /// Convert into trait object
   #[must_use]
-  fn into_extern(self) -> Rc<dyn ExternError>
+  fn into_extern(self) -> Arc<dyn ExternError>
   where
     Self: 'static + Sized,
   {
-    Rc::new(self)
+    Arc::new(self)
   }
 }
 
@@ -50,6 +51,14 @@ pub trait ExternFn: DynClone + Send {
     Self: Sized + 'static,
   {
     Clause::ExternFn(ExFn(Box::new(self)))
+  }
+  /// Wrap this function in a clause to be placed in a [FileEntry].
+  #[must_use]
+  fn xfn_ast_cls<N: NameLike>(self) -> ast::Clause<N>
+  where
+    Self: Sized + 'static,
+  {
+    ast::Clause::ExternFn(ExFn(Box::new(self)))
   }
 }
 

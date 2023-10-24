@@ -1,18 +1,72 @@
 use std::rc::Rc;
 
 use hashbrown::HashMap;
+use itertools::{EitherOrBoth, Itertools};
 
 use super::matcher::RuleExpr;
 use crate::ast::{Clause, Expr, PHClass, Placeholder};
 use crate::interner::Tok;
 use crate::utils::unwrap_or;
+use crate::{Location, Sym};
 
 #[derive(Clone, Copy, Debug)]
 pub enum StateEntry<'a> {
   Vec(&'a [RuleExpr]),
   Scalar(&'a RuleExpr),
+  Name(&'a Sym, &'a Location),
 }
-pub type State<'a> = HashMap<Tok<String>, StateEntry<'a>>;
+#[derive(Clone)]
+pub struct State<'a> {
+  placeholders: HashMap<Tok<String>, StateEntry<'a>>,
+  name_locations: HashMap<Sym, Vec<Location>>,
+}
+impl<'a> State<'a> {
+  pub fn from_ph(key: Tok<String>, entry: StateEntry<'a>) -> Self {
+    Self {
+      placeholders: HashMap::from([(key, entry)]),
+      name_locations: HashMap::new(),
+    }
+  }
+  pub fn combine(self, s: Self) -> Self {
+    Self {
+      placeholders: self
+        .placeholders
+        .into_iter()
+        .chain(s.placeholders)
+        .collect(),
+      name_locations: (self.name_locations.into_iter())
+        .sorted_unstable_by_key(|(k, _)| k.id())
+        .merge_join_by(
+          (s.name_locations.into_iter())
+            .sorted_unstable_by_key(|(k, _)| k.id()),
+          |(k, _), (k2, _)| k.id().cmp(&k2.id()),
+        )
+        .map(|ent| match ent {
+          EitherOrBoth::Left(i) | EitherOrBoth::Right(i) => i,
+          EitherOrBoth::Both((k, l), (_, r)) =>
+            (k, l.into_iter().chain(r).collect()),
+        })
+        .collect(),
+    }
+  }
+  pub fn ph_len(&self, key: &Tok<String>) -> Option<usize> {
+    match self.placeholders.get(key)? {
+      StateEntry::Vec(slc) => Some(slc.len()),
+      _ => None,
+    }
+  }
+  pub fn from_name(name: Sym, location: Location) -> Self {
+    Self {
+      name_locations: HashMap::from([(name, vec![location])]),
+      placeholders: HashMap::new(),
+    }
+  }
+}
+impl Default for State<'static> {
+  fn default() -> Self {
+    Self { name_locations: HashMap::new(), placeholders: HashMap::new() }
+  }
+}
 
 #[must_use]
 pub fn apply_exprv(template: &[RuleExpr], state: &State) -> Vec<RuleExpr> {
@@ -35,12 +89,15 @@ pub fn apply_expr(template: &RuleExpr, state: &State) -> Vec<RuleExpr> {
       value: Clause::S(*c, Rc::new(apply_exprv(body.as_slice(), state))),
     }],
     Clause::Placeh(Placeholder { name, class }) => {
-      let value = *unwrap_or!(state.get(name);
+      let value = *unwrap_or!(state.placeholders.get(name);
         panic!("Placeholder does not have a value in state")
       );
       match (class, value) {
         (PHClass::Scalar, StateEntry::Scalar(item)) => vec![item.clone()],
         (PHClass::Vec { .. }, StateEntry::Vec(chunk)) => chunk.to_vec(),
+        (PHClass::Name, StateEntry::Name(n, l)) => {
+          vec![RuleExpr { value: Clause::Name(n.clone()), location: l.clone() }]
+        },
         _ => panic!("Type mismatch between template and state"),
       }
     },

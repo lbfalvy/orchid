@@ -5,20 +5,23 @@ use itertools::Itertools;
 
 use super::context::Context;
 use super::errors::{
-  BadTokenInRegion, Expected, ExpectedName, GlobExport, LeadingNS,
-  MisalignedParen, NamespacedExport, ReservedToken, UnexpectedEOL,
+  BadTokenInRegion, Expected, ExpectedBlock, ExpectedName, ExpectedSingleName,
+  GlobExport, LeadingNS, MisalignedParen, NamespacedExport, ReservedToken,
+  UnexpectedEOL,
 };
 use super::lexer::Lexeme;
 use super::multiname::parse_multiname;
 use super::stream::Stream;
 use super::Entry;
-use crate::ast::{Clause, Constant, Expr, Rule};
+use crate::ast::{Clause, Constant, Expr, PType, Rule};
 use crate::error::{ProjectError, ProjectResult};
 use crate::representations::location::Location;
 use crate::representations::sourcefile::{FileEntry, MemberKind, ModuleBlock};
 use crate::representations::VName;
 use crate::sourcefile::{FileEntryKind, Import, Member};
+use crate::utils::pure_seq::pushed;
 
+/// Split the stream at each line break outside parentheses
 pub fn split_lines(module: Stream<'_>) -> impl Iterator<Item = Stream<'_>> {
   let mut source = module.data.iter().enumerate();
   let mut fallback = module.fallback;
@@ -47,15 +50,27 @@ pub fn split_lines(module: Stream<'_>) -> impl Iterator<Item = Stream<'_>> {
     }
     None
   })
+  .map(Stream::trim)
+  .map(|s| {
+    s.pop()
+      .and_then(|(first, inner)| {
+        let (last, inner) = inner.pop_back()?;
+        match (&first.lexeme, &last.lexeme) {
+          (Lexeme::LP(PType::Par), Lexeme::RP(PType::Par)) => Ok(inner.trim()),
+          _ => Ok(s),
+        }
+      })
+      .unwrap_or(s)
+  })
+  .filter(|l| !l.data.is_empty())
 }
 
+/// Parse linebreak-separated entries
 pub fn parse_module_body(
   cursor: Stream<'_>,
-  ctx: &impl Context,
+  ctx: &(impl Context + ?Sized),
 ) -> ProjectResult<Vec<FileEntry>> {
   split_lines(cursor)
-    .map(Stream::trim)
-    .filter(|l| !l.data.is_empty())
     .map(|l| {
       parse_line(l, ctx).map(move |kinds| {
         kinds
@@ -67,12 +82,13 @@ pub fn parse_module_body(
     .collect()
 }
 
+/// Parse a single, possibly exported entry
 pub fn parse_line(
   cursor: Stream<'_>,
-  ctx: &impl Context,
+  ctx: &(impl Context + ?Sized),
 ) -> ProjectResult<Vec<FileEntryKind>> {
   for line_parser in ctx.line_parsers() {
-    if let Some(result) = line_parser(cursor, ctx) {
+    if let Some(result) = line_parser(cursor, &ctx) {
       return result;
     }
   }
@@ -100,9 +116,9 @@ pub fn parse_line(
   }
 }
 
-pub fn parse_export_line(
+fn parse_export_line(
   cursor: Stream<'_>,
-  ctx: &impl Context,
+  ctx: &(impl Context + ?Sized),
 ) -> ProjectResult<FileEntryKind> {
   let cursor = cursor.trim();
   match &cursor.get(0)?.lexeme {
@@ -135,7 +151,7 @@ pub fn parse_export_line(
 
 fn parse_member(
   cursor: Stream<'_>,
-  ctx: &impl Context,
+  ctx: &(impl Context + ?Sized),
 ) -> ProjectResult<MemberKind> {
   let (typemark, cursor) = cursor.trim().pop()?;
   match &typemark.lexeme {
@@ -144,7 +160,7 @@ fn parse_member(
       Ok(MemberKind::Constant(constant))
     },
     Lexeme::Name(n) if **n == "macro" => {
-      let rule = parse_rule(cursor, ctx)?;
+      let rule = parse_rule(cursor, &ctx)?;
       Ok(MemberKind::Rule(rule))
     },
     Lexeme::Name(n) if **n == "module" => {
@@ -159,7 +175,8 @@ fn parse_member(
   }
 }
 
-fn parse_rule(
+/// Parse a macro rule
+pub fn parse_rule(
   cursor: Stream<'_>,
   ctx: &impl Context,
 ) -> ProjectResult<Rule<VName>> {
@@ -172,9 +189,10 @@ fn parse_rule(
   Ok(Rule { pattern, prio, template })
 }
 
-fn parse_const(
+/// Parse a constant declaration
+pub fn parse_const(
   cursor: Stream<'_>,
-  ctx: &impl Context,
+  ctx: &(impl Context + ?Sized),
 ) -> ProjectResult<Constant> {
   let (name_ent, cursor) = cursor.trim().pop()?;
   let name = ExpectedName::expect(name_ent)?;
@@ -184,24 +202,38 @@ fn parse_const(
   Ok(Constant { name, value: vec_to_single(walrus_ent, body)? })
 }
 
-fn parse_module(
+/// Parse a namespaced name. TODO: use this for modules
+pub fn parse_nsname<'a>(
+  cursor: Stream<'a>,
+  ctx: &(impl Context + ?Sized),
+) -> ProjectResult<(VName, Stream<'a>)> {
+  let (name, tail) = parse_multiname(cursor, ctx)?;
+  let name = match name.into_iter().exactly_one() {
+    Ok(Import { name: Some(name), path, .. }) => pushed(path, name),
+    _ => {
+      let loc = cursor.data[0].location().to(tail.data[0].location());
+      return Err(ExpectedSingleName(loc).rc());
+    },
+  };
+  Ok((name, tail))
+}
+
+/// Parse a submodule declaration
+pub fn parse_module(
   cursor: Stream<'_>,
-  ctx: &impl Context,
+  ctx: &(impl Context + ?Sized),
 ) -> ProjectResult<ModuleBlock> {
   let (name_ent, cursor) = cursor.trim().pop()?;
   let name = ExpectedName::expect(name_ent)?;
-  let (lp_ent, cursor) = cursor.trim().pop()?;
-  Expected::expect(Lexeme::LP('('), lp_ent)?;
-  let (last, cursor) = cursor.pop_back()?;
-  Expected::expect(Lexeme::RP('('), last)?;
-  let body = parse_module_body(cursor, ctx)?;
-  Ok(ModuleBlock { name, body })
+  let body = ExpectedBlock::expect(cursor, PType::Par)?;
+  Ok(ModuleBlock { name, body: parse_module_body(body, ctx)? })
 }
 
-fn parse_exprv<'a>(
+/// Parse a sequence of expressions
+pub fn parse_exprv<'a>(
   mut cursor: Stream<'a>,
-  paren: Option<char>,
-  ctx: &impl Context,
+  paren: Option<PType>,
+  ctx: &(impl Context + ?Sized),
 ) -> ProjectResult<(Vec<Expr<VName>>, Stream<'a>)> {
   let mut output = Vec::new();
   cursor = cursor.trim();
@@ -272,7 +304,8 @@ fn parse_exprv<'a>(
   Ok((output, Stream::new(cursor.fallback, &[])))
 }
 
-fn vec_to_single(
+/// Wrap an expression list in parentheses if necessary
+pub fn vec_to_single(
   fallback: &Entry,
   v: Vec<Expr<VName>>,
 ) -> ProjectResult<Expr<VName>> {
@@ -281,11 +314,12 @@ fn vec_to_single(
     1 => Ok(v.into_iter().exactly_one().unwrap()),
     _ => Ok(Expr {
       location: expr_slice_location(&v),
-      value: Clause::S('(', Rc::new(v)),
+      value: Clause::S(PType::Par, Rc::new(v)),
     }),
   }
 }
 
+/// Return the location of a sequence of consecutive expressions
 #[must_use]
 pub fn expr_slice_location(v: &[impl AsRef<Location>]) -> Location {
   v.first()

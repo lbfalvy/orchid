@@ -1,18 +1,26 @@
-import super::option
-import super::(functional::*, procedural::*, loop::*, bool::*, known::*, number::*, tuple::*)
+import super::(option, match, macro)
+import super::(functional::*, procedural::*)
+import super::(loop::*, bool::*, known::*, number::*, tuple::*)
 
-const pair := \a. \b. \f. f a b
+export type ty (
+  import super::super::(option, tuple, panic)
+  import super::super::(known::*, bool::*)
 
--- Constructors
+  export const cons := \hd. \tl. wrap (option::some tuple::t[hd, unwrap tl])
+  export const end := wrap option::none
+  export const pop := \list. \default. \f. (
+    option::handle (unwrap list)
+      default
+      \pair. tuple::apply pair
+        \len. if len == 2
+          then ( \hd. \tl. f hd (wrap tl) )
+          else panic "list element must be 2-ple"
+  )
+)
 
-export const cons := \hd. \tl. option::some t[hd, tl]
-export const end := option::none
-
-export const pop := \list. \default. \f. do{
-  cps tuple = list default;
-  cps head, tail = tuple;
-  f head tail
-}
+export const cons := ty::cons
+export const end := ty::end
+export const pop := ty::pop
 
 -- Operators
 
@@ -124,8 +132,34 @@ export const chain := \list. \cont. loop_over (list) {
   cps head;
 }
 
-macro new[...$item, ...$rest:1] =0x2p84=> (cons (...$item) new[...$rest])
-macro new[...$end] =0x1p84=> (cons (...$end) end)
-macro new[] =0x1p84=> end
+macro new[..$items] =0x2p84=> mk_list macro::comma_list (..$items)
+
+macro mk_list ( macro::list_item $item $tail ) =0x1p254=> (cons $item mk_list $tail)
+macro mk_list macro::list_end =0x1p254=> end
 
 export ::(new)
+
+( macro match::request (cons $head $tail)
+  =0x1p230=> await_subpatterns
+    (match::request ($head))
+    (match::request ($tail))
+)
+( macro await_subpatterns
+    (match::response $h_expr ( $h_binds ))
+    (match::response $t_expr ( $t_binds ))
+  =0x1p230=> match::response (
+    pop
+      match::value
+      match::fail
+      \head. \tail. (
+        (\match::pass. (\match::value. $h_expr) head)
+        (match::take_binds $h_binds (
+          (\match::pass. (\match::value. $t_expr) tail)
+          (match::take_binds $t_binds (
+            match::give_binds match::chain_binds $h_binds $t_binds match::pass
+          ))
+        ))
+      )
+  )
+  (match::chain_binds $h_binds $t_binds)
+)

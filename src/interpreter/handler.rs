@@ -1,5 +1,5 @@
 use std::any::{Any, TypeId};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use hashbrown::HashMap;
 use trait_set::trait_set;
@@ -58,7 +58,7 @@ impl<'a> HandlerTable<'a> {
 
 /// Various possible outcomes of a [Handler] execution. Ok returns control to
 /// the interpreter. The meaning of Err is decided by the value in it.
-pub type HandlerRes = Result<ExprInst, Rc<dyn ExternError>>;
+pub type HandlerRes = Result<ExprInst, Arc<dyn ExternError>>;
 
 /// [run] orchid code, executing any commands it returns using the specified
 /// [Handler]s.

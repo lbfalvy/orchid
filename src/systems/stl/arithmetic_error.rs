@@ -3,6 +3,7 @@ use std::fmt::Display;
 use crate::foreign::ExternError;
 
 /// Various errors produced by arithmetic operations
+#[derive(Clone)]
 pub enum ArithmeticError {
   /// Integer overflow
   Overflow,

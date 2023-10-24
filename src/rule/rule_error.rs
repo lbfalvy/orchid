@@ -180,6 +180,7 @@ impl ProjectError for ArityMismatch {
           "This instance represents ".to_string()
             + match class {
               ast::PHClass::Scalar => "one clause",
+              ast::PHClass::Name => "one name",
               ast::PHClass::Vec { nonzero: true, .. } => "one or more clauses",
               ast::PHClass::Vec { nonzero: false, .. } =>
                 "any number of clauses",

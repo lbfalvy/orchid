@@ -6,19 +6,20 @@ use super::scal_match::scalv_match;
 use super::shared::VecMatcher;
 use crate::rule::matcher::RuleExpr;
 use crate::rule::state::{State, StateEntry};
-use crate::utils::unwrap_or;
+use crate::Sym;
 
 #[must_use]
 pub fn vec_match<'a>(
   matcher: &VecMatcher,
   seq: &'a [RuleExpr],
+  save_loc: &impl Fn(Sym) -> bool,
 ) -> Option<State<'a>> {
   match matcher {
     VecMatcher::Placeh { key, nonzero } => {
       if *nonzero && seq.is_empty() {
         return None;
       }
-      return Some(State::from([(key.clone(), StateEntry::Vec(seq))]));
+      return Some(State::from_ph(key.clone(), StateEntry::Vec(seq)));
     },
     VecMatcher::Scan { left, sep, right, direction } => {
       if seq.len() < sep.len() {
@@ -26,10 +27,16 @@ pub fn vec_match<'a>(
       }
       for lpos in direction.walk(0..=seq.len() - sep.len()) {
         let rpos = lpos + sep.len();
-        let mut state = unwrap_or!(vec_match(left, &seq[..lpos]); continue);
-        state.extend(unwrap_or!(scalv_match(sep, &seq[lpos..rpos]); continue));
-        state.extend(unwrap_or!(vec_match(right, &seq[rpos..]); continue));
-        return Some(state);
+        let state = vec_match(left, &seq[..lpos], save_loc)
+          .and_then(|s| {
+            Some(s.combine(scalv_match(sep, &seq[lpos..rpos], save_loc)?))
+          })
+          .and_then(|s| {
+            Some(s.combine(vec_match(right, &seq[rpos..], save_loc)?))
+          });
+        if let Some(s) = state {
+          return Some(s);
+        }
       }
       None
     },
@@ -42,14 +49,16 @@ pub fn vec_match<'a>(
       let lposv = seq[..seq.len() - right_sep.len()]
         .windows(left_sep.len())
         .enumerate()
-        .filter_map(|(i, window)| scalv_match(left_sep, window).map(|s| (i, s)))
+        .filter_map(|(i, window)| {
+          scalv_match(left_sep, window, save_loc).map(|s| (i, s))
+        })
         .collect::<Vec<_>>();
       // Valid locations for the right separator
       let rposv = seq[left_sep.len()..]
         .windows(right_sep.len())
         .enumerate()
         .filter_map(|(i, window)| {
-          scalv_match(right_sep, window).map(|s| (i, s))
+          scalv_match(right_sep, window, save_loc).map(|s| (i, s))
         })
         .collect::<Vec<_>>();
       // Valid combinations of locations for the separators
@@ -57,9 +66,8 @@ pub fn vec_match<'a>(
         .into_iter()
         .cartesian_product(rposv)
         .filter(|((lpos, _), (rpos, _))| lpos + left_sep.len() <= *rpos)
-        .map(|((lpos, mut lstate), (rpos, rstate))| {
-          lstate.extend(rstate);
-          (lpos, rpos, lstate)
+        .map(|((lpos, lstate), (rpos, rstate))| {
+          (lpos, rpos, lstate.combine(rstate))
         })
         .collect::<Vec<_>>();
       // In descending order of size
@@ -68,25 +76,29 @@ pub fn vec_match<'a>(
       for (_gap_size, cluster) in eql_clusters.into_iter() {
         let best_candidate = cluster
           .into_iter()
-          .filter_map(|(lpos, rpos, mut state)| {
-            state.extend(vec_match(left, &seq[..lpos])?);
-            state.extend(vec_match(mid, &seq[lpos + left_sep.len()..rpos])?);
-            state.extend(vec_match(right, &seq[rpos + right_sep.len()..])?);
-            Some(state)
+          .filter_map(|(lpos, rpos, state)| {
+            Some(
+              state
+                .combine(vec_match(left, &seq[..lpos], save_loc)?)
+                .combine(vec_match(
+                  mid,
+                  &seq[lpos + left_sep.len()..rpos],
+                  save_loc,
+                )?)
+                .combine(vec_match(
+                  right,
+                  &seq[rpos + right_sep.len()..],
+                  save_loc,
+                )?),
+            )
           })
           .max_by(|a, b| {
             for key in key_order {
-              let aslc = if let Some(StateEntry::Vec(s)) = a.get(key) {
-                s
-              } else {
-                panic!("key_order references scalar or missing")
-              };
-              let bslc = if let Some(StateEntry::Vec(s)) = b.get(key) {
-                s
-              } else {
-                panic!("key_order references scalar or missing")
-              };
-              match aslc.len().cmp(&bslc.len()) {
+              let alen =
+                a.ph_len(key).expect("key_order references scalar or missing");
+              let blen =
+                b.ph_len(key).expect("key_order references scalar or missing");
+              match alen.cmp(&blen) {
                 Ordering::Equal => (),
                 any => return any,
               }

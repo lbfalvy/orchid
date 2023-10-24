@@ -5,6 +5,7 @@ use itertools::Itertools;
 
 use super::any_match::any_match;
 use super::build::mk_any;
+use crate::ast::PType;
 use crate::foreign::Atom;
 use crate::interner::Tok;
 use crate::rule::matcher::{Matcher, RuleExpr};
@@ -15,9 +16,9 @@ use crate::{Sym, VName};
 pub enum ScalMatcher {
   Atom(Atom),
   Name(Sym),
-  S(char, Box<AnyMatcher>),
+  S(PType, Box<AnyMatcher>),
   Lambda(Box<AnyMatcher>, Box<AnyMatcher>),
-  Placeh(Tok<String>),
+  Placeh { key: Tok<String>, name_only: bool },
 }
 
 pub enum VecMatcher {
@@ -58,8 +59,12 @@ pub enum AnyMatcher {
 impl Matcher for AnyMatcher {
   fn new(pattern: Rc<Vec<RuleExpr>>) -> Self { mk_any(&pattern) }
 
-  fn apply<'a>(&self, source: &'a [RuleExpr]) -> Option<State<'a>> {
-    any_match(self, source)
+  fn apply<'a>(
+    &self,
+    source: &'a [RuleExpr],
+    save_loc: &impl Fn(Sym) -> bool,
+  ) -> Option<State<'a>> {
+    any_match(self, source, save_loc)
   }
 }
 
@@ -69,20 +74,13 @@ impl Display for ScalMatcher {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Atom(a) => write!(f, "{a:?}"),
-      Self::Placeh(n) => write!(f, "${n}"),
+      Self::Placeh { key, name_only } => match name_only {
+        false => write!(f, "${key}"),
+        true => write!(f, "$_{key}"),
+      },
       Self::Name(n) => write!(f, "{}", n.extern_vec().join("::")),
-      Self::S(c, body) => {
-        let pair = match c {
-          '(' => ')',
-          '[' => ']',
-          '{' => '}',
-          _ => unreachable!(),
-        };
-        write!(f, "{c}{body}{pair}")
-      },
-      Self::Lambda(arg, body) => {
-        write!(f, "\\{arg}.{body}")
-      },
+      Self::S(t, body) => write!(f, "{}{body}{}", t.l(), t.r()),
+      Self::Lambda(arg, body) => write!(f, "\\{arg}.{body}"),
     }
   }
 }
@@ -136,8 +134,12 @@ pub struct VectreeMatcher(AnyMatcher);
 impl Matcher for VectreeMatcher {
   fn new(pattern: Rc<Vec<RuleExpr>>) -> Self { Self(AnyMatcher::new(pattern)) }
 
-  fn apply<'a>(&self, source: &'a [RuleExpr]) -> Option<State<'a>> {
-    self.0.apply(source)
+  fn apply<'a>(
+    &self,
+    source: &'a [RuleExpr],
+    save_loc: &impl Fn(Sym) -> bool,
+  ) -> Option<State<'a>> {
+    self.0.apply(source, save_loc)
   }
 }
 impl Display for VectreeMatcher {

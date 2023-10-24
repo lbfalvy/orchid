@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use super::atom::StrictEq;
 use super::{
@@ -61,7 +61,7 @@ impl<T, U, F> Param<T, U, F> {
   /// Wrap a new function in a parametric struct
   pub fn new(f: F) -> Self
   where
-    F: FnOnce(T) -> Result<U, Rc<dyn ExternError>>,
+    F: FnOnce(T) -> Result<U, Arc<dyn ExternError>>,
   {
     Self { data: f, _t: PhantomData, _u: PhantomData }
   }
@@ -77,7 +77,7 @@ impl<T, U, F: Clone> Clone for Param<T, U, F> {
 impl<
   T: 'static + TryFromExprInst,
   U: 'static + ToClause,
-  F: 'static + Clone + Send + FnOnce(T) -> Result<U, Rc<dyn ExternError>>,
+  F: 'static + Clone + Send + FnOnce(T) -> Result<U, Arc<dyn ExternError>>,
 > ToClause for Param<T, U, F>
 {
   fn to_clause(self) -> Clause { self.xfn_cls() }
@@ -109,7 +109,7 @@ impl<T, U, F> Responder for FnMiddleStage<T, U, F> {}
 impl<
   T: 'static + TryFromExprInst,
   U: 'static + ToClause,
-  F: 'static + Clone + FnOnce(T) -> Result<U, Rc<dyn ExternError>> + Send,
+  F: 'static + Clone + FnOnce(T) -> Result<U, Arc<dyn ExternError>> + Send,
 > Atomic for FnMiddleStage<T, U, F>
 {
   fn as_any(self: Box<Self>) -> Box<dyn std::any::Any> { self }
@@ -127,7 +127,7 @@ impl<
 impl<
   T: 'static + TryFromExprInst,
   U: 'static + ToClause,
-  F: 'static + Clone + Send + FnOnce(T) -> Result<U, Rc<dyn ExternError>>,
+  F: 'static + Clone + Send + FnOnce(T) -> Result<U, Arc<dyn ExternError>>,
 > ExternFn for Param<T, U, F>
 {
   fn name(&self) -> &str { "anonymous Rust function" }
@@ -137,8 +137,9 @@ impl<
 }
 
 pub mod constructors {
-  use std::rc::Rc;
+  
 
+  use std::sync::Arc;
   use super::{Param, ToClause};
   use crate::foreign::{ExternError, ExternFn};
   use crate::interpreted::TryFromExprInst;
@@ -163,7 +164,7 @@ pub mod constructors {
           TLast: TryFromExprInst + 'static,
           TReturn: ToClause + Send + 'static,
           TFunction: FnOnce( $( $t , )* TLast )
-            -> Result<TReturn, Rc<dyn ExternError>> + Clone + Send + 'static
+            -> Result<TReturn, Arc<dyn ExternError>> + Clone + Send + 'static
         >(function: TFunction) -> impl ExternFn {
           xfn_variant!(@BODY_LOOP function
             ( $( ( $t [< $t:lower >] ) )* )

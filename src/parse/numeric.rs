@@ -5,16 +5,22 @@ use std::rc::Rc;
 use ordered_float::NotNan;
 
 use super::context::Context;
-use super::errors::NaNLiteral;
+#[allow(unused)] // for doc
+use super::context::LexerPlugin;
+use super::errors::{ExpectedDigit, LiteralOverflow, NaNLiteral};
 use super::lexer::split_filter;
 use crate::error::{ProjectError, ProjectResult};
 use crate::foreign::Atom;
 use crate::systems::stl::Numeric;
 
+/// Rasons why [parse_num] might fail. See [NumError].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NumErrorKind {
+  /// The literal describes [f64::NAN]
   NaN,
+  /// Some integer appearing in the literal overflows [usize]
   Overflow,
+  /// A character that isn't a digit in the given base was found
   InvalidDigit,
 }
 impl NumErrorKind {
@@ -27,13 +33,17 @@ impl NumErrorKind {
   }
 }
 
+/// Error produced by [parse_num]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NumError {
+  /// Location
   pub range: Range<usize>,
+  /// Reason
   pub kind: NumErrorKind,
 }
 
 impl NumError {
+  /// Convert into [ProjectError] trait object
   pub fn into_proj(
     self,
     len: usize,
@@ -44,12 +54,13 @@ impl NumError {
     let location = ctx.range_loc(start..start + self.range.len());
     match self.kind {
       NumErrorKind::NaN => NaNLiteral(location).rc(),
-      _ => panic!(),
-      // NumErrorKind::Int(iek) => IntError(location, iek).rc(),
+      NumErrorKind::InvalidDigit => ExpectedDigit(location).rc(),
+      NumErrorKind::Overflow => LiteralOverflow(location).rc(),
     }
   }
 }
 
+/// Parse a numbre literal out of text
 pub fn parse_num(string: &str) -> Result<Numeric, NumError> {
   let overflow_err =
     NumError { range: 0..string.len(), kind: NumErrorKind::Overflow };
@@ -96,9 +107,12 @@ fn int_parse(s: &str, radix: u8, start: usize) -> Result<usize, NumError> {
     .map_err(|e| NumError { range, kind: NumErrorKind::from_int(e.kind()) })
 }
 
+/// Filter for characters that can appear in numbers
 pub fn numchar(c: char) -> bool { c.is_alphanumeric() | "._-".contains(c) }
+/// Filter for characters that can start numbers
 pub fn numstart(c: char) -> bool { c.is_ascii_digit() }
 
+/// [LexerPlugin] for a number literal
 pub fn lex_numeric<'a>(
   data: &'a str,
   ctx: &dyn Context,
@@ -140,6 +154,7 @@ mod test {
   }
 }
 
+/// Print a number as a base-16 floating point literal
 #[must_use]
 pub fn print_nat16(num: NotNan<f64>) -> String {
   if *num == 0.0 {

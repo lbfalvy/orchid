@@ -14,5 +14,9 @@ pub trait Matcher {
   fn new(pattern: Rc<Vec<RuleExpr>>) -> Self;
   /// Apply matcher to a token sequence
   #[must_use]
-  fn apply<'a>(&self, source: &'a [RuleExpr]) -> Option<State<'a>>;
+  fn apply<'a>(
+    &self,
+    source: &'a [RuleExpr],
+    save_loc: &impl Fn(Sym) -> bool,
+  ) -> Option<State<'a>>;
 }

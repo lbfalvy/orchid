@@ -43,6 +43,7 @@ fn pad(mut rule: Rule<Sym>, i: &Interner) -> Rule<Sym> {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum PHType {
   Scalar,
+  Name,
   Vec { nonzero: bool },
 }
 impl From<PHClass> for PHType {
@@ -50,6 +51,7 @@ impl From<PHClass> for PHType {
     match value {
       PHClass::Scalar => Self::Scalar,
       PHClass::Vec { nonzero, .. } => Self::Vec { nonzero },
+      PHClass::Name => Self::Name,
     }
   }
 }

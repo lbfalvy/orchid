@@ -1,11 +1,10 @@
 use std::any::Any;
 use std::fmt::Debug;
-use std::rc::Rc;
 
 use ordered_float::NotNan;
 
 use super::atom::StrictEq;
-use super::{AtomicResult, AtomicReturn, ExternError};
+use super::{AtomicResult, AtomicReturn, XfnResult};
 use crate::error::AssertionError;
 #[allow(unused)] // for doc
 // use crate::define_fn;
@@ -62,7 +61,7 @@ impl<T: InertAtomic> Atomic for T {
 }
 
 impl<T: InertAtomic> TryFromExprInst for T {
-  fn from_exi(exi: ExprInst) -> Result<Self, Rc<dyn ExternError>> {
+  fn from_exi(exi: ExprInst) -> XfnResult<Self> {
     let Expr { clause, location } = exi.expr_val();
     match clause {
       Clause::Atom(a) => match a.0.as_any().downcast() {

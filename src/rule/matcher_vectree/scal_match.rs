@@ -3,25 +3,32 @@ use super::shared::ScalMatcher;
 use crate::ast::Clause;
 use crate::rule::matcher::RuleExpr;
 use crate::rule::state::{State, StateEntry};
+use crate::Sym;
 
 #[must_use]
 pub fn scal_match<'a>(
   matcher: &ScalMatcher,
   expr: &'a RuleExpr,
+  save_loc: &impl Fn(Sym) -> bool,
 ) -> Option<State<'a>> {
   match (matcher, &expr.value) {
     (ScalMatcher::Atom(a1), Clause::Atom(a2)) if a1.0.strict_eq(&a2.0) =>
-      Some(State::new()),
-    (ScalMatcher::Name(n1), Clause::Name(n2)) if n1 == n2 => Some(State::new()),
-    (ScalMatcher::Placeh(key), _) =>
-      Some(State::from([(key.clone(), StateEntry::Scalar(expr))])),
+      Some(State::default()),
+    (ScalMatcher::Name(n1), Clause::Name(n2)) if n1 == n2 =>
+      Some(match save_loc(n1.clone()) {
+        true => State::from_name(n1.clone(), expr.location.clone()),
+        false => State::default(),
+      }),
+    (ScalMatcher::Placeh { key, name_only: true }, Clause::Name(n)) =>
+      Some(State::from_ph(key.clone(), StateEntry::Name(n, &expr.location))),
+    (ScalMatcher::Placeh { key, name_only: false }, _) =>
+      Some(State::from_ph(key.clone(), StateEntry::Scalar(expr))),
     (ScalMatcher::S(c1, b_mat), Clause::S(c2, body)) if c1 == c2 =>
-      any_match(b_mat, &body[..]),
-    (ScalMatcher::Lambda(arg_mat, b_mat), Clause::Lambda(arg, body)) => {
-      let mut state = any_match(arg_mat, arg)?;
-      state.extend(any_match(b_mat, body)?);
-      Some(state)
-    },
+      any_match(b_mat, &body[..], save_loc),
+    (ScalMatcher::Lambda(arg_mat, b_mat), Clause::Lambda(arg, body)) => Some(
+      any_match(arg_mat, arg, save_loc)?
+        .combine(any_match(b_mat, body, save_loc)?),
+    ),
     _ => None,
   }
 }
@@ -30,13 +37,14 @@ pub fn scal_match<'a>(
 pub fn scalv_match<'a>(
   matchers: &[ScalMatcher],
   seq: &'a [RuleExpr],
+  save_loc: &impl Fn(Sym) -> bool,
 ) -> Option<State<'a>> {
   if seq.len() != matchers.len() {
     return None;
   }
-  let mut state = State::new();
+  let mut state = State::default();
   for (matcher, expr) in matchers.iter().zip(seq.iter()) {
-    state.extend(scal_match(matcher, expr)?);
+    state = state.combine(scal_match(matcher, expr, save_loc)?);
   }
   Some(state)
 }

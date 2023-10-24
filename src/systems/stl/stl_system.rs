@@ -10,6 +10,8 @@ use super::exit_status::exit_status;
 use super::inspect::inspect;
 use super::number::num;
 use super::panic::panic;
+use super::protocol::{parsers, protocol_lib};
+use super::reflect::reflect;
 use super::state::{state_handlers, state_lib};
 use super::string::str;
 use crate::facade::{IntoSystem, System};
@@ -40,8 +42,10 @@ impl IntoSystem<'static> for StlConfig {
       + exit_status(i)
       + num(i)
       + panic(i)
+      + reflect(i)
       + state_lib(i)
-      + str(i);
+      + str(i)
+      + protocol_lib(i);
     let mk_impure_fns = || inspect(i);
     let fns = if self.impure { pure_tree + mk_impure_fns() } else { pure_tree };
     System {
@@ -57,8 +61,8 @@ impl IntoSystem<'static> for StlConfig {
         }]),
       }],
       handlers: state_handlers(),
-      lexer_plugin: None,
-      line_parser: None,
+      lexer_plugins: vec![],
+      line_parsers: parsers(),
     }
   }
 }

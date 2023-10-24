@@ -37,6 +37,7 @@ macro parse_binds (...$item) =0x1p250=> (
   ()
 )
 
+
 -- while loop
 export macro statement (
   while ..$condition (..$binds) {
@@ -64,7 +65,7 @@ macro init_binds ( ($name $value) $tail ) =0x1p250=> $value init_binds $tail
 macro $fn init_binds () =0x1p250=> $fn
 
 -- apply_binds passes the name for initializers
-macro apply_binds ( ($name $_value) $tail ) =0x1p250=> $name apply_binds $tail
+macro apply_binds ( ($name $value) $tail ) =0x1p250=> $name apply_binds $tail
 macro $fn apply_binds () =0x1p250=> $fn
 
 --[

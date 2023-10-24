@@ -104,6 +104,8 @@ pub enum PHClass {
   },
   /// Matches exactly one token, lambda or parenthesized group
   Scalar,
+  /// Matches exactly one name
+  Name,
 }
 
 /// Properties of a placeholder that matches unknown tokens in macros
@@ -120,10 +122,41 @@ impl Display for Placeholder {
     let name = &self.name;
     match self.class {
       PHClass::Scalar => write!(f, "${name}"),
+      PHClass::Name => write!(f, "$_{name}"),
       PHClass::Vec { nonzero, prio } => {
         if nonzero { write!(f, "...") } else { write!(f, "..") }?;
         write!(f, "${name}:{prio}")
       },
+    }
+  }
+}
+
+/// Different types of brackets supported by Orchid
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum PType {
+  /// ()
+  Par,
+  /// []
+  Sqr,
+  /// {}
+  Curl,
+}
+impl PType {
+  /// Left paren character for this paren type
+  pub fn l(self) -> char {
+    match self {
+      PType::Curl => '{',
+      PType::Par => '(',
+      PType::Sqr => '[',
+    }
+  }
+
+  /// Right paren character for this paren type
+  pub fn r(self) -> char {
+    match self {
+      PType::Curl => '}',
+      PType::Par => ')',
+      PType::Sqr => ']',
     }
   }
 }
@@ -139,7 +172,7 @@ pub enum Clause<N: NameLike> {
   Name(N),
   /// A parenthesized expression
   /// eg. `(print out "hello")`, `[1, 2, 3]`, `{Some(t) => t}`
-  S(char, Rc<Vec<Expr<N>>>),
+  S(PType, Rc<Vec<Expr<N>>>),
   /// A function expression, eg. `\x. x + 1`
   Lambda(Rc<Vec<Expr<N>>>, Rc<Vec<Expr<N>>>),
   /// A placeholder for macros, eg. `$name`, `...$body`, `...$lhs:1`
@@ -159,7 +192,7 @@ impl<N: NameLike> Clause<N> {
   /// Convert with identical meaning
   #[must_use]
   pub fn into_expr(self) -> Expr<N> {
-    if let Self::S('(', body) = &self {
+    if let Self::S(PType::Par, body) = &self {
       if body.len() == 1 {
         body[0].clone()
       } else {
@@ -178,7 +211,7 @@ impl<N: NameLike> Clause<N> {
     } else if exprs.len() == 1 {
       Some(exprs[0].value.clone())
     } else {
-      Some(Self::S('(', Rc::new(exprs.to_vec())))
+      Some(Self::S(PType::Par, Rc::new(exprs.to_vec())))
     }
   }
 
@@ -188,7 +221,7 @@ impl<N: NameLike> Clause<N> {
     if exprv.len() < 2 {
       Self::from_exprs(exprv)
     } else {
-      Some(Self::S('(', exprv.clone()))
+      Some(Self::S(PType::Par, exprv.clone()))
     }
   }
 
@@ -304,6 +337,19 @@ impl<N: NameLike> Clause<N> {
       Clause::S(_, body) => search_all_slcs(body, f),
     }
   }
+
+  /// Generate a parenthesized expression sequence
+  pub fn s(delimiter: char, items: impl IntoIterator<Item = Self>) -> Self {
+    Self::S(
+      match delimiter {
+        '(' => PType::Par,
+        '[' => PType::Sqr,
+        '{' => PType::Curl,
+        _ => panic!("not an opening paren"),
+      },
+      Rc::new(items.into_iter().map(Self::into_expr).collect()),
+    )
+  }
 }
 
 impl Clause<VName> {
@@ -333,15 +379,9 @@ impl<N: NameLike> Display for Clause<N> {
       Self::ExternFn(fun) => write!(f, "{fun:?}"),
       Self::Atom(a) => write!(f, "{a:?}"),
       Self::Name(name) => write!(f, "{}", name.to_strv().join("::")),
-      Self::S(del, items) => {
+      Self::S(t, items) => {
         let body = items.iter().join(" ");
-        let led = match del {
-          '(' => ")",
-          '[' => "]",
-          '{' => "}",
-          _ => "CLOSING_DELIM",
-        };
-        write!(f, "{del}{body}{led}")
+        write!(f, "{}{body}{}", t.l(), t.r())
       },
       Self::Lambda(arg, body) => {
         let args = arg.iter().join(" ");

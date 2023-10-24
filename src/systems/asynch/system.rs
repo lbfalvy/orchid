@@ -55,6 +55,7 @@ impl InertAtomic for Yield {
 
 /// Error indicating a yield command when all event producers and timers had
 /// exited
+#[derive(Clone)]
 pub struct InfiniteBlock;
 impl ExternError for InfiniteBlock {}
 impl Display for InfiniteBlock {
@@ -187,8 +188,8 @@ impl<'a> IntoSystem<'a> for AsynchSystem<'a> {
     });
     System {
       name: vec!["system".to_string(), "asynch".to_string()],
-      lexer_plugin: None,
-      line_parser: None,
+      lexer_plugins: vec![],
+      line_parsers: vec![],
       constants: ConstTree::namespace(
         [i.i("system"), i.i("async")],
         ConstTree::tree([

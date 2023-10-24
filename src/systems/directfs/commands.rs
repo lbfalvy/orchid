@@ -183,8 +183,8 @@ impl IntoSystem<'static> for DirectFS {
       name: ["system", "directfs"].into_iter().map_into().collect(),
       code: HashMap::new(),
       prelude: Vec::new(),
-      lexer_plugin: None,
-      line_parser: None,
+      lexer_plugins: vec![],
+      line_parsers: vec![],
       constants: ConstTree::namespace(
         [i.i("system"), i.i("fs")],
         ConstTree::tree([

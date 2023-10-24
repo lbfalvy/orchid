@@ -8,7 +8,7 @@ mod extern_fn;
 mod fn_bridge;
 mod inert;
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub use atom::{Atom, Atomic, AtomicResult, AtomicReturn, StrictEq};
 pub use extern_fn::{ExFn, ExternError, ExternFn};
@@ -22,4 +22,4 @@ pub use inert::InertAtomic;
 pub use crate::representations::interpreted::Clause;
 
 /// Return type of the argument to the [xfn_1ary] family of functions
-pub type XfnResult<T> = Result<T, Rc<dyn ExternError>>;
+pub type XfnResult<T> = Result<T, Arc<dyn ExternError>>;

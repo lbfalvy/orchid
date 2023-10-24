@@ -110,12 +110,14 @@ fn mk_scalar(pattern: &RuleExpr) -> ScalMatcher {
     Clause::Atom(a) => ScalMatcher::Atom(a.clone()),
     Clause::ExternFn(_) => panic!("Cannot match on ExternFn"),
     Clause::Name(n) => ScalMatcher::Name(n.clone()),
-    Clause::Placeh(Placeholder { name, class }) => {
-      debug_assert!(
-        !matches!(class, PHClass::Vec { .. }),
-        "Scalar matcher cannot be built from vector pattern"
-      );
-      ScalMatcher::Placeh(name.clone())
+    Clause::Placeh(Placeholder { name, class }) => match class {
+      PHClass::Vec { .. } => {
+        panic!("Scalar matcher cannot be built from vector pattern")
+      },
+      PHClass::Scalar | PHClass::Name => ScalMatcher::Placeh {
+        key: name.clone(),
+        name_only: class == &PHClass::Name,
+      },
     },
     Clause::S(c, body) => ScalMatcher::S(*c, Box::new(mk_any(body))),
     Clause::Lambda(arg, body) =>
@@ -128,7 +130,7 @@ mod test {
   use std::rc::Rc;
 
   use super::mk_any;
-  use crate::ast::{Clause, PHClass, Placeholder};
+  use crate::ast::{Clause, PHClass, PType, Placeholder};
   use crate::interner::Interner;
 
   #[test]
@@ -142,7 +144,7 @@ mod test {
       .into_expr(),
       Clause::Name(i.i(&[i.i("prelude"), i.i("do")][..])).into_expr(),
       Clause::S(
-        '(',
+        PType::Par,
         Rc::new(vec![
           Clause::Placeh(Placeholder {
             class: PHClass::Vec { nonzero: false, prio: 0 },

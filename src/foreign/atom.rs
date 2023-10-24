@@ -1,16 +1,16 @@
 use std::any::Any;
 use std::fmt::Debug;
-use std::rc::Rc;
 
 use dyn_clone::DynClone;
 
-use super::ExternError;
+use super::XfnResult;
 use crate::ddispatch::request;
 use crate::error::AssertionError;
 use crate::interpreted::{ExprInst, TryFromExprInst};
 use crate::interpreter::{Context, RuntimeError};
 use crate::representations::interpreted::Clause;
 use crate::utils::ddispatch::Responder;
+use crate::{ast, NameLike};
 
 /// Information returned by [Atomic::run]. This mirrors
 /// [crate::interpreter::Return] but with a clause instead of an Expr.
@@ -77,6 +77,24 @@ where
   {
     self.atom_cls().wrap()
   }
+
+  /// Wrap the atom in a clause to be placed in a [sourcefile::FileEntry].
+  #[must_use]
+  fn ast_cls<N: NameLike>(self) -> ast::Clause<N>
+  where
+    Self: Sized,
+  {
+    ast::Clause::Atom(Atom::new(self))
+  }
+
+  /// Wrap the atom in an expression to be placed in a [sourcefile::FileEntry].
+  #[must_use]
+  fn ast_exp<N: NameLike>(self) -> ast::Expr<N>
+  where
+    Self: Sized,
+  {
+    self.ast_cls().into_expr()
+  }
 }
 
 /// Represents a black box unit of code with its own normalization steps.
@@ -129,7 +147,7 @@ impl Debug for Atom {
 }
 
 impl TryFromExprInst for Atom {
-  fn from_exi(exi: ExprInst) -> Result<Self, Rc<dyn ExternError>> {
+  fn from_exi(exi: ExprInst) -> XfnResult<Self> {
     let loc = exi.location();
     match exi.expr_val().clause {
       Clause::Atom(a) => Ok(a),

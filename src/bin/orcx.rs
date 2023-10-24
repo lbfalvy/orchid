@@ -30,7 +30,7 @@ struct Args {
   pub macro_limit: usize,
   /// Print the parsed ruleset and exit
   #[arg(long)]
-  pub dump_repo: bool,
+  pub list_macros: bool,
   /// Step through the macro execution process in the specified symbol
   #[arg(long, default_value = "")]
   pub macro_debug: String,
@@ -112,6 +112,16 @@ pub fn macro_debug(premacro: PreMacro, sym: Sym) -> ExitCode {
       "p" | "print" => print_for_debug(&code),
       "d" | "dump" => print!("Rules: {}", premacro.repo),
       "q" | "quit" => return ExitCode::SUCCESS,
+      "complete" => {
+        if let Some((idx, c)) = steps.last() {
+          code = c;
+          print!("Step {idx}: ");
+          print_for_debug(&code);
+        } else {
+          print!("Already halted")
+        }
+        return ExitCode::SUCCESS;
+      },
       "h" | "help" => print!(
         "Available commands:
         \t<blank>, n, next\t\ttake a step
@@ -148,7 +158,7 @@ pub fn main() -> ExitCode {
     .add_system(io::Service::new(scheduler.clone(), std_streams))
     .add_system(directfs::DirectFS::new(scheduler));
   let premacro = env.load_dir(&dir, &main).unwrap();
-  if args.dump_repo {
+  if args.list_macros {
     println!("Parsed rules: {}", premacro.repo);
     return ExitCode::SUCCESS;
   }

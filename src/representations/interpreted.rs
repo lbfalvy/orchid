@@ -4,7 +4,6 @@
 //! functions have to define
 use std::fmt::{Debug, Display};
 use std::ops::{Deref, DerefMut};
-use std::rc::Rc;
 use std::sync::{Arc, Mutex, TryLockError};
 
 #[allow(unused)] // for doc
@@ -13,7 +12,7 @@ use super::location::Location;
 use super::path_set::PathSet;
 #[allow(unused)] // for doc
 use crate::foreign::Atomic;
-use crate::foreign::{Atom, ExFn, ExternError};
+use crate::foreign::{Atom, ExFn, XfnResult};
 use crate::utils::ddispatch::request;
 use crate::utils::take_with_output;
 use crate::Sym;
@@ -53,11 +52,11 @@ pub struct NotALiteral;
 /// Types automatically convertible from an [ExprInst]
 pub trait TryFromExprInst: Sized {
   /// Match and clone the value out of an [ExprInst]
-  fn from_exi(exi: ExprInst) -> Result<Self, Rc<dyn ExternError>>;
+  fn from_exi(exi: ExprInst) -> XfnResult<Self>;
 }
 
 impl TryFromExprInst for ExprInst {
-  fn from_exi(exi: ExprInst) -> Result<Self, Rc<dyn ExternError>> { Ok(exi) }
+  fn from_exi(exi: ExprInst) -> XfnResult<Self> { Ok(exi) }
 }
 
 /// A wrapper around expressions to handle their multiple occurences in
@@ -162,7 +161,7 @@ impl ExprInst {
   /// Convert into any type that implements [FromExprInst]. Calls to this
   /// function are generated wherever a conversion is elided in an extern
   /// function.
-  pub fn downcast<T: TryFromExprInst>(self) -> Result<T, Rc<dyn ExternError>> {
+  pub fn downcast<T: TryFromExprInst>(self) -> XfnResult<T> {
     T::from_exi(self)
   }
 

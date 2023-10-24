@@ -5,11 +5,13 @@ export ::[++]
 import std::bool::*
 export ::([== !=], if, then, else, true, false, and, or, not)
 import std::functional::*
-export ::([$ |> =>], identity, pass, pass2, return)
+export ::([$ |>], identity, pass, pass2, return)
 import std::procedural::*
-export ::(do, let, cps, [; =])
-import std::tuple::*
+export ::(do, let, cps, [;])
+import std::tuple::t
 export ::(t)
+import std::match::(match, [=>])
+export ::(match, [=>])
 import std::tuple
 import std::list
 import std::map
@@ -19,4 +21,4 @@ import std::loop::*
 export ::(loop_over, recursive, while)
 
 import std::known::*
-export ::[,]
+export ::[, _ ; . =]

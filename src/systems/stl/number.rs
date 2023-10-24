@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use ordered_float::NotNan;
 
 use super::ArithmeticError;
@@ -39,7 +37,7 @@ impl Numeric {
   }
 
   /// Wrap a f64 in a Numeric
-  pub fn new(value: f64) -> Result<Self, Rc<dyn ExternError>> {
+  pub fn new(value: f64) -> XfnResult<Self> {
     if value.is_finite() {
       NotNan::new(value)
         .map(Self::Float)
@@ -50,7 +48,7 @@ impl Numeric {
   }
 }
 impl TryFromExprInst for Numeric {
-  fn from_exi(exi: ExprInst) -> Result<Self, Rc<dyn ExternError>> {
+  fn from_exi(exi: ExprInst) -> XfnResult<Self> {
     (exi.request())
       .ok_or_else(|| AssertionError::ext(Location::Unknown, "a numeric value"))
   }

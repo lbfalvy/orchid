@@ -1,4 +1,7 @@
 import super::known::*
+import super::match::*
+import super::macro
+import super::match::(match, =>)
 
 --[ Do nothing. Especially useful as a passive cps operation ]--
 export const identity := \x.x
@@ -21,6 +24,19 @@ export const return := \a. \b.a
 export macro ...$prefix $ ...$suffix:1 =0x1p38=> ...$prefix (...$suffix)
 export macro ...$prefix |> $fn ..$suffix:1 =0x2p32=> $fn (...$prefix) ..$suffix
 
-export macro ($name) => ...$body =0x2p127=> (\$name. ...$body)
-export macro ($name, ...$argv) => ...$body =0x2p127=> (\$name. (...$argv) => ...$body)
-export macro $name => ...$body =0x1p127=> (\$name. ...$body)
+( macro (..$argv) => ...$body
+  =0x2p127=> lambda_walker macro::comma_list (..$argv) (...$body)
+)
+( macro $_arg => ...$body
+  =0x2p127=> \$_arg. ...$body)
+( macro lambda_walker ( macro::list_item ($_argname) $tail ) $body
+  =0x2p254=> \$_argname. lambda_walker $tail $body
+)
+( macro lambda_walker ( macro::list_item (...$head) $tail ) $body
+  =0x1p254=> \arg. match arg {
+    ...$head => lambda_walker $tail $body;
+  }
+)
+( macro lambda_walker macro::list_end $body
+  =0x1p254=> $body
+)

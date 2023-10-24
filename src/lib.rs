@@ -12,7 +12,7 @@ pub mod facade;
 pub mod foreign;
 pub mod interner;
 pub mod interpreter;
-mod parse;
+pub mod parse;
 pub mod pipeline;
 mod representations;
 pub mod rule;

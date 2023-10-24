@@ -86,7 +86,8 @@ impl<'a> PreMacro<'a> {
       } else {
         repo.pass(source).unwrap_or_else(|| source.clone())
       };
-      let runtree = ast_to_interpreted(&unmatched).map_err(|e| e.rc())?;
+      let runtree =
+        ast_to_interpreted(&unmatched, name.clone()).map_err(|e| e.rc())?;
       symbols.insert(name.clone(), runtree);
     }
     Ok(Process {

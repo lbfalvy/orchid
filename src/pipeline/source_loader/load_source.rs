@@ -29,10 +29,11 @@ pub struct Context<'a> {
 /// Load the source at the given path or all within if it's a collection,
 /// and all sources imported from these.
 fn load_abs_path_rec(
+  referrer: &[Tok<String>],
   abs_path: &[Tok<String>],
   mut all: Preparsed,
   source: &mut LoadedSourceTable,
-  get_source: &impl Fn(&[Tok<String>]) -> IOResult,
+  get_source: &impl Fn(&[Tok<String>], &[Tok<String>]) -> IOResult,
   is_injected_module: &impl Fn(&[Tok<String>]) -> bool,
   ctx @ Context { i, lexer_plugins, line_parsers, prelude }: Context,
 ) -> ProjectResult<Preparsed> {
@@ -46,7 +47,7 @@ fn load_abs_path_rec(
 
   // try splitting the path to file, swallowing any IO errors
   let name_split = split_max_prefix(abs_path, &|p| {
-    get_source(p).map(|l| l.is_code()).unwrap_or(false)
+    get_source(p, referrer).map(|l| l.is_code()).unwrap_or(false)
   });
   if let Some((filename, _)) = name_split {
     // Termination: exit if entry already visited
@@ -54,10 +55,10 @@ fn load_abs_path_rec(
       return Ok(all);
     }
     // if the filename is valid, load, preparse and record this file
-    let text = unwrap_or!(get_source(filename)? => Loaded::Code; {
+    let text = unwrap_or!(get_source(filename, referrer)? => Loaded::Code; {
       return Err(UnexpectedDirectory { path: filename.to_vec() }.rc())
     });
-    let entries = parse::parse2(ParsingContext::new(
+    let entries = parse::parse_file(ParsingContext::new(
       i,
       Arc::new(filename.to_vec()),
       text,
@@ -73,6 +74,7 @@ fn load_abs_path_rec(
                                              mut all|
      -> ProjectResult<_> {
       let details = unwrap_or!(module.extra.details(); return Ok(all));
+      let referrer = modpath.iter().rev_vec_clone();
       for import in &details.imports {
         let origin = &Location::Unknown;
         let abs_pathv = import_abs_path(
@@ -87,6 +89,7 @@ fn load_abs_path_rec(
         }
         // recurse on imported module
         all = load_abs_path_rec(
+          &referrer,
           &abs_pathv,
           all,
           source,
@@ -101,7 +104,7 @@ fn load_abs_path_rec(
     all.0.overlay(preparsed.0).map(Preparsed)
   } else {
     // If the path is not within a file, load it as directory
-    let coll = match get_source(abs_path) {
+    let coll = match get_source(abs_path, referrer) {
       Ok(Loaded::Collection(coll)) => coll,
       Ok(Loaded::Code(_)) => {
         unreachable!("split_name returned None but the path is a file")
@@ -118,6 +121,7 @@ fn load_abs_path_rec(
     for item in coll.iter() {
       let abs_subpath = pushed_ref(abs_path, i.i(item));
       all = load_abs_path_rec(
+        referrer,
         &abs_subpath,
         all,
         source,
@@ -139,7 +143,7 @@ fn load_abs_path_rec(
 pub fn load_source<'a>(
   targets: impl Iterator<Item = &'a [Tok<String>]>,
   ctx: Context,
-  get_source: &impl Fn(&[Tok<String>]) -> IOResult,
+  get_source: &impl Fn(&[Tok<String>], &[Tok<String>]) -> IOResult,
   is_injected_module: &impl Fn(&[Tok<String>]) -> bool,
 ) -> ProjectResult<(Preparsed, LoadedSourceTable)> {
   let mut table = LoadedSourceTable::new();
@@ -149,6 +153,7 @@ pub fn load_source<'a>(
   for target in targets {
     any_target |= true;
     all = load_abs_path_rec(
+      &[],
       target,
       all,
       &mut table,

@@ -1,22 +1,22 @@
-use std::fmt::Display;
-use std::rc::Rc;
+use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use crate::foreign::ExternError;
 use crate::{Location, Sym};
 
 /// Problems in the process of execution
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub enum RuntimeError {
   /// A Rust function encountered an error
-  Extern(Rc<dyn ExternError>),
+  Extern(Arc<dyn ExternError>),
   /// Primitive applied as function
   NonFunctionApplication(Location),
   /// Symbol not in context
   MissingSymbol(Sym, Location),
 }
 
-impl From<Rc<dyn ExternError>> for RuntimeError {
-  fn from(value: Rc<dyn ExternError>) -> Self { Self::Extern(value) }
+impl From<Arc<dyn ExternError>> for RuntimeError {
+  fn from(value: Arc<dyn ExternError>) -> Self { Self::Extern(value) }
 }
 
 impl Display for RuntimeError {

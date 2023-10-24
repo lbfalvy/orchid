@@ -27,10 +27,10 @@ pub struct System<'a> {
   /// Custom lexer for the source code representation atomic data.
   /// These take priority over builtin lexers so the syntax they
   /// match should be unambiguous
-  pub lexer_plugin: Option<Box<dyn LexerPlugin>>,
+  pub lexer_plugins: Vec<Box<dyn LexerPlugin>>,
   /// Parser that processes custom line types into their representation in the
   /// module tree
-  pub line_parser: Option<Box<dyn LineParser>>,
+  pub line_parsers: Vec<Box<dyn LineParser>>,
 }
 impl<'a> System<'a> {
   /// Intern the name of the system so that it can be used as an Orchid
@@ -41,10 +41,17 @@ impl<'a> System<'a> {
   }
 
   /// Load a file from the system
-  pub fn load_file(&self, path: &[Tok<String>]) -> IOResult {
+  pub fn load_file(
+    &self,
+    path: &[Tok<String>],
+    referrer: &[Tok<String>],
+  ) -> IOResult {
     (self.code.get(path)).cloned().ok_or_else(|| {
-      let err =
-        MissingSystemCode { path: path.to_vec(), system: self.name.clone() };
+      let err = MissingSystemCode {
+        path: path.to_vec(),
+        system: self.name.clone(),
+        referrer: referrer.to_vec(),
+      };
       err.rc()
     })
   }
@@ -56,6 +63,7 @@ impl<'a> System<'a> {
 pub struct MissingSystemCode {
   path: VName,
   system: Vec<String>,
+  referrer: VName,
 }
 impl ProjectError for MissingSystemCode {
   fn description(&self) -> &str {
@@ -63,8 +71,9 @@ impl ProjectError for MissingSystemCode {
   }
   fn message(&self) -> String {
     format!(
-      "Path {} is not defined by {} or any system before it",
+      "Path {} imported by {} is not defined by {} or any system before it",
       Interner::extern_all(&self.path).join("::"),
+      Interner::extern_all(&self.referrer).join("::"),
       self.system.join("::")
     )
   }

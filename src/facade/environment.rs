@@ -46,10 +46,12 @@ impl<'a> Environment<'a> {
     let mut line_parsers = vec![];
     let mut prelude = vec![];
     for sys in systems.iter() {
+      lexer_plugins.extend(sys.lexer_plugins.iter().map(|b| &**b));
+      line_parsers.extend(sys.line_parsers.iter().map(|b| &**b));
       if !sys.code.is_empty() {
         tree = parse_layer(
           sys.code.keys().map(|sym| &sym[..]),
-          &|k| sys.load_file(k),
+          &|k, referrer| sys.load_file(k, referrer),
           &tree,
           &prelude,
           &lexer_plugins,
@@ -57,8 +59,6 @@ impl<'a> Environment<'a> {
           i,
         )?;
       }
-      lexer_plugins.extend(sys.lexer_plugin.as_deref().iter());
-      line_parsers.extend(sys.line_parser.as_deref().iter());
       prelude.extend_from_slice(&sys.prelude);
     }
     Ok(CompiledEnv { prelude, tree, systems })
@@ -74,14 +74,14 @@ impl<'a> Environment<'a> {
     let CompiledEnv { prelude, systems, tree } = self.compile()?;
     let file_cache = file_loader::mk_dir_cache(dir.to_path_buf());
     let lexer_plugins = (systems.iter())
-      .filter_map(|s| s.lexer_plugin.as_deref())
+      .flat_map(|s| s.lexer_plugins.iter().map(|b| &**b))
       .collect::<Vec<_>>();
     let line_parsers = (systems.iter())
-      .filter_map(|s| s.line_parser.as_deref())
+      .flat_map(|s| s.line_parsers.iter().map(|b| &**b))
       .collect::<Vec<_>>();
     let vname_tree = parse_layer(
       iter::once(target),
-      &|path| file_cache.find(path),
+      &|path, _| file_cache.find(path),
       &tree,
       &prelude,
       &lexer_plugins,

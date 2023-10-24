@@ -1,22 +1,32 @@
 use itertools::Itertools;
 
 use super::context::Context;
+#[allow(unused)] // for doc
+use super::context::LexerPlugin;
 use super::errors::{BadCodePoint, BadEscapeSequence, NoStringEnd, NotHex};
 use crate::error::{ProjectError, ProjectResult};
 use crate::foreign::Atom;
 use crate::OrcString;
 
+/// Reasons why [parse_string] might fail. See [StringError]
 pub enum StringErrorKind {
+  /// A unicode escape sequence wasn't followed by 4 hex digits
   NotHex,
+  /// A unicode escape sequence contained an unassigned code point
   BadCodePoint,
+  /// An unrecognized escape sequence was found
   BadEscSeq,
 }
 
+/// Error produced by [parse_string]
 pub struct StringError {
+  /// Character where the error occured
   pos: usize,
+  /// Reason for the error
   kind: StringErrorKind,
 }
 
+/// Process escape sequences in a string literal
 pub fn parse_string(str: &str) -> Result<String, StringError> {
   let mut target = String::new();
   let mut iter = str.char_indices();
@@ -65,6 +75,7 @@ pub fn parse_string(str: &str) -> Result<String, StringError> {
   Ok(target)
 }
 
+/// [LexerPlugin] for a string literal.
 pub fn lex_string<'a>(
   data: &'a str,
   ctx: &dyn Context,
