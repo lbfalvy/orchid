@@ -6,16 +6,17 @@ use itertools::Itertools;
 use ordered_float::NotNan;
 
 use super::matcher::{Matcher, RuleExpr};
+use super::matcher_vectree::shared::VectreeMatcher;
 use super::prepare_rule::prepare_rule;
+use super::rule_error::RuleError;
 use super::state::apply_exprv;
-use super::{update_first_seq, RuleError, VectreeMatcher};
-use crate::ast::Rule;
-use crate::interner::Interner;
-use crate::parse::print_nat16;
-use crate::Sym;
+use super::update_first_seq;
+use crate::name::Sym;
+use crate::parse::numeric::print_nat16;
+use crate::pipeline::project::ProjRule;
 
 #[derive(Debug)]
-pub struct CachedRule<M: Matcher> {
+pub(super) struct CachedRule<M: Matcher> {
   matcher: M,
   pattern: Vec<RuleExpr>,
   pat_glossary: HashSet<Sym>,
@@ -47,16 +48,13 @@ pub struct Repository<M: Matcher> {
 }
 impl<M: Matcher> Repository<M> {
   /// Build a new repository to hold the given set of rules
-  pub fn new(
-    mut rules: Vec<Rule<Sym>>,
-    i: &Interner,
-  ) -> Result<Self, (Rule<Sym>, RuleError)> {
+  pub fn new(mut rules: Vec<ProjRule>) -> Result<Self, (ProjRule, RuleError)> {
     rules.sort_by_key(|r| -r.prio);
     let cache = rules
       .into_iter()
       .map(|r| {
-        let Rule { pattern, prio, template } =
-          prepare_rule(r.clone(), i).map_err(|e| (r, e))?;
+        let ProjRule { pattern, prio, template, comments: _ } =
+          prepare_rule(r.clone()).map_err(|e| (r, e))?;
         let mut pat_glossary = HashSet::new();
         pat_glossary.extend(
           pattern.iter().flat_map(|e| e.value.collect_names().into_iter()),
@@ -160,8 +158,7 @@ impl<M: Display + Matcher> Display for Repository<M> {
     writeln!(f, "Repository[")?;
     for (rule, p) in self.cache.iter() {
       let prio = print_nat16(*p);
-      let deps =
-        rule.pat_glossary.iter().map(|t| t.extern_vec().join("::")).join(", ");
+      let deps = rule.pat_glossary.iter().join(", ");
       writeln!(f, "  priority: {prio}\tdependencies: [{deps}]")?;
       writeln!(f, "    {rule}")?;
     }

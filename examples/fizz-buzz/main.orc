@@ -1,4 +1,4 @@
-import std::to_string
+import std::conv::to_string
 
 const fizz_buzz := n => (
   (recursive r (i=0) list::cons i $ r (i + 1))
@@ -10,7 +10,7 @@ const fizz_buzz := n => (
     )
     |> list::take n
     |> list::reduce ((l, r) => l ++ "\n" ++ r)
-    |> option::unwrap
+    |> option::assume
 )
 
 const main := fizz_buzz 100

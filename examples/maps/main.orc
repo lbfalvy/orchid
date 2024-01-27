@@ -8,7 +8,7 @@ export const main := do{
     "bar" = 4
   ];
   let num = map::get foo "bar"
-    |> option::unwrap;
+    |> option::assume;
   cps println $ to_string num;
   0
 }

@@ -1,17 +1,23 @@
+//! Parse a float or integer. These functions are also used for the macro
+//! priority numbers
+
 use std::num::IntErrorKind;
 use std::ops::Range;
-use std::rc::Rc;
 
 use ordered_float::NotNan;
 
-use super::context::Context;
+use super::context::ParseCtx;
+use super::errors::{
+  ExpectedDigit, LiteralOverflow, NaNLiteral, ParseErrorKind,
+};
+use super::lex_plugin::LexPluginReq;
 #[allow(unused)] // for doc
-use super::context::LexerPlugin;
-use super::errors::{ExpectedDigit, LiteralOverflow, NaNLiteral};
-use super::lexer::split_filter;
-use crate::error::{ProjectError, ProjectResult};
-use crate::foreign::Atom;
-use crate::systems::stl::Numeric;
+use super::lex_plugin::LexerPlugin;
+use super::lexer::{split_filter, Entry, LexRes, Lexeme};
+use crate::error::{ProjectErrorObj, ProjectResult};
+use crate::foreign::atom::AtomGenerator;
+use crate::foreign::inert::Inert;
+use crate::libs::std::number::Numeric;
 
 /// Rasons why [parse_num] might fail. See [NumError].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,14 +54,14 @@ impl NumError {
     self,
     len: usize,
     tail: &str,
-    ctx: &(impl Context + ?Sized),
-  ) -> Rc<dyn ProjectError> {
+    ctx: &(impl ParseCtx + ?Sized),
+  ) -> ProjectErrorObj {
     let start = ctx.source().len() - tail.len() - len + self.range.start;
-    let location = ctx.range_loc(start..start + self.range.len());
+    let location = ctx.range_loc(&(start..start + self.range.len()));
     match self.kind {
-      NumErrorKind::NaN => NaNLiteral(location).rc(),
-      NumErrorKind::InvalidDigit => ExpectedDigit(location).rc(),
-      NumErrorKind::Overflow => LiteralOverflow(location).rc(),
+      NumErrorKind::NaN => NaNLiteral.pack(location),
+      NumErrorKind::InvalidDigit => ExpectedDigit.pack(location),
+      NumErrorKind::Overflow => LiteralOverflow.pack(location),
     }
   }
 }
@@ -93,7 +99,7 @@ pub fn parse_num(string: &str) -> Result<Numeric, NumError> {
     Some((whole, part)) => {
       let whole_n = int_parse(whole, radix, pos)? as f64;
       let part_n = int_parse(part, radix, pos + whole.len() + 1)? as f64;
-      let real_val = whole_n + (part_n / radix.pow(part.len() as u32) as f64);
+      let real_val = whole_n + (part_n / (radix as f64).powi(part.len() as i32));
       let f = real_val * (radix as f64).powi(exponent);
       Ok(Numeric::Float(NotNan::new(f).expect("None of the inputs are NaN")))
     },
@@ -112,25 +118,49 @@ pub fn numchar(c: char) -> bool { c.is_alphanumeric() | "._-".contains(c) }
 /// Filter for characters that can start numbers
 pub fn numstart(c: char) -> bool { c.is_ascii_digit() }
 
+/// Print a number as a base-16 floating point literal
+#[must_use]
+pub fn print_nat16(num: NotNan<f64>) -> String {
+  if *num == 0.0 {
+    return "0x0".to_string();
+  } else if num.is_infinite() {
+    return match num.is_sign_positive() {
+      true => "Infinity".to_string(),
+      false => "-Infinity".to_string(),
+    };
+  } else if num.is_nan() {
+    return "NaN".to_string();
+  }
+  let exp = num.log(16.0).floor();
+  let man = *num / 16_f64.powf(exp);
+  format!("0x{man}p{exp:.0}")
+}
+
 /// [LexerPlugin] for a number literal
-pub fn lex_numeric<'a>(
-  data: &'a str,
-  ctx: &dyn Context,
-) -> Option<ProjectResult<(Atom, &'a str)>> {
-  data.chars().next().filter(|c| numstart(*c)).map(|_| {
-    let (num_str, tail) = split_filter(data, numchar);
-    match parse_num(num_str) {
-      Ok(Numeric::Float(f)) => Ok((Atom::new(f), tail)),
-      Ok(Numeric::Uint(i)) => Ok((Atom::new(i), tail)),
-      Err(e) => Err(e.into_proj(num_str.len(), tail, ctx)),
-    }
-  })
+pub struct NumericLexer;
+impl LexerPlugin for NumericLexer {
+  fn lex<'b>(
+    &self,
+    req: &'_ dyn LexPluginReq<'b>,
+  ) -> Option<ProjectResult<LexRes<'b>>> {
+    req.tail().chars().next().filter(|c| numstart(*c)).map(|_| {
+      let (num_str, tail) = split_filter(req.tail(), numchar);
+      let ag = match parse_num(num_str) {
+        Ok(Numeric::Float(f)) => AtomGenerator::cloner(Inert(f)),
+        Ok(Numeric::Uint(i)) => AtomGenerator::cloner(Inert(i)),
+        Err(e) => return Err(e.into_proj(num_str.len(), tail, req.ctx())),
+      };
+      let range = req.ctx().range(num_str.len(), tail);
+      let entry = Entry { lexeme: Lexeme::Atom(ag), range };
+      Ok(LexRes { tail, tokens: vec![entry] })
+    })
+  }
 }
 
 #[cfg(test)]
 mod test {
+  use crate::libs::std::number::Numeric;
   use crate::parse::numeric::parse_num;
-  use crate::systems::stl::Numeric;
 
   #[test]
   fn just_ints() {
@@ -152,22 +182,4 @@ mod test {
     test("1.5p3", 1500f64);
     test("0x2.5p3", (0x25 * 0x100) as f64);
   }
-}
-
-/// Print a number as a base-16 floating point literal
-#[must_use]
-pub fn print_nat16(num: NotNan<f64>) -> String {
-  if *num == 0.0 {
-    return "0x0".to_string();
-  } else if num.is_infinite() {
-    return match num.is_sign_positive() {
-      true => "Infinity".to_string(),
-      false => "-Infinity".to_string(),
-    };
-  } else if num.is_nan() {
-    return "NaN".to_string();
-  }
-  let exp = num.log(16.0).floor();
-  let man = *num / 16_f64.powf(exp);
-  format!("0x{man}p{exp:.0}")
 }

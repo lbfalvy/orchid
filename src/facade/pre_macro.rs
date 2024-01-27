@@ -1,98 +1,80 @@
 use std::iter;
-use std::sync::Arc;
 
 use hashbrown::HashMap;
+use never::Never;
 
-use super::{Process, System};
-use crate::error::{ProjectError, ProjectResult};
-use crate::interpreter::HandlerTable;
-use crate::rule::Repo;
-use crate::{
-  ast, ast_to_interpreted, collect_consts, collect_rules, rule, Interner,
-  Location, ProjectTree, Sym,
+use super::process::Process;
+use super::system::System;
+use crate::error::{ErrorPosition, ProjectError, ProjectResult};
+use crate::intermediate::ast_to_ir::ast_to_ir;
+use crate::intermediate::ir_to_nort::ir_to_nort;
+use crate::interpreter::handler::HandlerTable;
+use crate::location::{CodeGenInfo, CodeLocation};
+use crate::name::{Sym, VPath};
+use crate::parse::parsed;
+use crate::pipeline::project::{
+  collect_consts, collect_rules, ConstReport, ProjectTree,
 };
+use crate::rule::repository::Repo;
+use crate::tree::ModMember;
 
 /// Everything needed for macro execution, and constructing the process
 pub struct PreMacro<'a> {
   /// Optimized catalog of substitution rules
   pub repo: Repo,
   /// Runtime code containing macro invocations
-  pub consts: HashMap<Sym, (ast::Expr<Sym>, Location)>,
+  pub consts: HashMap<Sym, (ConstReport, CodeLocation)>,
   /// Libraries and plug-ins
   pub systems: Vec<System<'a>>,
-  /// [Interner] pseudo-global
-  pub i: &'a Interner,
 }
 impl<'a> PreMacro<'a> {
   /// Build a [PreMacro] from a source tree and system list
   pub fn new(
-    tree: ProjectTree<Sym>,
+    tree: &ProjectTree,
     systems: Vec<System<'a>>,
-    i: &'a Interner,
   ) -> ProjectResult<Self> {
-    let consts = collect_consts(&tree, i);
-    let rules = collect_rules(&tree);
-    let repo = match rule::Repo::new(rules, i) {
-      Ok(r) => r,
-      Err((rule, error)) => {
-        return Err(error.to_project_error(&rule));
-      },
-    };
     Ok(Self {
       repo,
       consts: (consts.into_iter())
         .map(|(name, expr)| {
-          // Figure out the location of the constant
-          let location = (name.split_last())
-            .and_then(|(_, path)| {
-              let origin = (tree.0)
-                .walk_ref(&[], path, false)
-                .unwrap_or_else(|_| panic!("path sourced from symbol names"));
-              (origin.extra.file.as_ref()).cloned()
-            })
-            .map(|p| Location::File(Arc::new(p)))
-            .unwrap_or(Location::Unknown);
+          let (ent, _) = (tree.0)
+            .walk1_ref(&[], &name.split_last().1[..], |_| true)
+            .expect("path sourced from symbol names");
+          let location = (ent.x.locations.first().cloned())
+            .unwrap_or_else(|| CodeLocation::Source(expr.value.range.clone()));
           (name, (expr, location))
         })
         .collect(),
-      i,
       systems,
     })
   }
 
   /// Run all macros to termination or the optional timeout. If a timeout does
   /// not occur, returns a process which can execute Orchid code
-  pub fn build_process(
+  pub fn run_macros(
     self,
     timeout: Option<usize>,
   ) -> ProjectResult<Process<'a>> {
-    let Self { i, systems, repo, consts } = self;
-    let mut symbols = HashMap::new();
-    for (name, (source, source_location)) in consts.iter() {
-      let unmatched = if let Some(limit) = timeout {
-        let (unmatched, steps_left) = repo.long_step(source, limit + 1);
-        if steps_left == 0 {
-          return Err(
-            MacroTimeout {
-              location: source_location.clone(),
-              symbol: name.clone(),
-              limit,
-            }
-            .rc(),
-          );
-        } else {
-          unmatched
+    let Self { systems, repo, consts } = self;
+    for sys in systems.iter() {
+      let const_module = sys.constants.unwrap_mod_ref();
+      let _ = const_module.search_all((), &mut |path, module, ()| {
+        for (key, ent) in &module.entries {
+          if let ModMember::Item(c) = &ent.member {
+            let path = VPath::new(path.unreverse()).as_prefix_of(key.clone());
+            let cginfo = CodeGenInfo::details(
+              "constant from",
+              format!("system.name={}", sys.name),
+            );
+            symbols
+              .insert(path.to_sym(), c.gen_nort(CodeLocation::Gen(cginfo)));
+          }
         }
-      } else {
-        repo.pass(source).unwrap_or_else(|| source.clone())
-      };
-      let runtree =
-        ast_to_interpreted(&unmatched, name.clone()).map_err(|e| e.rc())?;
-      symbols.insert(name.clone(), runtree);
+        Ok::<(), Never>(())
+      });
     }
     Ok(Process {
       symbols,
-      i,
       handlers: (systems.into_iter())
         .fold(HandlerTable::new(), |tbl, sys| tbl.combine(sys.handlers)),
     })
@@ -100,8 +82,9 @@ impl<'a> PreMacro<'a> {
 
   /// Obtain an iterator that steps through the preprocessing of a constant
   /// for debugging macros
-  pub fn step(&self, sym: Sym) -> impl Iterator<Item = ast::Expr<Sym>> + '_ {
-    let mut target = self.consts.get(&sym).expect("Target not found").0.clone();
+  pub fn step(&self, sym: Sym) -> impl Iterator<Item = parsed::Expr> + '_ {
+    let mut target =
+      self.consts.get(&sym).expect("Target not found").0.value.clone();
     iter::from_fn(move || {
       target = self.repo.step(&target)?;
       Some(target.clone())
@@ -112,20 +95,17 @@ impl<'a> PreMacro<'a> {
 /// Error raised when a macro runs too long
 #[derive(Debug)]
 pub struct MacroTimeout {
-  location: Location,
+  location: CodeLocation,
   symbol: Sym,
   limit: usize,
 }
 impl ProjectError for MacroTimeout {
-  fn description(&self) -> &str { "Macro execution has not halted" }
+  const DESCRIPTION: &'static str = "Macro execution has not halted";
 
   fn message(&self) -> String {
-    format!(
-      "Macro execution during the processing of {} took more than {} steps",
-      self.symbol.extern_vec().join("::"),
-      self.limit
-    )
+    let Self { symbol, limit, .. } = self;
+    format!("Macro processing in {symbol} took more than {limit} steps")
   }
 
-  fn one_position(&self) -> Location { self.location.clone() }
+  fn one_position(&self) -> CodeLocation { self.location.clone() }
 }

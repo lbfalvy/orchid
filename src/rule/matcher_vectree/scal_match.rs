@@ -1,9 +1,9 @@
 use super::any_match::any_match;
 use super::shared::ScalMatcher;
-use crate::ast::Clause;
+use crate::name::Sym;
+use crate::parse::parsed::Clause;
 use crate::rule::matcher::RuleExpr;
 use crate::rule::state::{State, StateEntry};
-use crate::Sym;
 
 #[must_use]
 pub fn scal_match<'a>(
@@ -12,15 +12,16 @@ pub fn scal_match<'a>(
   save_loc: &impl Fn(Sym) -> bool,
 ) -> Option<State<'a>> {
   match (matcher, &expr.value) {
-    (ScalMatcher::Atom(a1), Clause::Atom(a2)) if a1.0.strict_eq(&a2.0) =>
+    (ScalMatcher::Atom(a1), Clause::Atom(a2))
+      if a1.run().0.parser_eq(&a2.run().0) =>
       Some(State::default()),
     (ScalMatcher::Name(n1), Clause::Name(n2)) if n1 == n2 =>
       Some(match save_loc(n1.clone()) {
-        true => State::from_name(n1.clone(), expr.location.clone()),
+        true => State::from_name(n1.clone(), expr.range.clone()),
         false => State::default(),
       }),
     (ScalMatcher::Placeh { key, name_only: true }, Clause::Name(n)) =>
-      Some(State::from_ph(key.clone(), StateEntry::Name(n, &expr.location))),
+      Some(State::from_ph(key.clone(), StateEntry::Name(n, &expr.range))),
     (ScalMatcher::Placeh { key, name_only: false }, _) =>
       Some(State::from_ph(key.clone(), StateEntry::Scalar(expr))),
     (ScalMatcher::S(c1, b_mat), Clause::S(c2, body)) if c1 == c2 =>

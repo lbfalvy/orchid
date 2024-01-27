@@ -34,13 +34,10 @@ fn iter_starts_with<T: Eq>(
 ) -> ISWResult {
   // if a starts with b then for every element in b
   for item in b {
-    // a has to contain the same element
-    if let Some(comp) = a.next() {
-      if item != comp {
-        return ISWResult::Difference;
-      }
-    } else {
-      return ISWResult::Shorter;
+    match a.next() {
+      Some(comp) if item == comp => (),
+      Some(_) => return ISWResult::Difference,
+      None => return ISWResult::Shorter,
     }
   }
   ISWResult::StartsWith

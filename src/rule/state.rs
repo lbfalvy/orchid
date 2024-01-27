@@ -1,24 +1,25 @@
 use std::rc::Rc;
 
 use hashbrown::HashMap;
+use intern_all::Tok;
 use itertools::{EitherOrBoth, Itertools};
 
 use super::matcher::RuleExpr;
-use crate::ast::{Clause, Expr, PHClass, Placeholder};
-use crate::interner::Tok;
-use crate::utils::unwrap_or;
-use crate::{Location, Sym};
+use crate::location::SourceRange;
+use crate::name::Sym;
+use crate::parse::parsed::{Clause, Expr, PHClass, Placeholder};
+use crate::utils::unwrap_or::unwrap_or;
 
 #[derive(Clone, Copy, Debug)]
 pub enum StateEntry<'a> {
   Vec(&'a [RuleExpr]),
   Scalar(&'a RuleExpr),
-  Name(&'a Sym, &'a Location),
+  Name(&'a Sym, &'a SourceRange),
 }
 #[derive(Clone)]
 pub struct State<'a> {
   placeholders: HashMap<Tok<String>, StateEntry<'a>>,
-  name_locations: HashMap<Sym, Vec<Location>>,
+  name_locations: HashMap<Sym, Vec<SourceRange>>,
 }
 impl<'a> State<'a> {
   pub fn from_ph(key: Tok<String>, entry: StateEntry<'a>) -> Self {
@@ -55,7 +56,7 @@ impl<'a> State<'a> {
       _ => None,
     }
   }
-  pub fn from_name(name: Sym, location: Location) -> Self {
+  pub fn from_name(name: Sym, location: SourceRange) -> Self {
     Self {
       name_locations: HashMap::from([(name, vec![location])]),
       placeholders: HashMap::new(),
@@ -79,13 +80,11 @@ pub fn apply_exprv(template: &[RuleExpr], state: &State) -> Vec<RuleExpr> {
 
 #[must_use]
 pub fn apply_expr(template: &RuleExpr, state: &State) -> Vec<RuleExpr> {
-  let Expr { location, value } = template;
+  let Expr { range, value } = template;
   match value {
-    Clause::Atom(_) | Clause::Name(_) | Clause::ExternFn(_) => {
-      vec![template.clone()]
-    },
+    Clause::Atom(_) | Clause::Name(_) => vec![template.clone()],
     Clause::S(c, body) => vec![Expr {
-      location: location.clone(),
+      range: range.clone(),
       value: Clause::S(*c, Rc::new(apply_exprv(body.as_slice(), state))),
     }],
     Clause::Placeh(Placeholder { name, class }) => {
@@ -95,14 +94,14 @@ pub fn apply_expr(template: &RuleExpr, state: &State) -> Vec<RuleExpr> {
       match (class, value) {
         (PHClass::Scalar, StateEntry::Scalar(item)) => vec![item.clone()],
         (PHClass::Vec { .. }, StateEntry::Vec(chunk)) => chunk.to_vec(),
-        (PHClass::Name, StateEntry::Name(n, l)) => {
-          vec![RuleExpr { value: Clause::Name(n.clone()), location: l.clone() }]
+        (PHClass::Name, StateEntry::Name(n, r)) => {
+          vec![RuleExpr { value: Clause::Name(n.clone()), range: r.clone() }]
         },
         _ => panic!("Type mismatch between template and state"),
       }
     },
     Clause::Lambda(arg, body) => vec![Expr {
-      location: location.clone(),
+      range: range.clone(),
       value: Clause::Lambda(
         Rc::new(apply_exprv(arg, state)),
         Rc::new(apply_exprv(&body[..], state)),

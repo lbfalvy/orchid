@@ -1,43 +1,35 @@
 use hashbrown::HashMap;
+use intern_all::{i, Tok};
 use itertools::Itertools;
 
 use super::matcher::RuleExpr;
+use super::rule_error::RuleError;
 use super::vec_attrs::vec_attrs;
-use super::RuleError;
-use crate::ast::{Clause, Expr, PHClass, Placeholder, Rule};
-use crate::interner::{Interner, Tok};
-use crate::representations::location::Location;
-use crate::Sym;
+use crate::parse::parsed::{Clause, PHClass, Placeholder};
+use crate::pipeline::project::ProjRule;
 
 /// Ensure that the rule's source begins and ends with a vectorial without
 /// changing its meaning
 #[must_use]
-fn pad(mut rule: Rule<Sym>, i: &Interner) -> Rule<Sym> {
+fn pad(rule: ProjRule) -> ProjRule {
+  let prefix_name = i("__gen__orchid__rule__prefix");
+  let suffix_name = i("__gen__orchid__rule__suffix");
   let class: PHClass = PHClass::Vec { nonzero: false, prio: 0 };
-  let empty: &[Expr<Sym>] = &[];
-  let prefix: &[Expr<Sym>] = &[Expr {
-    location: Location::Unknown,
-    value: Clause::Placeh(Placeholder { name: i.i("::prefix"), class }),
-  }];
-  let suffix: &[Expr<Sym>] = &[Expr {
-    location: Location::Unknown,
-    value: Clause::Placeh(Placeholder { name: i.i("::suffix"), class }),
-  }];
-  let rule_head = rule.pattern.first().expect("Src can never be empty!");
-  let prefix_explicit = vec_attrs(rule_head).is_some();
-  let rule_tail = rule.pattern.last().expect("Unreachable branch!");
-  let suffix_explicit = vec_attrs(rule_tail).is_some();
-  let prefix_v = if prefix_explicit { empty } else { prefix };
-  let suffix_v = if suffix_explicit { empty } else { suffix };
-  rule.pattern = (prefix_v.iter().cloned())
-    .chain(rule.pattern)
-    .chain(suffix_v.iter().cloned())
-    .collect();
-  rule.template = (prefix_v.iter().cloned())
-    .chain(rule.template)
-    .chain(suffix_v.iter().cloned())
-    .collect();
-  rule
+  let ProjRule { comments, pattern, prio, template } = rule;
+  let rule_head = pattern.first().expect("Pattern can never be empty!");
+  let rule_tail = pattern.last().unwrap();
+  let prefix = vec_attrs(rule_head).is_none().then(|| {
+    Clause::Placeh(Placeholder { name: prefix_name, class })
+      .into_expr(rule_head.range.map_range(|r| r.start..r.start))
+  });
+  let suffix = vec_attrs(rule_tail).is_none().then(|| {
+    Clause::Placeh(Placeholder { name: suffix_name, class })
+      .into_expr(rule_tail.range.map_range(|r| r.start..r.start))
+  });
+  let pattern =
+    prefix.iter().cloned().chain(pattern).chain(suffix.clone()).collect();
+  let template = prefix.into_iter().chain(template).chain(suffix).collect();
+  ProjRule { comments, prio, pattern, template }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -63,7 +55,6 @@ fn check_rec_expr(
 ) -> Result<(), RuleError> {
   match &expr.value {
     Clause::Name(_) | Clause::Atom(_) => Ok(()),
-    Clause::ExternFn(_) => Err(RuleError::ExternFn),
     Clause::Placeh(Placeholder { name, class }) => {
       let typ = (*class).into();
       // in a template, the type must be known and identical
@@ -111,14 +102,11 @@ fn check_rec_exprv(
   }
 }
 
-pub fn prepare_rule(
-  rule: Rule<Sym>,
-  i: &Interner,
-) -> Result<Rule<Sym>, RuleError> {
+pub fn prepare_rule(rule: ProjRule) -> Result<ProjRule, RuleError> {
   // Dimension check
   let mut types = HashMap::new();
   check_rec_exprv(&rule.pattern, &mut types, false)?;
   check_rec_exprv(&rule.template, &mut types, true)?;
   // Padding
-  Ok(pad(rule, i))
+  Ok(pad(rule))
 }

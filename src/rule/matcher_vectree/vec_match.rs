@@ -4,9 +4,9 @@ use itertools::Itertools;
 
 use super::scal_match::scalv_match;
 use super::shared::VecMatcher;
+use crate::name::Sym;
 use crate::rule::matcher::RuleExpr;
 use crate::rule::state::{State, StateEntry};
-use crate::Sym;
 
 #[must_use]
 pub fn vec_match<'a>(

@@ -1,10 +1,6 @@
-//! Loading Orchid modules from source
+//! Loading Orchid projects from source
 mod dealias;
-pub mod file_loader;
-mod import_abs_path;
-mod parse_layer;
-mod project_tree;
-mod source_loader;
-// mod tree_loader;
-
-pub use parse_layer::parse_layer;
+pub mod load_solution;
+mod path;
+mod process_source;
+pub mod project;

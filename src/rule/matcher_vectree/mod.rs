@@ -13,8 +13,5 @@
 mod any_match;
 mod build;
 mod scal_match;
-mod shared;
+pub mod shared;
 mod vec_match;
-
-// pub use build::mk_matcher;
-pub use shared::VectreeMatcher;

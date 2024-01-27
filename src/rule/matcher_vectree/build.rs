@@ -1,11 +1,11 @@
+use intern_all::Tok;
 use itertools::Itertools;
 
 use super::shared::{AnyMatcher, ScalMatcher, VecMatcher};
-use crate::ast::{Clause, PHClass, Placeholder};
-use crate::interner::Tok;
+use crate::parse::parsed::{Clause, PHClass, Placeholder};
 use crate::rule::matcher::RuleExpr;
 use crate::rule::vec_attrs::vec_attrs;
-use crate::utils::Side;
+use crate::utils::side::Side;
 
 pub type MaxVecSplit<'a> =
   (&'a [RuleExpr], (Tok<String>, usize, bool), &'a [RuleExpr]);
@@ -108,7 +108,6 @@ fn mk_vec(pattern: &[RuleExpr]) -> VecMatcher {
 fn mk_scalar(pattern: &RuleExpr) -> ScalMatcher {
   match &pattern.value {
     Clause::Atom(a) => ScalMatcher::Atom(a.clone()),
-    Clause::ExternFn(_) => panic!("Cannot match on ExternFn"),
     Clause::Name(n) => ScalMatcher::Name(n.clone()),
     Clause::Placeh(Placeholder { name, class }) => match class {
       PHClass::Vec { .. } => {
@@ -128,43 +127,49 @@ fn mk_scalar(pattern: &RuleExpr) -> ScalMatcher {
 #[cfg(test)]
 mod test {
   use std::rc::Rc;
+  use std::sync::Arc;
+
+  use intern_all::i;
 
   use super::mk_any;
-  use crate::ast::{Clause, PHClass, PType, Placeholder};
-  use crate::interner::Interner;
+  use crate::location::{SourceCode, SourceRange};
+  use crate::name::{Sym, VPath};
+  use crate::parse::parsed::{Clause, PHClass, PType, Placeholder};
 
   #[test]
   fn test_scan() {
-    let i = Interner::new();
+    let range = SourceRange {
+      range: 0..1,
+      code: SourceCode {
+        path: Arc::new(VPath(vec![])),
+        source: Arc::new(String::new()),
+      },
+    };
+    let ex = |c: Clause| c.into_expr(range.clone());
     let pattern = vec![
-      Clause::Placeh(Placeholder {
+      ex(Clause::Placeh(Placeholder {
         class: PHClass::Vec { nonzero: false, prio: 0 },
-        name: i.i("::prefix"),
-      })
-      .into_expr(),
-      Clause::Name(i.i(&[i.i("prelude"), i.i("do")][..])).into_expr(),
-      Clause::S(
+        name: i("::prefix"),
+      })),
+      ex(Clause::Name(Sym::literal("prelude::do"))),
+      ex(Clause::S(
         PType::Par,
         Rc::new(vec![
-          Clause::Placeh(Placeholder {
+          ex(Clause::Placeh(Placeholder {
             class: PHClass::Vec { nonzero: false, prio: 0 },
-            name: i.i("expr"),
-          })
-          .into_expr(),
-          Clause::Name(i.i(&[i.i("prelude"), i.i(";")][..])).into_expr(),
-          Clause::Placeh(Placeholder {
+            name: i("expr"),
+          })),
+          ex(Clause::Name(Sym::literal("prelude::;"))),
+          ex(Clause::Placeh(Placeholder {
             class: PHClass::Vec { nonzero: false, prio: 1 },
-            name: i.i("rest"),
-          })
-          .into_expr(),
+            name: i("rest"),
+          })),
         ]),
-      )
-      .into_expr(),
-      Clause::Placeh(Placeholder {
+      )),
+      ex(Clause::Placeh(Placeholder {
         class: PHClass::Vec { nonzero: false, prio: 0 },
-        name: i.i("::suffix"),
-      })
-      .into_expr(),
+        name: i("::suffix"),
+      })),
     ];
     let matcher = mk_any(&pattern);
     println!("{matcher}");

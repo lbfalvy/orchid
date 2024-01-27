@@ -1,6 +1,7 @@
+use intern_all::Tok;
+
 use super::matcher::RuleExpr;
-use crate::ast::{Clause, PHClass, Placeholder};
-use crate::interner::Tok;
+use crate::parse::parsed::{Clause, PHClass, Placeholder};
 
 /// Returns the name, priority and nonzero of the expression if it is
 /// a vectorial placeholder

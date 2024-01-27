@@ -2,15 +2,8 @@ use std::hash::Hash;
 
 use hashbrown::HashMap;
 
-/// Return the given value from the map or default-initialize if it doesn't
-/// exist, then retunrn a mutable reference.
-pub fn get_or_default<'a, K: Eq + Hash + Clone, V: Default>(
-  map: &'a mut HashMap<K, V>,
-  k: &K,
-) -> &'a mut V {
-  get_or_make(map, k, || V::default())
-}
-
+/// Get the given value from the map or initialize it with the callback if it
+/// doesn't exist, then return a mutable reference.
 pub fn get_or_make<'a, K: Eq + Hash + Clone, V>(
   map: &'a mut HashMap<K, V>,
   k: &K,

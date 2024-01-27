@@ -1,12 +1,18 @@
+//! Parser for a string literal
+
+use intern_all::i;
 use itertools::Itertools;
 
-use super::context::Context;
+use super::errors::{
+  BadCodePoint, BadEscapeSequence, NoStringEnd, NotHex, ParseErrorKind,
+};
 #[allow(unused)] // for doc
-use super::context::LexerPlugin;
-use super::errors::{BadCodePoint, BadEscapeSequence, NoStringEnd, NotHex};
-use crate::error::{ProjectError, ProjectResult};
-use crate::foreign::Atom;
-use crate::OrcString;
+use super::lex_plugin::LexerPlugin;
+use super::lexer::{Entry, LexRes, Lexeme};
+use crate::error::ProjectResult;
+use crate::foreign::atom::AtomGenerator;
+use crate::foreign::inert::Inert;
+use crate::libs::std::string::OrcString;
 
 /// Reasons why [parse_string] might fail. See [StringError]
 pub enum StringErrorKind {
@@ -76,56 +82,71 @@ pub fn parse_string(str: &str) -> Result<String, StringError> {
 }
 
 /// [LexerPlugin] for a string literal.
-pub fn lex_string<'a>(
-  data: &'a str,
-  ctx: &dyn Context,
-) -> Option<ProjectResult<(Atom, &'a str)>> {
-  data.strip_prefix('"').map(|data| {
-    let mut leftover = data;
-    return loop {
-      let (inside, outside) = (leftover.split_once('"'))
-        .ok_or_else(|| NoStringEnd(ctx.location(data.len(), "")).rc())?;
-      let backslashes = inside.chars().rev().take_while(|c| *c == '\\').count();
-      if backslashes % 2 == 0 {
-        // cut form tail to recoup what string_content doesn't have
-        let (string_data, tail) = data.split_at(data.len() - outside.len() - 1);
-        let tail = &tail[1..]; // push the tail past the end quote
-        let string = parse_string(string_data).map_err(|e| {
-          let start = ctx.pos(data) + e.pos;
-          let location = ctx.range_loc(start..start + 1);
-          match e.kind {
-            StringErrorKind::NotHex => NotHex(location).rc(),
-            StringErrorKind::BadCodePoint => BadCodePoint(location).rc(),
-            StringErrorKind::BadEscSeq => BadEscapeSequence(location).rc(),
-          }
-        })?;
-        let tok = ctx.interner().i(&string);
-        break Ok((Atom::new(OrcString::from(tok)), tail));
-      } else {
-        leftover = outside;
-      }
-    };
-  })
+pub struct StringLexer;
+impl LexerPlugin for StringLexer {
+  fn lex<'b>(
+    &self,
+    req: &'_ dyn super::lex_plugin::LexPluginReq<'b>,
+  ) -> Option<ProjectResult<super::lexer::LexRes<'b>>> {
+    req.tail().strip_prefix('"').map(|data| {
+      let mut leftover = data;
+      return loop {
+        let (inside, outside) =
+          (leftover.split_once('"')).ok_or_else(|| {
+            NoStringEnd.pack(req.ctx().code_range(data.len(), ""))
+          })?;
+        let backslashes =
+          inside.chars().rev().take_while(|c| *c == '\\').count();
+        if backslashes % 2 == 0 {
+          // cut form tail to recoup what string_content doesn't have
+          let (string_data, tail) =
+            data.split_at(data.len() - outside.len() - 1);
+          let tail = &tail[1..]; // push the tail past the end quote
+          let string = parse_string(string_data).map_err(|e| {
+            let start = req.ctx().pos(data) + e.pos;
+            let location = req.ctx().range_loc(&(start..start + 1));
+            match e.kind {
+              StringErrorKind::NotHex => NotHex.pack(location),
+              StringErrorKind::BadCodePoint => BadCodePoint.pack(location),
+              StringErrorKind::BadEscSeq => BadEscapeSequence.pack(location),
+            }
+          })?;
+          let output = Inert(OrcString::from(i(&string)));
+          let ag = AtomGenerator::cloner(output);
+          let range = req.ctx().range(string_data.len(), tail);
+          let entry = Entry { lexeme: Lexeme::Atom(ag), range };
+          break Ok(LexRes { tokens: vec![entry], tail });
+        } else {
+          leftover = outside;
+        }
+      };
+    })
+  }
 }
-// TODO: rewrite the tree building pipeline step to load files
 
 #[cfg(test)]
 mod test {
-  use super::lex_string;
+  use super::StringLexer;
+  use crate::foreign::inert::Inert;
+  use crate::libs::std::string::OrcString;
   use crate::parse::context::MockContext;
-  use crate::{Interner, OrcString};
+  use crate::parse::lex_plugin::{LexPlugReqImpl, LexerPlugin};
+  use crate::parse::lexer::{Entry, Lexeme};
 
   #[test]
   fn plain_string() {
     let source = r#""hello world!" - says the programmer"#;
-    let i = Interner::new();
-    let (data, tail) = lex_string(source, &MockContext(&i))
+    let req = LexPlugReqImpl { ctx: &MockContext, tail: source };
+    let res = (StringLexer.lex(&req))
       .expect("the snippet starts with a quote")
       .expect("it contains a valid string");
-    assert_eq!(
-      data.try_downcast::<OrcString>().unwrap().as_str(),
-      "hello world!"
-    );
-    assert_eq!(tail, " - says the programmer");
+    let ag = match &res.tokens[..] {
+      [Entry { lexeme: Lexeme::Atom(ag), .. }] => ag,
+      _ => panic!("Expected a single atom"),
+    };
+    let atom =
+      ag.run().try_downcast::<Inert<OrcString>>().expect("Lexed to inert");
+    assert_eq!(atom.0.as_str(), "hello world!");
+    assert_eq!(res.tail, " - says the programmer");
   }
 }

@@ -1,7 +1,8 @@
 import system::(io, fs, async)
 import std::(to_string, to_uint, inspect)
 
-const folder_view := (path, next) => do{
+--[
+const folder_view_old := \path. do{
   cps println $ "Contents of " ++ fs::os_print path;
   cps entries = async::block_on $ fs::read_dir path;
   cps list::enumerate entries
@@ -13,13 +14,13 @@ const folder_view := (path, next) => do{
   cps choice = readln;
   if (choice == "..") then do {
     let parent_path = fs::pop_path path
-      |> option::unwrap
+      |> option::assume
       |> tuple::pick 0 2;
     next parent_path
   } else do {
     let t[subname, is_dir] = to_uint choice
       |> (list::get entries)
-      |> option::unwrap;
+      |> option::assume;
     let subpath = fs::join_paths path subname;
     if is_dir then next subpath
     else do {
@@ -30,8 +31,16 @@ const folder_view := (path, next) => do{
     }
   }
 }
+]--
+
+const folder_view := \path. do cps {
+  cps println $ "Contents of " ++ fs::os_print path;
+  cps entries = async::block_on $ fs::read_dir path;
+  let t[name, is_dir] = option::assume $ list::get entries 0;
+  cps println $ to_string name ++ " " ++ fs::os_print is_dir
+}
 
 const main := loop_over (path = fs::cwd) {
-  cps path = folder_view path;
+  cps folder_view path;
 }
 

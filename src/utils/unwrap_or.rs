@@ -17,12 +17,11 @@
 /// without an `if`, which can be misleading. It should only be used for small,
 /// straightforward jumps.
 macro_rules! unwrap_or {
-  ($m:expr; $fail:expr) => {{
-    if let Some(res) = ($m) { res } else { $fail }
-  }};
-  ($m:expr => $pattern:path; $fail:expr) => {{
-    if let $pattern(res) = ($m) { res } else { $fail }
-  }};
+  ($m:expr; $fail:expr) => {{ if let Some(res) = ($m) { res } else { $fail } }};
+  ($m:expr => $pattern:path; $fail:expr) => {
+    // rustfmt keeps inlining this and then complaining about its length
+    { if let $pattern(res) = ($m) { res } else { $fail } }
+  };
 }
 
 pub(crate) use unwrap_or;

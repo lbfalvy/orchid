@@ -1,4 +1,4 @@
-import std::to_string
+import std::(conv, reflect)
 
 const foo := t[option::some "world!", option::none]
 
@@ -18,4 +18,6 @@ const test2 := match bar {
   map::having ["is_alive" = true, "greeting" = foo] => foo
 }
 
-const main := test2 ++ ", " ++ test1
+const tests := test2 ++ ", " ++ test1
+
+const main := conv::to_string bar

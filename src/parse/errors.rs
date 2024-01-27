@@ -1,100 +1,96 @@
 //! Errors produced by the parser. Plugins are encouraged to reuse these where
 //! applicable.
 
-use std::rc::Rc;
-
+use intern_all::Tok;
 use itertools::Itertools;
 
-use super::{Entry, Lexeme, Stream};
-use crate::ast::PType;
-use crate::error::{ProjectError, ProjectResult};
-use crate::{Location, Tok};
+use super::context::ParseCtx;
+use super::frag::Frag;
+use super::lexer::{Entry, Lexeme};
+use crate::error::{ProjectError, ProjectErrorObj, ProjectResult};
+use crate::location::{CodeLocation, SourceRange};
+use crate::parse::parsed::PType;
 
-/// A line does not begin with an identifying keyword
-#[derive(Debug)]
-pub struct LineNeedsPrefix {
-  /// Erroneous line starter
-  pub entry: Entry,
-}
-impl ProjectError for LineNeedsPrefix {
-  fn description(&self) -> &str { "This linetype requires a prefix" }
-  fn one_position(&self) -> Location { self.entry.location() }
-  fn message(&self) -> String {
-    format!("{} cannot appear at the beginning of a line", self.entry)
+/// Parse error information without a location. Location data is added by the
+/// parser.
+pub trait ParseErrorKind: Sized + Send + Sync + 'static {
+  /// A general description of the error condition
+  const DESCRIPTION: &'static str;
+  /// A specific description of the error with concrete text sections
+  fn message(&self) -> String { Self::DESCRIPTION.to_string() }
+  /// Convert this error to a type-erased [ProjectError] to be handled together
+  /// with other Orchid errors.
+  fn pack(self, range: SourceRange) -> ProjectErrorObj {
+    ParseError { kind: self, range }.pack()
   }
 }
 
-/// The line ends abruptly
-#[derive(Debug)]
-pub struct UnexpectedEOL {
-  /// Last entry before EOL
-  pub entry: Entry,
+struct ParseError<T> {
+  pub range: SourceRange,
+  pub kind: T,
 }
-impl ProjectError for UnexpectedEOL {
-  fn description(&self) -> &str { "The line ended abruptly" }
-  fn one_position(&self) -> Location { self.entry.location() }
+impl<T: ParseErrorKind> ProjectError for ParseError<T> {
+  const DESCRIPTION: &'static str = T::DESCRIPTION;
+  fn one_position(&self) -> CodeLocation {
+    CodeLocation::Source(self.range.clone())
+  }
+  fn message(&self) -> String { self.kind.message() }
+}
+
+/// A line does not begin with an identifying keyword. Raised on the first token
+pub(super) struct LineNeedsPrefix(pub Lexeme);
+impl ParseErrorKind for LineNeedsPrefix {
+  const DESCRIPTION: &'static str = "This linetype requires a prefix";
   fn message(&self) -> String {
-    "The line ends unexpectedly here. In Orchid, all line breaks outside \
-     parentheses start a new declaration"
+    format!("{} cannot appear at the beginning of a line", self.0)
+  }
+}
+
+/// The line ends abruptly. Raised on the last token
+pub(super) struct UnexpectedEOL(pub Lexeme);
+impl ParseErrorKind for UnexpectedEOL {
+  const DESCRIPTION: &'static str = "The line ended abruptly";
+  fn message(&self) -> String {
+    "In Orchid, all line breaks outside parentheses start a new declaration"
       .to_string()
   }
 }
 
-/// The line should have ended
-pub struct ExpectedEOL {
-  /// Location of the last valid or first excessive token
-  pub location: Location,
-}
-impl ProjectError for ExpectedEOL {
-  fn description(&self) -> &str { "Expected the end of the line" }
-  fn one_position(&self) -> Location { self.location.clone() }
+/// The line should have ended. Raised on last valid or first excess token
+pub(super) struct ExpectedEOL;
+impl ParseErrorKind for ExpectedEOL {
+  const DESCRIPTION: &'static str = "Expected the end of the line";
 }
 
-/// A name was expected
-#[derive(Debug)]
-pub struct ExpectedName {
-  /// Non-name entry
-  pub entry: Entry,
+/// A name was expected.
+pub(super) struct ExpectedName(pub Lexeme);
+impl ParseErrorKind for ExpectedName {
+  const DESCRIPTION: &'static str = "A name was expected";
+  fn message(&self) -> String { format!("Expected a name, found {}", self.0) }
 }
-impl ExpectedName {
-  /// If the entry is a name, return its text. If it's not, produce this error.
-  pub fn expect(entry: &Entry) -> Result<Tok<String>, Rc<dyn ProjectError>> {
-    match &entry.lexeme {
-      Lexeme::Name(n) => Ok(n.clone()),
-      _ => Err(Self { entry: entry.clone() }.rc()),
-    }
-  }
-}
-impl ProjectError for ExpectedName {
-  fn description(&self) -> &str { "A name was expected" }
-  fn one_position(&self) -> Location { self.entry.location() }
-  fn message(&self) -> String {
-    format!("Expected a name, found {}", self.entry)
+
+/// Unwrap a name or operator.
+pub(super) fn expect_name(
+  Entry { lexeme, range }: &Entry,
+  ctx: &(impl ParseCtx + ?Sized),
+) -> ProjectResult<Tok<String>> {
+  match lexeme {
+    Lexeme::Name(n) => Ok(n.clone()),
+    lex => Err(ExpectedName(lex.clone()).pack(ctx.range_loc(range))),
   }
 }
 
 /// A specific lexeme was expected
-#[derive()]
-pub struct Expected {
+pub(super) struct Expected {
   /// The lexemes that would have been acceptable
   pub expected: Vec<Lexeme>,
   /// Whether a name would also have been acceptable (multiname)
   pub or_name: bool,
   /// What was actually found
-  pub found: Entry,
+  pub found: Lexeme,
 }
-impl Expected {
-  /// Assert that the entry contains exactly the specified lexeme
-  pub fn expect(l: Lexeme, e: &Entry) -> Result<(), Rc<dyn ProjectError>> {
-    if e.lexeme.strict_eq(&l) {
-      return Ok(());
-    }
-    Err(Self { expected: vec![l], or_name: false, found: e.clone() }.rc())
-  }
-}
-impl ProjectError for Expected {
-  fn description(&self) -> &str { "A concrete token was expected" }
-  fn one_position(&self) -> Location { self.found.location() }
+impl ParseErrorKind for Expected {
+  const DESCRIPTION: &'static str = "A concrete token was expected";
   fn message(&self) -> String {
     let list = match &self.expected[..] {
       &[] => return "Unsatisfiable expectation".to_string(),
@@ -108,167 +104,152 @@ impl ProjectError for Expected {
     format!("Expected {list}{or_name} but found {}", self.found)
   }
 }
+/// Assert that the entry contains exactly the specified lexeme
+pub(super) fn expect(
+  l: Lexeme,
+  e: &Entry,
+  ctx: &(impl ParseCtx + ?Sized),
+) -> ProjectResult<()> {
+  if e.lexeme.strict_eq(&l) {
+    return Ok(());
+  }
+  let found = e.lexeme.clone();
+  let kind = Expected { expected: vec![l], or_name: false, found };
+  Err(kind.pack(ctx.range_loc(&e.range)))
+}
 
 /// A token reserved for future use was found in the code
-pub struct ReservedToken {
-  /// The offending token
-  pub entry: Entry,
-}
-impl ProjectError for ReservedToken {
-  fn description(&self) -> &str { "Syntax reserved for future use" }
-  fn one_position(&self) -> Location { self.entry.location() }
-  fn message(&self) -> String { format!("{} is a reserved token", self.entry) }
+pub(super) struct ReservedToken(pub Lexeme);
+impl ParseErrorKind for ReservedToken {
+  const DESCRIPTION: &'static str = "Syntax reserved for future use";
+  fn message(&self) -> String { format!("{} is a reserved token", self.0) }
 }
 
 /// A token was found where it doesn't belong
-pub struct BadTokenInRegion {
+pub(super) struct BadTokenInRegion {
   /// What was found
-  pub entry: Entry,
+  pub lexeme: Lexeme,
   /// Human-readable name of the region where it should not appear
   pub region: &'static str,
 }
-impl ProjectError for BadTokenInRegion {
-  fn description(&self) -> &str { "An unexpected token was found" }
-  fn one_position(&self) -> Location { self.entry.location() }
+impl ParseErrorKind for BadTokenInRegion {
+  const DESCRIPTION: &'static str = "An unexpected token was found";
   fn message(&self) -> String {
-    format!("{} cannot appear in {}", self.entry, self.region)
+    format!("{} cannot appear in {}", self.lexeme, self.region)
   }
 }
 
-/// A specific lexeme was searched but not found
-pub struct NotFound {
-  /// Human-readable description of what was searched
-  pub expected: &'static str,
-  /// Area covered by the search
-  pub location: Location,
-}
-impl ProjectError for NotFound {
-  fn description(&self) -> &str { "A specific lexeme was expected" }
-  fn one_position(&self) -> Location { self.location.clone() }
-  fn message(&self) -> String { format!("{} was expected", self.expected) }
+/// Some construct was searched but not found.
+pub(super) struct NotFound(pub &'static str);
+impl ParseErrorKind for NotFound {
+  const DESCRIPTION: &'static str = "A specific lexeme was expected";
+  fn message(&self) -> String { format!("{} was expected", self.0) }
 }
 
 /// :: found on its own somewhere other than a general export
-pub struct LeadingNS(pub Location);
-impl ProjectError for LeadingNS {
-  fn description(&self) -> &str { ":: can only follow a name token" }
-  fn one_position(&self) -> Location { self.0.clone() }
+pub(super) struct LeadingNS;
+impl ParseErrorKind for LeadingNS {
+  const DESCRIPTION: &'static str = ":: can only follow a name token";
 }
 
 /// Parens don't pair up
-pub struct MisalignedParen(pub Entry);
-impl ProjectError for MisalignedParen {
-  fn description(&self) -> &str { "(), [] and {} must always pair up" }
-  fn one_position(&self) -> Location { self.0.location() }
+pub(super) struct MisalignedParen(pub Lexeme);
+impl ParseErrorKind for MisalignedParen {
+  const DESCRIPTION: &'static str = "(), [] and {} must always pair up";
   fn message(&self) -> String { format!("This {} has no pair", self.0) }
 }
 
 /// Export line contains a complex name
-pub struct NamespacedExport(pub Location);
-impl ProjectError for NamespacedExport {
-  fn description(&self) -> &str { "Only local names may be exported" }
-  fn one_position(&self) -> Location { self.0.clone() }
+pub(super) struct NamespacedExport;
+impl ParseErrorKind for NamespacedExport {
+  const DESCRIPTION: &'static str = "Only local names may be exported";
 }
 
 /// Export line contains *
-pub struct GlobExport(pub Location);
-impl ProjectError for GlobExport {
-  fn description(&self) -> &str { "Globstars are not allowed in exports" }
-  fn one_position(&self) -> Location { self.0.clone() }
+pub(super) struct GlobExport;
+impl ParseErrorKind for GlobExport {
+  const DESCRIPTION: &'static str = "Globstars are not allowed in exports";
 }
 
 /// String literal never ends
-pub struct NoStringEnd(pub Location);
-impl ProjectError for NoStringEnd {
-  fn description(&self) -> &str { "A string literal was not closed with `\"`" }
-  fn one_position(&self) -> Location { self.0.clone() }
+pub(super) struct NoStringEnd;
+impl ParseErrorKind for NoStringEnd {
+  const DESCRIPTION: &'static str = "A string literal was not closed with `\"`";
 }
 
 /// Comment never ends
-pub struct NoCommentEnd(pub Location);
-impl ProjectError for NoCommentEnd {
-  fn description(&self) -> &str { "a comment was not closed with `]--`" }
-  fn one_position(&self) -> Location { self.0.clone() }
+pub(super) struct NoCommentEnd;
+impl ParseErrorKind for NoCommentEnd {
+  const DESCRIPTION: &'static str = "a comment was not closed with `]--`";
 }
 
 /// A placeholder's priority is a floating point number
-pub struct FloatPlacehPrio(pub Location);
-impl ProjectError for FloatPlacehPrio {
-  fn description(&self) -> &str {
-    "a placeholder priority has a decimal point or a negative exponent"
-  }
-  fn one_position(&self) -> Location { self.0.clone() }
+pub(super) struct FloatPlacehPrio;
+impl ParseErrorKind for FloatPlacehPrio {
+  const DESCRIPTION: &'static str =
+    "a placeholder priority has a decimal point or a negative exponent";
 }
 
 /// A number literal decodes to NaN
-pub struct NaNLiteral(pub Location);
-impl ProjectError for NaNLiteral {
-  fn description(&self) -> &str { "float literal decoded to NaN" }
-  fn one_position(&self) -> Location { self.0.clone() }
+pub(super) struct NaNLiteral;
+impl ParseErrorKind for NaNLiteral {
+  const DESCRIPTION: &'static str = "float literal decoded to NaN";
 }
 
 /// A sequence of digits in a number literal overflows [usize].
-pub struct LiteralOverflow(pub Location);
-impl ProjectError for LiteralOverflow {
-  fn description(&self) -> &str {
-    "number literal described number greater than usize::MAX"
-  }
-  fn one_position(&self) -> Location { self.0.clone() }
+pub(super) struct LiteralOverflow;
+impl ParseErrorKind for LiteralOverflow {
+  const DESCRIPTION: &'static str =
+    "number literal described number greater than usize::MAX";
 }
 
 /// A digit was expected but something else was found
-pub struct ExpectedDigit(pub Location);
-impl ProjectError for ExpectedDigit {
-  fn description(&self) -> &str { "expected a digit" }
-  fn one_position(&self) -> Location { self.0.clone() }
+pub(super) struct ExpectedDigit;
+impl ParseErrorKind for ExpectedDigit {
+  const DESCRIPTION: &'static str = "expected a digit";
 }
 
 /// A unicode escape sequence contains something other than a hex digit
-pub struct NotHex(pub Location);
-impl ProjectError for NotHex {
-  fn description(&self) -> &str { "Expected a hex digit" }
-  fn one_position(&self) -> Location { self.0.clone() }
+pub(super) struct NotHex;
+impl ParseErrorKind for NotHex {
+  const DESCRIPTION: &'static str = "Expected a hex digit";
 }
 
 /// A unicode escape sequence contains a number that isn't a unicode code point.
-pub struct BadCodePoint(pub Location);
-impl ProjectError for BadCodePoint {
-  fn description(&self) -> &str {
-    "\\uXXXX escape sequence does not describe valid code point"
-  }
-  fn one_position(&self) -> Location { self.0.clone() }
+pub(super) struct BadCodePoint;
+impl ParseErrorKind for BadCodePoint {
+  const DESCRIPTION: &'static str =
+    "\\uXXXX escape sequence does not describe valid code point";
 }
 
 /// An unrecognized escape sequence occurred in a string.
-pub struct BadEscapeSequence(pub Location);
-impl ProjectError for BadEscapeSequence {
-  fn description(&self) -> &str { "Unrecognized escape sequence" }
-  fn one_position(&self) -> Location { self.0.clone() }
+pub(super) struct BadEscapeSequence;
+impl ParseErrorKind for BadEscapeSequence {
+  const DESCRIPTION: &'static str = "Unrecognized escape sequence";
 }
 
 /// Expected a parenthesized block at the end of the line
-pub struct ExpectedBlock(pub Location);
-impl ExpectedBlock {
-  /// Remove two parentheses from the ends of the cursor
-  pub fn expect(tail: Stream, typ: PType) -> ProjectResult<Stream> {
-    let (lp, tail) = tail.trim().pop()?;
-    Expected::expect(Lexeme::LP(typ), lp)?;
-    let (rp, tail) = tail.pop_back()?;
-    Expected::expect(Lexeme::RP(typ), rp)?;
-    Ok(tail.trim())
-  }
+pub(super) struct ExpectedBlock;
+impl ParseErrorKind for ExpectedBlock {
+  const DESCRIPTION: &'static str = "Expected a parenthesized block";
 }
-impl ProjectError for ExpectedBlock {
-  fn description(&self) -> &str { "Expected a parenthesized block" }
-  fn one_position(&self) -> Location { self.0.clone() }
+/// Remove two parentheses from the ends of the cursor
+pub(super) fn expect_block<'a>(
+  tail: Frag<'a>,
+  typ: PType,
+  ctx: &(impl ParseCtx + ?Sized),
+) -> ProjectResult<Frag<'a>> {
+  let (lp, tail) = tail.trim().pop(ctx)?;
+  expect(Lexeme::LP(typ), lp, ctx)?;
+  let (rp, tail) = tail.pop_back(ctx)?;
+  expect(Lexeme::RP(typ), rp, ctx)?;
+  Ok(tail.trim())
 }
 
 /// A namespaced name was expected but a glob pattern or a branching multiname
 /// was found.
-pub struct ExpectedSingleName(pub Location);
-impl ProjectError for ExpectedSingleName {
-  fn one_position(&self) -> Location { self.0.clone() }
-  fn description(&self) -> &str {
-    "expected a single name, no wildcards, no branches"
-  }
+pub(super) struct ExpectedSingleName;
+impl ParseErrorKind for ExpectedSingleName {
+  const DESCRIPTION: &'static str =
+    "expected a single name, no wildcards, no branches";
 }

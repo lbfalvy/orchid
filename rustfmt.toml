@@ -14,10 +14,10 @@ wrap_comments = true
 overflow_delimited_expr = true
 use_small_heuristics = "Max"
 fn_single_line = true
+where_single_line = true
 
 # literals
 hex_literal_case = "Lower"
-format_strings = true
 
 # delimiters
 match_arm_blocks = false

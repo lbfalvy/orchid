@@ -1,59 +1,41 @@
-use hashbrown::HashMap;
-
 use crate::error::{ErrorPosition, ProjectError};
-use crate::interpreter::HandlerTable;
-use crate::parse::{LexerPlugin, LineParser};
-use crate::pipeline::file_loader::{IOResult, Loaded};
-use crate::sourcefile::FileEntry;
-use crate::utils::boxed_iter::box_empty;
-use crate::utils::BoxedIter;
-use crate::{ConstTree, Interner, Tok, VName};
+use crate::gen::tree::ConstTree;
+use crate::interpreter::handler::HandlerTable;
+use crate::name::VName;
+use crate::parse::lex_plugin::LexerPlugin;
+use crate::parse::parse_plugin::ParseLinePlugin;
+use crate::pipeline::load_solution::Prelude;
+use crate::virt_fs::DeclTree;
 
 /// A description of every point where an external library can hook into Orchid.
 /// Intuitively, this can be thought of as a plugin
 pub struct System<'a> {
   /// An identifier for the system used eg. in error reporting.
-  pub name: Vec<String>,
+  pub name: &'a str,
   /// External functions and other constant values defined in AST form
-  pub constants: HashMap<Tok<String>, ConstTree>,
+  pub constants: ConstTree,
   /// Orchid libraries defined by this system
-  pub code: HashMap<VName, Loaded>,
-  /// Prelude lines to be added to **subsequent** systems and usercode to
-  /// expose the functionality of this system. The prelude is not added during
-  /// the loading of this system
-  pub prelude: Vec<FileEntry>,
+  pub code: DeclTree,
+  /// Prelude lines to be added to the head of files to expose the
+  /// functionality of this system. A glob import from the first path is
+  /// added to every file outside the prefix specified by the second path
+  pub prelude: Vec<Prelude>,
   /// Handlers for actions defined in this system
   pub handlers: HandlerTable<'a>,
   /// Custom lexer for the source code representation atomic data.
   /// These take priority over builtin lexers so the syntax they
   /// match should be unambiguous
-  pub lexer_plugins: Vec<Box<dyn LexerPlugin>>,
+  pub lexer_plugins: Vec<Box<dyn LexerPlugin + 'a>>,
   /// Parser that processes custom line types into their representation in the
   /// module tree
-  pub line_parsers: Vec<Box<dyn LineParser>>,
+  pub line_parsers: Vec<Box<dyn ParseLinePlugin>>,
 }
 impl<'a> System<'a> {
   /// Intern the name of the system so that it can be used as an Orchid
   /// namespace
   #[must_use]
-  pub fn vname(&self, i: &Interner) -> VName {
-    self.name.iter().map(|s| i.i(s)).collect::<Vec<_>>()
-  }
-
-  /// Load a file from the system
-  pub fn load_file(
-    &self,
-    path: &[Tok<String>],
-    referrer: &[Tok<String>],
-  ) -> IOResult {
-    (self.code.get(path)).cloned().ok_or_else(|| {
-      let err = MissingSystemCode {
-        path: path.to_vec(),
-        system: self.name.clone(),
-        referrer: referrer.to_vec(),
-      };
-      err.rc()
-    })
+  pub fn vname(&self) -> VName {
+    VName::parse(self.name).expect("Systems must have a non-empty name")
   }
 }
 
@@ -66,23 +48,22 @@ pub struct MissingSystemCode {
   referrer: VName,
 }
 impl ProjectError for MissingSystemCode {
-  fn description(&self) -> &str {
-    "A system tried to import a path that doesn't exist"
-  }
+  const DESCRIPTION: &'static str =
+    "A system tried to import a path that doesn't exist";
   fn message(&self) -> String {
     format!(
       "Path {} imported by {} is not defined by {} or any system before it",
-      Interner::extern_all(&self.path).join("::"),
-      Interner::extern_all(&self.referrer).join("::"),
+      self.path,
+      self.referrer,
       self.system.join("::")
     )
   }
-  fn positions(&self) -> BoxedIter<ErrorPosition> { box_empty() }
+  fn positions(&self) -> impl IntoIterator<Item = ErrorPosition> { [] }
 }
 
 /// Trait for objects that can be converted into a [System] in the presence
 /// of an [Interner].
 pub trait IntoSystem<'a> {
   /// Convert this object into a system using an interner
-  fn into_system(self, i: &Interner) -> System<'a>;
+  fn into_system(self) -> System<'a>;
 }

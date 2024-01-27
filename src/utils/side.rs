@@ -1,7 +1,10 @@
+//! Named left/right. I tried bools, I couldn't consistently remember which one
+//! is left, so I made an enum. Rust should optimize this into a bool anyway.
+
 use std::fmt::Display;
 use std::ops::Not;
 
-use super::BoxedIter;
+use super::boxed_iter::BoxedIter;
 
 /// A primitive for encoding the two sides Left and Right. While booleans
 /// are technically usable for this purpose, they're very easy to confuse

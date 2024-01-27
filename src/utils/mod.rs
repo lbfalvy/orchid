@@ -1,31 +1,19 @@
-mod cache;
-pub mod ddispatch;
-mod delete_cell;
-pub mod get_or;
-mod id_map;
-mod iter_find;
-pub mod never;
-pub mod poller;
-pub mod pure_seq;
-pub mod rc_tools;
-mod replace_first;
-mod side;
-mod split_max_prefix;
-mod string_from_charset;
-pub mod substack;
-mod take_with_output;
-pub mod thread_pool;
-mod unwrap_or;
+//! Utilities that don't necessarily have a well-defined role in the
+//! problem-domain of Orchid but are rather designed to fulfill abstract
+//! solution-domain tasks.
+//!
+//! An unreferenced util should be either moved out to a package or deleted
 
-pub use cache::Cache;
-pub use replace_first::replace_first;
-pub use side::Side;
-pub use split_max_prefix::split_max_prefix;
-pub(crate) use unwrap_or::unwrap_or;
-pub mod boxed_iter;
-pub use boxed_iter::BoxedIter;
-pub use delete_cell::DeleteCell;
-pub use id_map::IdMap;
-pub use iter_find::iter_find;
-pub use string_from_charset::string_from_charset;
-pub use take_with_output::take_with_output;
+pub(crate) mod boxed_iter;
+pub(crate) mod clonable_iter;
+pub(crate) mod combine;
+pub mod ddispatch;
+pub(crate) mod get_or;
+pub(crate) mod iter_find;
+pub mod pure_seq;
+pub mod sequence;
+pub mod side;
+pub mod string_from_charset;
+pub mod take_with_output;
+pub(crate) mod unwrap_or;
+pub mod join;

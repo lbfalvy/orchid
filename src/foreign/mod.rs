@@ -2,24 +2,12 @@
 //!
 //! Structures and traits used in the exposure of external functions and values
 //! to Orchid code
-mod atom;
+pub mod atom;
 pub mod cps_box;
-mod extern_fn;
-mod fn_bridge;
-mod inert;
-
-use std::sync::Arc;
-
-pub use atom::{Atom, Atomic, AtomicResult, AtomicReturn, StrictEq};
-pub use extern_fn::{ExFn, ExternError, ExternFn};
-pub use fn_bridge::constructors::{
-  xfn_1ary, xfn_2ary, xfn_3ary, xfn_4ary, xfn_5ary, xfn_6ary, xfn_7ary,
-  xfn_8ary, xfn_9ary,
-};
-pub use fn_bridge::{Param, ToClause};
-pub use inert::InertAtomic;
-
-pub use crate::representations::interpreted::Clause;
-
-/// Return type of the argument to the [xfn_1ary] family of functions
-pub type XfnResult<T> = Result<T, Arc<dyn ExternError>>;
+pub mod error;
+pub mod fn_bridge;
+pub mod implementations;
+pub mod inert;
+pub mod process;
+pub mod to_clause;
+pub mod try_from_expr;

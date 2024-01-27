@@ -1,10 +1,11 @@
 use std::rc::Rc;
 
 use super::state::State;
-use crate::ast::Expr;
-use crate::Sym;
+use crate::name::Sym;
+use crate::parse::parsed::Expr;
 
-pub type RuleExpr = Expr<Sym>;
+/// The same as [Expr], just extracted for flexibility
+pub type RuleExpr = Expr;
 
 /// Cacheable optimized structures for matching patterns on slices. This is
 /// injected to allow experimentation in the matcher implementation.

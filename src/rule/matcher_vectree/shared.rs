@@ -1,27 +1,27 @@
 use std::fmt::{Display, Write};
 use std::rc::Rc;
 
+use intern_all::Tok;
 use itertools::Itertools;
 
 use super::any_match::any_match;
 use super::build::mk_any;
-use crate::ast::PType;
-use crate::foreign::Atom;
-use crate::interner::Tok;
+use crate::foreign::atom::AtomGenerator;
+use crate::name::Sym;
+use crate::parse::parsed::PType;
 use crate::rule::matcher::{Matcher, RuleExpr};
 use crate::rule::state::State;
-use crate::utils::Side;
-use crate::{Sym, VName};
+use crate::utils::side::Side;
 
-pub enum ScalMatcher {
-  Atom(Atom),
+pub(super) enum ScalMatcher {
+  Atom(AtomGenerator),
   Name(Sym),
   S(PType, Box<AnyMatcher>),
   Lambda(Box<AnyMatcher>, Box<AnyMatcher>),
   Placeh { key: Tok<String>, name_only: bool },
 }
 
-pub enum VecMatcher {
+pub(super) enum VecMatcher {
   Placeh {
     key: Tok<String>,
     nonzero: bool,
@@ -48,11 +48,11 @@ pub enum VecMatcher {
     /// the length of matches on either side.
     ///
     /// Vectorial keys that appear on either side, in priority order
-    key_order: VName,
+    key_order: Vec<Tok<String>>,
   },
 }
 
-pub enum AnyMatcher {
+pub(super) enum AnyMatcher {
   Scalar(Vec<ScalMatcher>),
   Vec { left: Vec<ScalMatcher>, mid: VecMatcher, right: Vec<ScalMatcher> },
 }
@@ -78,7 +78,7 @@ impl Display for ScalMatcher {
         false => write!(f, "${key}"),
         true => write!(f, "$_{key}"),
       },
-      Self::Name(n) => write!(f, "{}", n.extern_vec().join("::")),
+      Self::Name(n) => write!(f, "{n}"),
       Self::S(t, body) => write!(f, "{}{body}{}", t.l(), t.r()),
       Self::Lambda(arg, body) => write!(f, "\\{arg}.{body}"),
     }

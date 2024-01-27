@@ -1,9 +1,9 @@
 use super::scal_match::scalv_match;
 use super::shared::AnyMatcher;
 use super::vec_match::vec_match;
+use crate::name::Sym;
 use crate::rule::matcher::RuleExpr;
 use crate::rule::state::State;
-use crate::Sym;
 
 #[must_use]
 pub fn any_match<'a>(

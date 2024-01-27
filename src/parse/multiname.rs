@@ -1,30 +1,34 @@
-use std::collections::VecDeque;
+//! Parse the tree-like name sets used to represent imports
 
-use super::context::Context;
-use super::errors::Expected;
-use super::stream::Stream;
-use super::Lexeme;
-use crate::ast::PType;
-use crate::error::{ProjectError, ProjectResult};
-use crate::sourcefile::Import;
-use crate::utils::boxed_iter::{box_chain, box_once};
-use crate::utils::BoxedIter;
-use crate::{Location, Tok};
+use std::collections::VecDeque;
+use std::ops::Range;
+
+use intern_all::{i, Tok};
+
+use super::context::ParseCtx;
+use super::errors::{Expected, ParseErrorKind};
+use super::frag::Frag;
+use super::lexer::{Entry, Lexeme};
+use crate::error::ProjectResult;
+use crate::location::SourceRange;
+use crate::name::VPath;
+use crate::parse::parsed::{Import, PType};
+use crate::utils::boxed_iter::{box_chain, box_once, BoxedIter};
 
 struct Subresult {
   glob: bool,
   deque: VecDeque<Tok<String>>,
-  location: Location,
+  range: Range<usize>,
 }
 impl Subresult {
   #[must_use]
-  fn new_glob(location: Location) -> Self {
-    Self { glob: true, deque: VecDeque::new(), location }
+  fn new_glob(range: &Range<usize>) -> Self {
+    Self { glob: true, deque: VecDeque::new(), range: range.clone() }
   }
 
   #[must_use]
-  fn new_named(name: Tok<String>, location: Location) -> Self {
-    Self { location, glob: false, deque: VecDeque::from([name]) }
+  fn new_named(name: Tok<String>, range: &Range<usize>) -> Self {
+    Self { glob: false, deque: VecDeque::from([name]), range: range.clone() }
   }
 
   #[must_use]
@@ -34,62 +38,60 @@ impl Subresult {
   }
 
   #[must_use]
-  fn finalize(self) -> Import {
-    let Self { mut deque, glob, location } = self;
+  fn finalize(self, ctx: &(impl ParseCtx + ?Sized)) -> Import {
+    let Self { mut deque, glob, range } = self;
     debug_assert!(glob || !deque.is_empty(), "The constructors forbid this");
     let name = if glob { None } else { deque.pop_back() };
-    Import { name, location, path: deque.into() }
+    let range = ctx.range_loc(&range);
+    Import { name, range, path: VPath(deque.into()) }
   }
 }
 
 fn parse_multiname_branch<'a>(
-  cursor: Stream<'a>,
-  ctx: &(impl Context + ?Sized),
-) -> ProjectResult<(BoxedIter<'a, Subresult>, Stream<'a>)> {
-  let comma = ctx.interner().i(",");
+  cursor: Frag<'a>,
+  ctx: &(impl ParseCtx + ?Sized),
+) -> ProjectResult<(BoxedIter<'a, Subresult>, Frag<'a>)> {
+  let comma = i(",");
   let (subnames, cursor) = parse_multiname_rec(cursor, ctx)?;
-  let (delim, cursor) = cursor.trim().pop()?;
-  match &delim.lexeme {
+  let (Entry { lexeme, range }, cursor) = cursor.trim().pop(ctx)?;
+  match &lexeme {
+    Lexeme::RP(PType::Par) => Ok((subnames, cursor)),
     Lexeme::Name(n) if n == &comma => {
       let (tail, cont) = parse_multiname_branch(cursor, ctx)?;
       Ok((box_chain!(subnames, tail), cont))
     },
-    Lexeme::RP(PType::Par) => Ok((subnames, cursor)),
-    _ => Err(
-      Expected {
-        expected: vec![Lexeme::Name(comma), Lexeme::RP(PType::Par)],
-        or_name: false,
-        found: delim.clone(),
-      }
-      .rc(),
-    ),
+    _ => {
+      let expected = vec![Lexeme::Name(comma), Lexeme::RP(PType::Par)];
+      let err = Expected { expected, or_name: false, found: lexeme.clone() };
+      Err(err.pack(SourceRange { range: range.clone(), code: ctx.code_info() }))
+    },
   }
 }
 
 fn parse_multiname_rec<'a>(
-  curosr: Stream<'a>,
-  ctx: &(impl Context + ?Sized),
-) -> ProjectResult<(BoxedIter<'a, Subresult>, Stream<'a>)> {
-  let star = ctx.interner().i("*");
-  let comma = ctx.interner().i(",");
-  let (head, mut cursor) = curosr.trim().pop()?;
+  cursor: Frag<'a>,
+  ctx: &(impl ParseCtx + ?Sized),
+) -> ProjectResult<(BoxedIter<'a, Subresult>, Frag<'a>)> {
+  let star = i("*");
+  let comma = i(",");
+  let (head, mut cursor) = cursor.trim().pop(ctx)?;
   match &head.lexeme {
     Lexeme::LP(PType::Par) => parse_multiname_branch(cursor, ctx),
     Lexeme::LP(PType::Sqr) => {
       let mut names = Vec::new();
       loop {
-        let head;
-        (head, cursor) = cursor.trim().pop()?;
-        match &head.lexeme {
-          Lexeme::Name(n) => names.push((n, head.location())),
+        let (Entry { lexeme, range }, tail) = cursor.trim().pop(ctx)?;
+        cursor = tail;
+        match lexeme {
+          Lexeme::Name(n) => names.push((n.clone(), range)),
           Lexeme::RP(PType::Sqr) => break,
           _ => {
             let err = Expected {
               expected: vec![Lexeme::RP(PType::Sqr)],
               or_name: true,
-              found: head.clone(),
+              found: head.lexeme.clone(),
             };
-            return Err(err.rc());
+            return Err(err.pack(ctx.range_loc(range)));
           },
         }
       }
@@ -101,39 +103,37 @@ fn parse_multiname_rec<'a>(
       ))
     },
     Lexeme::Name(n) if *n == star =>
-      Ok((box_once(Subresult::new_glob(head.location())), cursor)),
+      Ok((box_once(Subresult::new_glob(&head.range)), cursor)),
     Lexeme::Name(n) if ![comma, star].contains(n) => {
       let cursor = cursor.trim();
-      if cursor.get(0).map_or(false, |e| e.lexeme.strict_eq(&Lexeme::NS)) {
-        let cursor = cursor.step()?;
+      if cursor.get(0, ctx).map_or(false, |e| e.lexeme.strict_eq(&Lexeme::NS)) {
+        let cursor = cursor.step(ctx)?;
         let (out, cursor) = parse_multiname_rec(cursor, ctx)?;
         let out = Box::new(out.map(|sr| sr.push_front(n.clone())));
         Ok((out, cursor))
       } else {
-        Ok((box_once(Subresult::new_named(n.clone(), head.location())), cursor))
+        Ok((box_once(Subresult::new_named(n.clone(), &head.range)), cursor))
       }
     },
-    _ => Err(
-      Expected {
-        expected: vec![Lexeme::LP(PType::Par)],
-        or_name: true,
-        found: head.clone(),
-      }
-      .rc(),
-    ),
+    _ => {
+      let expected = vec![Lexeme::LP(PType::Par)];
+      let err =
+        Expected { expected, or_name: true, found: head.lexeme.clone() };
+      Err(err.pack(ctx.range_loc(&head.range)))
+    },
   }
 }
 
 /// Parse a tree that describes several names. The tree can be
-/// 
+///
 /// - name (except `,` or `*`)
 /// - name (except `,` or `*`) `::` tree
 /// - `(` tree `,` tree ... `)`
 /// - `*` (wildcard)
 /// - `[` name name ... `]` (including `,` or `*`).
-/// 
+///
 /// Examples of valid syntax:
-/// 
+///
 /// ```txt
 /// foo
 /// foo::bar::baz
@@ -141,9 +141,9 @@ fn parse_multiname_rec<'a>(
 /// foo::bar::[baz quz * +]
 /// ```
 pub fn parse_multiname<'a>(
-  cursor: Stream<'a>,
-  ctx: &(impl Context + ?Sized),
-) -> ProjectResult<(Vec<Import>, Stream<'a>)> {
+  cursor: Frag<'a>,
+  ctx: &(impl ParseCtx + ?Sized),
+) -> ProjectResult<(Vec<Import>, Frag<'a>)> {
   let (output, cont) = parse_multiname_rec(cursor, ctx)?;
-  Ok((output.map(|sr| sr.finalize()).collect(), cont))
+  Ok((output.map(|sr| sr.finalize(ctx)).collect(), cont))
 }
