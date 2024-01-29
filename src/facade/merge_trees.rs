@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
 use hashbrown::HashMap;
-use never::Never;
-use substack::Substack;
 
 use super::system::System;
 use crate::error::ProjectResult;
@@ -10,9 +8,10 @@ use crate::intermediate::ast_to_ir::ast_to_ir;
 use crate::intermediate::ir_to_nort::ir_to_nort;
 use crate::interpreter::nort;
 use crate::location::{CodeGenInfo, CodeLocation};
-use crate::name::{Sym, VPath};
+use crate::name::Sym;
 use crate::pipeline::project::ConstReport;
-use crate::tree::{ModMember, ModMemberRef, TreeTransforms};
+use crate::tree::{ModMemberRef, TreeTransforms};
+use crate::utils::unwrap_or::unwrap_or;
 
 /// Equivalent of [crate::pipeline::project::ConstReport] for the interpreter's
 /// representation, [crate::interpreter::nort].
@@ -33,28 +32,27 @@ pub fn merge_trees<'a: 'b, 'b>(
 ) -> ProjectResult<impl IntoIterator<Item = (Sym, NortConst)> + 'static> {
   let mut out = HashMap::new();
   for (name, rep) in source {
+    let ir = ast_to_ir(rep.value, name.clone())?;
+    // if name == Sym::literal("tree::main::main") {
+    //   panic!("{ir:?}");
+    // }
     out.insert(name.clone(), NortConst {
-      value: ir_to_nort(&ast_to_ir(rep.value, name)?),
+      value: ir_to_nort(&ir),
       location: CodeLocation::Source(rep.range),
       comments: rep.comments,
     });
   }
-  for sys in systems {
-    let const_module = sys.constants.unwrap_mod_ref();
-    const_module.search_all((), |path, node, ()| {
-      let m = if let ModMemberRef::Mod(m) = node { m } else { return };
-      for (key, ent) in &m.entries {
-        if let ModMember::Item(c) = &ent.member {
-          let path = VPath::new(path.unreverse()).as_prefix_of(key.clone());
-          let location = CodeLocation::Gen(CodeGenInfo::details(
-            "constant from",
-            format!("system.name={}", sys.name),
-          ));
-          let value = c.gen_nort(location.clone());
-          let crep = NortConst { value, comments: vec![], location };
-          out.insert(path.to_sym(), crep);
-        }
-      }
+  for system in systems {
+    let const_module = system.constants.unwrap_mod_ref();
+    const_module.search_all((), |stack, node, ()| {
+      let c = unwrap_or!(node => ModMemberRef::Item; return);
+      let location = CodeLocation::Gen(CodeGenInfo::details(
+        "constant from",
+        format!("system.name={}", system.name),
+      ));
+      let value = c.clone().gen_nort(stack.clone(), location.clone());
+      let crep = NortConst { value, comments: vec![], location };
+      out.insert(Sym::new(stack.unreverse()).expect("root item is forbidden"), crep);
     });
   }
   Ok(out)

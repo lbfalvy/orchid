@@ -84,11 +84,11 @@ export ::having
         pmatch::take_binds $binds (
           (\pmatch::pass. $t_expr) (
             pmatch::take_binds $t_binds (
-              pmatch::give_binds pmatch::chain_binds $binds $t_binds pmatch::pass
+              pmatch::give_binds (pmatch::chain_binds $binds $t_binds) pmatch::pass
             )
           )
         )
       )
   )
-  ( pmatch::chain_binds $binds $t_binds )
+  ( (pmatch::chain_binds $binds $t_binds) )
 )

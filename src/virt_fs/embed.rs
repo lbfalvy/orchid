@@ -61,7 +61,7 @@ impl VirtFS for EmbeddedFS {
       return Ok(Loaded::collection(self.tree.keys(|_| true)));
     }
     let entry = (self.tree.walk1_ref(&[], path, |_| true))
-      .map_err(|_| CodeNotFound(full_path.to_vpath()).pack())?;
+      .map_err(|_| CodeNotFound::new(full_path.to_vpath()).pack())?;
     Ok(match &entry.0.member {
       ModMember::Item(text) => Loaded::Code(text.clone()),
       ModMember::Sub(sub) => Loaded::collection(sub.keys(|_| true)),

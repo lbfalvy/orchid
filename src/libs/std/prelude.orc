@@ -22,3 +22,6 @@ export ::(loop_over, recursive, while)
 
 import std::known::*
 export ::[, _ ; . =]
+
+import std
+export ::(std)

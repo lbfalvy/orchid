@@ -1,3 +1,5 @@
+//! Join hashmaps with a callback for merging or failing on conflicting keys.
+
 use std::hash::Hash;
 
 use hashbrown::HashMap;
@@ -10,8 +12,7 @@ pub fn join_maps<K: Eq + Hash, V>(
   right: HashMap<K, V>,
   mut merge: impl FnMut(&K, V, V) -> V,
 ) -> HashMap<K, V> {
-  try_join_maps(left, right, |k, l, r| Ok(merge(k, l, r)))
-    .unwrap_or_else(|e: Never| match e {})
+  try_join_maps(left, right, |k, l, r| Ok(merge(k, l, r))).unwrap_or_else(|e: Never| match e {})
 }
 
 /// Combine two hashmaps via a fallible value merger. See also [join_maps]
@@ -23,11 +24,11 @@ pub fn try_join_maps<K: Eq + Hash, V, E>(
   let mut mixed = HashMap::with_capacity(left.len() + right.len());
   for (key, lval) in left {
     let val = match right.remove(&key) {
-      None => lval,
+      None => lval, 
       Some(rval) => merge(&key, lval, rval)?,
     };
     mixed.insert(key, val);
   }
-  mixed.extend(right.into_iter());
+  mixed.extend(right);
   Ok(mixed)
 }

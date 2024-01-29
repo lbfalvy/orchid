@@ -5,11 +5,10 @@ use ordered_float::NotNan;
 use super::arithmetic_error::ArithmeticError;
 use crate::foreign::atom::Atomic;
 use crate::foreign::error::{AssertionError, ExternError, ExternResult};
-use crate::foreign::fn_bridge::constructors::xfn_2ary;
 use crate::foreign::inert::Inert;
 use crate::foreign::to_clause::ToClause;
 use crate::foreign::try_from_expr::TryFromExpr;
-use crate::gen::tree::{atom_leaf, ConstTree};
+use crate::gen::tree::{xfn_ent, ConstTree};
 use crate::interpreter::nort::{Clause, Expr};
 use crate::location::CodeLocation;
 
@@ -140,11 +139,11 @@ pub fn less_than(a: Numeric, b: Numeric) -> Inert<bool> {
 
 pub(super) fn num_lib() -> ConstTree {
   ConstTree::ns("std::number", [ConstTree::tree([
-    ("add", atom_leaf(xfn_2ary(add))),
-    ("subtract", atom_leaf(xfn_2ary(subtract))),
-    ("multiply", atom_leaf(xfn_2ary(multiply))),
-    ("divide", atom_leaf(xfn_2ary(divide))),
-    ("remainder", atom_leaf(xfn_2ary(remainder))),
-    ("less_than", atom_leaf(xfn_2ary(less_than))),
+    xfn_ent("add", [add]),
+    xfn_ent("subtract", [subtract]),
+    xfn_ent("multiply", [multiply]),
+    xfn_ent("divide", [divide]),
+    xfn_ent("remainder", [remainder]),
+    xfn_ent("less_than", [less_than]),
   ])])
 }

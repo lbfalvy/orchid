@@ -2,9 +2,8 @@
 //! for runtime errors such as missing files.
 
 use std::fmt::Display;
-use std::sync::Arc;
 
-use crate::foreign::error::{ExternError, ExternResult};
+use crate::foreign::error::{ExternError, ExternErrorObj, ExternResult};
 
 /// Some external event prevented the operation from succeeding
 #[derive(Clone)]
@@ -21,7 +20,7 @@ impl RuntimeError {
   }
 
   /// Construct and upcast to [ExternError]
-  pub fn ext(message: String, operation: &'static str) -> Arc<dyn ExternError> {
+  pub fn ext(message: String, operation: &'static str) -> ExternErrorObj {
     Self { message, operation }.rc()
   }
 }

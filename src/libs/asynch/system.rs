@@ -20,11 +20,10 @@ use crate::facade::system::{IntoSystem, System};
 use crate::foreign::atom::Atomic;
 use crate::foreign::cps_box::CPSBox;
 use crate::foreign::error::ExternError;
-use crate::foreign::fn_bridge::constructors::xfn_2ary;
 use crate::foreign::inert::{Inert, InertPayload};
 use crate::gen::tpl;
 use crate::gen::traits::Gen;
-use crate::gen::tree::{atom_leaf, ConstTree};
+use crate::gen::tree::{atom_ent, xfn_ent, ConstTree};
 use crate::interpreter::gen_nort::nort_gen;
 use crate::interpreter::handler::HandlerTable;
 use crate::interpreter::nort::Expr;
@@ -81,9 +80,7 @@ impl Display for InfiniteBlock {
 pub struct MessagePort(Sender<Box<dyn Any + Send>>);
 impl MessagePort {
   /// Send an event. Any type is accepted, handlers are dispatched by type ID
-  pub fn send<T: Send + 'static>(&mut self, message: T) {
-    let _ = self.0.send(Box::new(message));
-  }
+  pub fn send<T: Send + 'static>(&mut self, message: T) { let _ = self.0.send(Box::new(message)); }
 }
 
 fn gen() -> CodeGenInfo { CodeGenInfo::no_details("asynch") }
@@ -124,17 +121,10 @@ impl<'a> AsynchSystem<'a> {
   /// # Panics
   ///
   /// if the given type is already handled.
-  pub fn register<T: 'static>(
-    &mut self,
-    mut f: impl FnMut(Box<T>) -> Vec<Expr> + 'a,
-  ) {
+  pub fn register<T: 'static>(&mut self, mut f: impl FnMut(Box<T>) -> Vec<Expr> + 'a) {
     let cb = move |a: Box<dyn Any>| f(a.downcast().expect("keyed by TypeId"));
     let prev = self.handlers.insert(TypeId::of::<T>(), Box::new(cb));
-    assert!(
-      prev.is_none(),
-      "Duplicate handlers for async event {}",
-      type_name::<T>()
-    )
+    assert!(prev.is_none(), "Duplicate handlers for async event {}", type_name::<T>())
   }
 
   /// Obtain a message port for sending messages to the main thread. If an
@@ -189,16 +179,13 @@ impl<'a> IntoSystem<'a> for AsynchSystem<'a> {
             PollEvent::Recurring(expr) => return Ok(expr),
             PollEvent::Event(ev) => {
               let handler = (handlers.get_mut(&ev.as_ref().type_id()))
-                .unwrap_or_else(|| {
-                  panic!("Unhandled messgae type: {:?}", (*ev).type_id())
-                });
+                .unwrap_or_else(|| panic!("Unhandled messgae type: {:?}", (*ev).type_id()));
               let events = handler(ev);
               // we got new microtasks
               if !events.is_empty() {
                 microtasks = VecDeque::from(events);
                 // trampoline
-                let loc =
-                  CodeLocation::Gen(CodeGenInfo::no_details("system::asynch"));
+                let loc = CodeLocation::Gen(CodeGenInfo::no_details("system::asynch"));
                 return Ok(Inert(Yield).atom_expr(loc));
               }
             },
@@ -211,8 +198,8 @@ impl<'a> IntoSystem<'a> for AsynchSystem<'a> {
       lexer_plugins: vec![],
       line_parsers: vec![],
       constants: ConstTree::ns("system::async", [ConstTree::tree([
-        ("set_timer", atom_leaf(xfn_2ary(set_timer))),
-        ("yield", atom_leaf(Inert(Yield))),
+        xfn_ent("set_timer", [set_timer]),
+        atom_ent("yield", [Inert(Yield)]),
       ])]),
       code: code(),
       prelude: Vec::new(),

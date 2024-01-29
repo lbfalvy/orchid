@@ -33,7 +33,7 @@ impl PrefixFS {
 impl VirtFS for PrefixFS {
   fn get(&self, path: &[Tok<String>], full_path: PathSlice) -> super::FSResult {
     let path = (self.proc_path(path))
-      .ok_or_else(|| CodeNotFound(full_path.to_vpath()).pack())?;
+      .ok_or_else(|| CodeNotFound::new(full_path.to_vpath()).pack())?;
     self.wrapped.get(&path, full_path)
   }
   fn display(&self, path: &[Tok<String>]) -> Option<String> {

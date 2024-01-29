@@ -7,13 +7,12 @@ use crate::facade::system::{IntoSystem, System};
 use crate::foreign::atom::Atomic;
 use crate::foreign::cps_box::CPSBox;
 use crate::foreign::error::ExternResult;
-use crate::foreign::fn_bridge::constructors::{xfn_1ary, xfn_2ary};
 use crate::foreign::inert::{Inert, InertPayload};
 use crate::foreign::process::Unstable;
 use crate::foreign::to_clause::ToClause;
 use crate::gen::tpl;
 use crate::gen::traits::Gen;
-use crate::gen::tree::{atom_ent, atom_leaf, ConstTree};
+use crate::gen::tree::{atom_ent, xfn_ent, ConstTree};
 use crate::interpreter::gen_nort::nort_gen;
 use crate::interpreter::handler::HandlerTable;
 use crate::interpreter::nort::{Clause, Expr};
@@ -80,10 +79,7 @@ fn read_dir(sched: &SeqScheduler, cmd: &CPSBox<ReadDirCmd>) -> Expr {
       Ok(os_namev) => {
         let converted = (os_namev.into_iter())
           .map(|(n, d)| {
-            Ok((
-              Inert(n).atom_expr(succ.location()),
-              Inert(d).atom_expr(succ.location()),
-            ))
+            Ok((Inert(n).atom_expr(succ.location()), Inert(d).atom_expr(succ.location())))
           })
           .collect::<Result<Vec<_>, Clause>>();
         match converted {
@@ -124,13 +120,9 @@ fn write_file(sched: &SeqScheduler, cmd: &CPSBox<WriteFile>) -> Expr {
   tpl.template(nort_gen(cont.location()), [cont])
 }
 
-fn open_file_read_cmd(name: OsString) -> CPSBox<ReadFileCmd> {
-  CPSBox::new(3, ReadFileCmd(name))
-}
+fn open_file_read_cmd(name: OsString) -> CPSBox<ReadFileCmd> { CPSBox::new(3, ReadFileCmd(name)) }
 
-fn read_dir_cmd(name: OsString) -> CPSBox<ReadDirCmd> {
-  CPSBox::new(3, ReadDirCmd(name))
-}
+fn read_dir_cmd(name: OsString) -> CPSBox<ReadDirCmd> { CPSBox::new(3, ReadDirCmd(name)) }
 
 fn open_file_write_cmd(name: OsString) -> CPSBox<WriteFile> {
   CPSBox::new(3, WriteFile { name, append: false })
@@ -146,9 +138,7 @@ fn join_paths(root: OsString, sub: OsString) -> OsString {
   path.into_os_string()
 }
 
-fn pop_path(
-  path: Inert<OsString>,
-) -> Option<(Inert<OsString>, Inert<OsString>)> {
+fn pop_path(path: Inert<OsString>) -> Option<(Inert<OsString>, Inert<OsString>)> {
   let mut path = PathBuf::from(path.0);
   let sub = path.file_name()?.to_owned();
   debug_assert!(path.pop(), "file_name above returned Some");
@@ -181,15 +171,15 @@ impl IntoSystem<'static> for DirectFS {
       lexer_plugins: vec![],
       line_parsers: vec![],
       constants: ConstTree::ns("system::fs", [ConstTree::tree([
-        ("read_file", atom_leaf(xfn_1ary(open_file_read_cmd))),
-        ("read_dir", atom_leaf(xfn_1ary(read_dir_cmd))),
-        ("write_file", atom_leaf(xfn_1ary(open_file_write_cmd))),
-        ("append_file", atom_leaf(xfn_1ary(open_file_append_cmd))),
-        ("join_paths", atom_leaf(xfn_2ary(join_paths))),
-        ("pop_path", atom_leaf(xfn_1ary(pop_path))),
+        xfn_ent("read_file", [open_file_read_cmd]),
+        xfn_ent("read_dir", [read_dir_cmd]),
+        xfn_ent("write_file", [open_file_write_cmd]),
+        xfn_ent("append_file", [open_file_append_cmd]),
+        xfn_ent("join_paths", [join_paths]),
+        xfn_ent("pop_path", [pop_path]),
         atom_ent("cwd", [Unstable::new(|_| -> ExternResult<_> {
-          let path = std::env::current_dir()
-            .map_err(|e| RuntimeError::ext(e.to_string(), "reading CWD"))?;
+          let path =
+            std::env::current_dir().map_err(|e| RuntimeError::ext(e.to_string(), "reading CWD"))?;
           Ok(Inert(path.into_os_string()))
         })]),
       ])])

@@ -89,7 +89,7 @@ impl DirNode {
         let mut file = File::open(&fpath).map_err(|file_e| {
           match (dir_e.kind(), file_e.kind()) {
             (ErrorKind::NotFound, ErrorKind::NotFound) =>
-              CodeNotFound(orig_path.to_vpath()).pack(),
+              CodeNotFound::new(orig_path.to_vpath()).pack(),
             _ => OpenError::wrap(file_e, dir_e),
           }
         })?;

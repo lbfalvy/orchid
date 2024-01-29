@@ -40,7 +40,9 @@ impl Entry {
     matches!(self.lexeme, Lexeme::Comment(_) | Lexeme::BR)
   }
 
-  fn new(range: Range<usize>, lexeme: Lexeme) -> Self { Self { lexeme, range } }
+  /// Create a new entry
+  #[must_use]
+  pub fn new(range: Range<usize>, lexeme: Lexeme) -> Self { Self { lexeme, range } }
 }
 
 impl Display for Entry {
@@ -139,7 +141,7 @@ pub fn namechar(c: char) -> bool { c.is_alphanumeric() | (c == '_') }
 pub fn namestart(c: char) -> bool { c.is_alphabetic() | (c == '_') }
 /// Character filter that can appear in operators.
 pub fn opchar(c: char) -> bool {
-  !namestart(c) && !numstart(c) && !c.is_whitespace() && !"()[]{},".contains(c)
+  !namestart(c) && !numstart(c) && !c.is_whitespace() && !"()[]{},'\"\\".contains(c)
 }
 
 /// Split off all characters from the beginning that match a filter
@@ -176,18 +178,18 @@ pub fn lex<'a>(
   mut tokens: Vec<Entry>,
   mut data: &'a str,
   ctx: &'_ impl ParseCtx,
-  bail: impl Fn(&str) -> bool,
+  mut bail: impl FnMut(&str) -> ProjectResult<bool>,
 ) -> ProjectResult<LexRes<'a>> {
   let mut prev_len = data.len() + 1;
   'tail: loop {
-    if bail(data) {
-      return Ok(LexRes { tokens, tail: data });
-    }
     if prev_len == data.len() {
       panic!("got stuck at {data:?}, parsed {:?}", tokens.last().unwrap());
     }
     prev_len = data.len();
     data = data.trim_start_matches(|c: char| c.is_whitespace() && c != '\n');
+    if bail(data)? {
+      return Ok(LexRes { tokens, tail: data });
+    }
     let mut chars = data.chars();
     let head = match chars.next() {
       None => return Ok(LexRes { tokens, tail: data }),
@@ -221,7 +223,7 @@ pub fn lex<'a>(
     }
     if let Some(tail) = data.strip_prefix("--[") {
       let (note, tail) = (tail.split_once("]--"))
-        .ok_or_else(|| NoCommentEnd.pack(ctx.code_range(tail.len(), "")))?;
+        .ok_or_else(|| NoCommentEnd.pack(ctx.source_range(tail.len(), "")))?;
       let lexeme = Lexeme::Comment(Arc::new(note.to_string()));
       tokens.push(Entry::new(ctx.range(note.len() + 3, tail), lexeme));
       data = tail;
@@ -276,7 +278,7 @@ pub fn lex<'a>(
                 .and_then(|num| match num {
                   Numeric::Uint(usize) => Ok(usize),
                   Numeric::Float(_) => Err(
-                    FloatPlacehPrio.pack(ctx.code_range(num_str.len(), tail)),
+                    FloatPlacehPrio.pack(ctx.source_range(num_str.len(), tail)),
                   ),
                 })
                 .map(|p| (p, num_str.len() + 1, tail))

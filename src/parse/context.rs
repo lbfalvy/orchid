@@ -39,7 +39,7 @@ pub trait ParseCtx {
   }
   /// Create a contextful location for error reporting
   #[must_use]
-  fn code_range(&self, len: usize, tl: &str) -> SourceRange {
+  fn source_range(&self, len: usize, tl: &str) -> SourceRange {
     self.range_loc(&self.range(len, tl))
   }
   /// Create a contentful location from a range directly.

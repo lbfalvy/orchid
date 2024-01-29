@@ -48,6 +48,7 @@ enum Command {
   },
   #[command(arg_required_else_help = true)]
   MacroDebug {
+    #[arg(long, short)]
     symbol: String,
   },
   ListMacros,

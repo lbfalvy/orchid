@@ -1,14 +1,12 @@
 use super::number::Numeric;
 use super::string::OrcString;
 use crate::foreign::error::{AssertionError, ExternResult};
-use crate::foreign::fn_bridge::constructors::{xfn_1ary, xfn_2ary};
 use crate::foreign::inert::Inert;
 use crate::foreign::try_from_expr::WithLoc;
 use crate::gen::tpl;
 use crate::gen::traits::{Gen, GenClause};
-use crate::gen::tree::{atom_leaf, ConstTree};
+use crate::gen::tree::{atom_ent, xfn_ent, ConstTree};
 use crate::interpreter::gen_nort::nort_gen;
-use crate::interpreter::nort_builder::NortBuilder;
 use crate::interpreter::nort::Expr;
 
 const fn left() -> impl GenClause { tpl::L("l", tpl::L("_", tpl::P("l"))) }
@@ -28,10 +26,7 @@ pub fn if_then_else(WithLoc(loc, b): WithLoc<Inert<bool>>) -> Expr {
 /// - both are string,
 /// - both are bool,
 /// - both are either uint or num
-pub fn equals(
-  WithLoc(loc, a): WithLoc<Expr>,
-  b: Expr,
-) -> ExternResult<Inert<bool>> {
+pub fn equals(WithLoc(loc, a): WithLoc<Expr>, b: Expr) -> ExternResult<Inert<bool>> {
   Ok(Inert(if let Ok(l) = a.clone().downcast::<Inert<OrcString>>() {
     b.downcast::<Inert<OrcString>>().is_ok_and(|r| *l == *r)
   } else if let Ok(l) = a.clone().downcast::<Inert<bool>>() {
@@ -45,9 +40,9 @@ pub fn equals(
 
 pub fn bool_lib() -> ConstTree {
   ConstTree::ns("std::bool", [ConstTree::tree([
-    ("ifthenelse", atom_leaf(xfn_1ary(if_then_else))),
-    ("equals", atom_leaf(xfn_2ary(equals))),
-    ("true", atom_leaf(Inert(true))),
-    ("false", atom_leaf(Inert(false))),
+    xfn_ent("ifthenelse", [if_then_else]),
+    xfn_ent("equals", [equals]),
+    atom_ent("true", [Inert(true)]),
+    atom_ent("false", [Inert(false)]),
   ])])
 }

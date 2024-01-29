@@ -10,6 +10,8 @@ pub struct RunContext<'a> {
   pub symbols: &'a HashMap<Sym, Expr>,
   /// The number of reduction steps the interpreter can take before returning
   pub gas: Option<usize>,
+  /// The limit of recursion
+  pub stack_size: usize,
 }
 impl<'a> RunContext<'a> {
   /// Consume some gas if it is being counted

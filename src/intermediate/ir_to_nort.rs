@@ -24,7 +24,13 @@ fn clause(cls: &ir::Clause, ctx: NortBuilder<(), usize>) -> nort::Clause {
 pub fn ir_to_nort(expr: &ir::Expr) -> nort::Expr {
   let c = NortBuilder::new(&|count| {
     let mut count: usize = *count;
-    Box::new(move |()| count.checked_sub(1).map(|v| count = v).is_none())
+    Box::new(move |()| match count {
+      0 => true,
+      _ => {
+        count -= 1;
+        false
+      },
+    })
   });
   nort::ClauseInst::new(clause(&expr.value, c)).to_expr(expr.location.clone())
 }

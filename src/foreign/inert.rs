@@ -4,13 +4,13 @@ use std::ops::{Deref, DerefMut};
 
 use ordered_float::NotNan;
 
-use super::atom::{Atom, Atomic, AtomicResult, AtomicReturn, NotAFunction};
+use super::atom::{
+  Atom, Atomic, AtomicResult, AtomicReturn, CallData, NotAFunction, RunData,
+};
 use super::error::{ExternError, ExternResult};
 use super::try_from_expr::TryFromExpr;
 use crate::foreign::error::AssertionError;
-use crate::interpreter::apply::CallData;
-use crate::interpreter::nort::{Clause, ClauseInst, Expr};
-use crate::interpreter::run::RunData;
+use crate::interpreter::nort::{Clause, Expr};
 use crate::libs::std::number::Numeric;
 use crate::libs::std::string::OrcString;
 use crate::utils::ddispatch::{Request, Responder};
@@ -72,9 +72,9 @@ impl<T: InertPayload> Atomic for Inert<T> {
   fn as_any(self: Box<Self>) -> Box<dyn Any> { self }
   fn as_any_ref(&self) -> &dyn Any { self }
 
-  fn redirect(&mut self) -> Option<&mut ClauseInst> { None }
-  fn run(self: Box<Self>, run: RunData) -> AtomicResult {
-    AtomicReturn::inert(*self, run.ctx)
+  fn redirect(&mut self) -> Option<&mut Expr> { None }
+  fn run(self: Box<Self>, _: RunData) -> AtomicResult {
+    AtomicReturn::inert(*self)
   }
   fn apply_ref(&self, call: CallData) -> ExternResult<Clause> {
     Err(NotAFunction(self.clone().atom_expr(call.location)).rc())

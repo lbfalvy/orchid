@@ -1,18 +1,15 @@
 use std::any::Any;
 use std::fmt::Debug;
-use std::sync::Arc;
 
-use super::atom::{Atom, Atomic, AtomicResult};
-use super::error::{ExternError, ExternResult};
+use super::atom::{Atom, Atomic, AtomicResult, CallData, RunData};
+use super::error::{ExternErrorObj, ExternResult};
 use super::process::Unstable;
 use super::to_clause::ToClause;
 use crate::gen::tpl;
 use crate::gen::traits::Gen;
-use crate::interpreter::apply::CallData;
 use crate::interpreter::error::RunError;
 use crate::interpreter::gen_nort::nort_gen;
-use crate::interpreter::nort::{Clause, ClauseInst};
-use crate::interpreter::run::RunData;
+use crate::interpreter::nort::{Clause, Expr};
 use crate::location::CodeLocation;
 use crate::utils::clonable_iter::Clonable;
 use crate::utils::ddispatch::Responder;
@@ -40,7 +37,7 @@ impl<T: ToClause, U: ToClause> ToClause for Result<T, U> {
   }
 }
 
-struct PendingError(Arc<dyn ExternError>);
+struct PendingError(ExternErrorObj);
 impl Responder for PendingError {}
 impl Debug for PendingError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -50,7 +47,7 @@ impl Debug for PendingError {
 impl Atomic for PendingError {
   fn as_any(self: Box<Self>) -> Box<dyn Any> { self }
   fn as_any_ref(&self) -> &dyn Any { self }
-  fn redirect(&mut self) -> Option<&mut ClauseInst> { None }
+  fn redirect(&mut self) -> Option<&mut Expr> { None }
   fn run(self: Box<Self>, _: RunData) -> AtomicResult {
     Err(RunError::Extern(self.0))
   }

@@ -3,7 +3,7 @@ use std::iter;
 use std::rc::Rc;
 
 use crate::foreign::atom::Atomic;
-use crate::foreign::fn_bridge::constructors::xfn_1ary;
+use crate::foreign::fn_bridge::xfn;
 use crate::foreign::process::Unstable;
 use crate::foreign::to_clause::ToClause;
 use crate::foreign::try_from_expr::TryFromExpr;
@@ -37,12 +37,11 @@ fn table_receiver_rec<
   callback: impl DeferredRuntimeCallback<T, U, R>,
 ) -> impl Atomic {
   let t = remaining_keys.pop_front().expect("empty handled elsewhere");
-  xfn_1ary(move |u: U| {
+  xfn("__table_receiver__", move |u: U| {
     let results = pushed(results, (t, u));
     match remaining_keys.is_empty() {
       true => callback(results).to_clause(CodeLocation::Source(range)),
-      false =>
-        table_receiver_rec(range, results, remaining_keys, callback).atom_cls(),
+      false => table_receiver_rec(range, results, remaining_keys, callback).atom_cls(),
     }
   })
 }
@@ -59,10 +58,8 @@ fn table_receiver<
   if keys.is_empty() {
     Unstable::new(move |_| callback(Vec::new())).ast_cls()
   } else {
-    Unstable::new(move |_| {
-      table_receiver_rec(range, Vec::new(), keys, callback).atom_cls()
-    })
-    .ast_cls()
+    Unstable::new(move |_| table_receiver_rec(range, Vec::new(), keys, callback).atom_cls())
+      .ast_cls()
   }
 }
 
@@ -77,10 +74,8 @@ pub fn defer_to_runtime<
   pairs: impl IntoIterator<Item = (T, Vec<parsed::Expr>)>,
   callback: impl DeferredRuntimeCallback<T, U, R>,
 ) -> parsed::Clause {
-  let (keys, ast_values) =
-    pairs.into_iter().unzip::<_, _, VecDeque<_>, Vec<_>>();
-  let items = iter::once(table_receiver(range.clone(), keys, callback)).chain(
-    ast_values.into_iter().map(|v| parsed::Clause::S(PType::Par, Rc::new(v))),
-  );
+  let (keys, ast_values) = pairs.into_iter().unzip::<_, _, VecDeque<_>, Vec<_>>();
+  let items = iter::once(table_receiver(range.clone(), keys, callback))
+    .chain(ast_values.into_iter().map(|v| parsed::Clause::S(PType::Par, Rc::new(v))));
   parsed::Clause::s('(', items, range)
 }

@@ -37,41 +37,40 @@ export ::(t, size)
     ( macro::length macro::comma_list ( ..$items ) )
     (
       pattern_walker
-        (0) -- index of next item
         macro::comma_list ( ..$items ) -- leftover items
     )
 )
 ( macro tuple_pattern $length ( pattern_result $expr ( $binds ) )
   =0x1p254=> pmatch::response (
     if length pmatch::value == $length
-      then $expr
+      then ((\tuple_idx. $expr ) 0)
       else pmatch::fail
   ) ( $binds )
 )
-( macro pattern_walker $length macro::list_end
+( macro pattern_walker macro::list_end
   =0x1p254=> pattern_result pmatch::pass ( pmatch::no_binds )
 )
-( macro pattern_walker (...$length) ( macro::list_item $next $tail )
+( macro pattern_walker ( macro::list_item $next $tail )
   =0x1p254=> pattern_await
-    (...$length)
     ( pmatch::request $next )
-    ( pattern_walker (...$length + 1) $tail )
+    ( pattern_walker $tail )
 )
-( macro pattern_await $length
+( macro pattern_await
     ( pmatch::response $expr ( $binds ) )
     ( pattern_result $tail_expr ( $tail_binds ) )
   =0x1p254=>
     pattern_result
       (
-        (\pmatch::pass. (\pmatch::value. $expr) (pick pmatch::value $length)) (
+        (\pmatch::pass. (\pmatch::value. $expr) (pick pmatch::value tuple_idx)) (
           pmatch::take_binds $binds (
-            (\pmatch::pass. $tail_expr) ( pmatch::take_binds $tail_binds (
+            (\pmatch::pass. (\tuple_idx. $tail_expr) (tuple_idx + 1))
+            ( pmatch::take_binds $tail_binds (
               pmatch::give_binds
-                pmatch::chain_binds $binds $tail_binds
+                (pmatch::chain_binds $binds $tail_binds)
                 pmatch::pass
             ))
           )
         )
       )
-      ( pmatch::chain_binds $binds $tail_binds )
+      ( ( pmatch::chain_binds $binds $tail_binds ) )
 )

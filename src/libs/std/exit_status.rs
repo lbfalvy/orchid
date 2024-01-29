@@ -5,9 +5,8 @@
 
 use std::process::ExitCode;
 
-use crate::foreign::fn_bridge::constructors::xfn_1ary;
 use crate::foreign::inert::{Inert, InertPayload};
-use crate::gen::tree::{atom_leaf, ConstTree};
+use crate::gen::tree::{atom_ent, xfn_ent, ConstTree};
 
 /// An Orchid equivalent to Rust's binary exit status model
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -34,8 +33,8 @@ impl InertPayload for ExitStatus {
 pub(super) fn exit_status_lib() -> ConstTree {
   let is_success = |es: Inert<ExitStatus>| Inert(es.0 == ExitStatus::Success);
   ConstTree::ns("std::exit_status", [ConstTree::tree([
-    ("success", atom_leaf(Inert(ExitStatus::Success))),
-    ("failure", atom_leaf(Inert(ExitStatus::Failure))),
-    ("is_success", atom_leaf(xfn_1ary(is_success))),
+    atom_ent("success", [Inert(ExitStatus::Success)]),
+    atom_ent("failure", [Inert(ExitStatus::Failure)]),
+    xfn_ent("is_success", [is_success]),
   ])])
 }

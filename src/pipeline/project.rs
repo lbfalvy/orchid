@@ -198,6 +198,7 @@ impl Display for ProjXMod {
 pub type ProjectEntry = ModEntry<ProjItem, ProjXMod, ProjXEnt>;
 /// A node in the tree describing the project
 pub type ProjectMod = Module<ProjItem, ProjXMod, ProjXEnt>;
+/// A reference to an item or module in the project
 pub type ProjectMemberRef<'a> = ModMemberRef<'a, ProjItem, ProjXMod, ProjXEnt>;
 
 fn collect_rules_rec(bag: &mut Vec<ProjRule>, module: &ProjectMod) {
@@ -267,5 +268,6 @@ pub struct ConstReport {
   pub comments: Vec<Arc<String>>,
   /// Value assigned to the constant
   pub value: Expr,
+  /// Source location this constant was parsed from
   pub range: SourceRange,
 }

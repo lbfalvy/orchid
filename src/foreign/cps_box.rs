@@ -4,11 +4,11 @@ use std::fmt::Debug;
 
 use trait_set::trait_set;
 
-use super::atom::{Atomic, AtomicResult, AtomicReturn, NotAFunction};
+use super::atom::{
+  Atomic, AtomicResult, AtomicReturn, CallData, NotAFunction, RunData,
+};
 use super::error::{ExternError, ExternResult};
-use crate::interpreter::apply::CallData;
-use crate::interpreter::nort::{Clause, ClauseInst, Expr};
-use crate::interpreter::run::RunData;
+use crate::interpreter::nort::{Clause, Expr};
 use crate::location::CodeLocation;
 use crate::utils::ddispatch::{Request, Responder};
 use crate::utils::pure_seq::pushed_ref;
@@ -78,9 +78,9 @@ impl<T: CPSPayload> Atomic for CPSBox<T> {
   fn as_any(self: Box<Self>) -> Box<dyn std::any::Any> { self }
   fn as_any_ref(&self) -> &dyn std::any::Any { self }
   fn parser_eq(&self, _: &dyn std::any::Any) -> bool { false }
-  fn redirect(&mut self) -> Option<&mut ClauseInst> { None }
-  fn run(self: Box<Self>, run: RunData) -> AtomicResult {
-    AtomicReturn::inert(*self, run.ctx)
+  fn redirect(&mut self) -> Option<&mut Expr> { None }
+  fn run(self: Box<Self>, _: RunData) -> AtomicResult {
+    AtomicReturn::inert(*self)
   }
   fn apply(mut self: Box<Self>, call: CallData) -> ExternResult<Clause> {
     self.assert_applicable(&call.location)?;

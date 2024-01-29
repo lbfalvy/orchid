@@ -280,7 +280,7 @@ impl Sym {
 }
 impl Debug for Sym {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "Sym{self})")
+    write!(f, "Sym({self})")
   }
 }
 impl Display for Sym {

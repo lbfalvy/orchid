@@ -11,7 +11,7 @@ use crate::parse::sourcefile::{parse_line, split_lines};
 
 /// Parse a file
 pub fn parse_file(ctx: &impl ParseCtx) -> ProjectResult<Vec<SourceLine>> {
-  let tokens = lex(vec![], ctx.source().as_str(), ctx, |_| false)?.tokens;
+  let tokens = lex(vec![], ctx.source().as_str(), ctx, |_| Ok(false))?.tokens;
   if tokens.is_empty() {
     Ok(Vec::new())
   } else {
@@ -30,7 +30,7 @@ pub fn parse_entries(
   range: SourceRange,
 ) -> Vec<SourceLine> {
   let ctx = FlatLocContext::new(ctx, &range);
-  let res = lex(vec![], text, &ctx, |_| false).expect("pre-specified source");
+  let res = lex(vec![], text, &ctx, |_| Ok(false)).expect("pre-specified source");
   split_lines(Frag::from_slice(&res.tokens), &ctx)
     .flat_map(|tokens| parse_line(tokens, &ctx).expect("pre-specified source"))
     .map(|kind| kind.wrap(range.clone()))

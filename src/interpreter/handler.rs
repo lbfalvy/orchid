@@ -75,12 +75,13 @@ impl<'a> HandlerTable<'a> {
 pub fn run_handler(
   mut state: Expr,
   handlers: &mut HandlerTable,
-  RunContext { mut gas, symbols }: RunContext,
+  mut ctx: RunContext,
 ) -> Result<Halt, RunError> {
   loop {
-    let inert;
-    Halt { gas, inert, state } = run(state, RunContext { gas, symbols })?;
-    let state_cls = state.clause.cls();
+    let halt = run(state, ctx.clone())?;
+    state = halt.state;
+    ctx.use_gas(halt.gas.unwrap_or(0));
+    let state_cls = state.cls();
     if let Clause::Atom(Atom(a)) = &*state_cls {
       if let Some(res) = handlers.dispatch(a.as_ref(), state.location()) {
         drop(state_cls);
@@ -88,9 +89,9 @@ pub fn run_handler(
         continue;
       }
     }
-    if inert || gas == Some(0) {
+    if halt.inert || ctx.no_gas() {
       drop(state_cls);
-      break Ok(Halt { gas, inert, state });
+      break Ok(Halt { gas: ctx.gas, inert: halt.inert, state });
     }
   }
 }

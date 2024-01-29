@@ -10,7 +10,7 @@ use crate::location::CodeLocation;
 pub trait ExternError: Display + Send + Sync + DynClone {
   /// Convert into trait object
   #[must_use]
-  fn rc(self) -> Arc<dyn ExternError>
+  fn rc(self) -> ExternErrorObj
   where Self: 'static + Sized {
     Arc::new(self)
   }
@@ -25,7 +25,10 @@ impl Debug for dyn ExternError {
 impl Error for dyn ExternError {}
 
 /// An error produced by Rust code called form Orchid. The error is type-erased.
-pub type ExternResult<T> = Result<T, Arc<dyn ExternError>>;
+pub type ExternErrorObj = Arc<dyn ExternError>;
+
+/// A result produced by Rust code called from Orchid.
+pub type ExternResult<T> = Result<T, ExternErrorObj>;
 
 /// Some expectation (usually about the argument types of a function) did not
 /// hold.
@@ -52,7 +55,7 @@ impl AssertionError {
     location: CodeLocation,
     message: &'static str,
     details: String,
-  ) -> Arc<dyn ExternError> {
+  ) -> ExternErrorObj {
     Self { location, message, details }.rc()
   }
 }

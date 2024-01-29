@@ -14,7 +14,7 @@ impl TryFromExpr for Expr {
 }
 
 impl TryFromExpr for ClauseInst {
-  fn from_expr(expr: Expr) -> ExternResult<Self> { Ok(expr.clause.clone()) }
+  fn from_expr(expr: Expr) -> ExternResult<Self> { Ok(expr.clsi()) }
 }
 
 /// Request a value of a particular type and also return its location for

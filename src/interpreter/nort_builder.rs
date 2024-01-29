@@ -67,8 +67,7 @@ impl<'a, T: ?Sized, U: ?Sized> NortBuilder<'a, T, U> {
   }
   fn non_app_step<V>(self, f: impl FnOnce(NortBuilder<T, U>) -> V) -> V {
     if let Some(IntGenData::Apply(_)) = self.stack.value() {
-      let prev = self.pop(1);
-      f(prev.push(IntGenData::AppF))
+      f(self.pop(1).push(IntGenData::AppF))
     } else {
       f(self)
     }
@@ -80,14 +79,17 @@ impl<'a, T: ?Sized, U: ?Sized> NortBuilder<'a, T, U> {
   pub fn arg_logic(self, name: &'a U) {
     let mut lambda_chk = (self.lambda_picker)(name);
     self.non_app_step(|ctx| {
-      let opt = ctx.stack.rfold(None, |path, item| match item {
+      let res = ctx.stack.iter().try_fold(vec![], |path, item| match item {
         IntGenData::Apply(_) => panic!("This is removed after handling"),
-        IntGenData::Lambda(n, rc) =>
-          lambda_chk(n).then(|| (vec![], *rc)).or(path),
-        IntGenData::AppArg(n) => path.map(|(p, rc)| (pushed(p, Some(*n)), rc)),
-        IntGenData::AppF => path.map(|(p, rc)| (pushed(p, None), rc)),
+        IntGenData::Lambda(n, rc) => match lambda_chk(n) {
+          false => Ok(path),
+          true => Err((path, *rc))
+        },
+        IntGenData::AppArg(n) => Ok(pushed(path, Some(*n))),
+        IntGenData::AppF => Ok(pushed(path, None)),
       });
-      let (path, slot) = opt.expect("Argument not wrapped in matching lambda");
+      let (mut path, slot) = res.expect_err("Argument not wrapped in matching lambda");
+      path.reverse();
       match &mut *slot.borrow_mut() {
         slot @ None => *slot = Some(PathSet::end(path)),
         Some(slot) => take_mut::take(slot, |p| p.overlay(PathSet::end(path))),

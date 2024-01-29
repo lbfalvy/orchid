@@ -13,13 +13,12 @@ use super::runtime_error::RuntimeError;
 use crate::error::ProjectResult;
 use crate::foreign::atom::Atomic;
 use crate::foreign::error::ExternResult;
-use crate::foreign::fn_bridge::constructors::xfn_2ary;
 use crate::foreign::inert::{Inert, InertPayload};
 use crate::foreign::process::Unstable;
 use crate::foreign::to_clause::ToClause;
 use crate::gen::tpl;
 use crate::gen::traits::GenClause;
-use crate::gen::tree::{atom_leaf, ConstTree};
+use crate::gen::tree::{atom_leaf, xfn_ent, ConstTree};
 use crate::interpreter::nort as int;
 use crate::interpreter::nort::ClauseInst;
 use crate::libs::parse_custom_line::custom_line;
@@ -33,7 +32,6 @@ use crate::parse::parsed::{
   SourceLineKind,
 };
 use crate::utils::ddispatch::Request;
-use crate::utils::pure_seq::pushed;
 
 pub struct TypeData {
   pub id: RefEqual,
@@ -439,9 +437,9 @@ pub const fn gen_resolv(name: &'static str) -> impl GenClause {
 
 pub fn protocol_lib() -> ConstTree {
   ConstTree::ns("std::protocol", [ConstTree::tree([
-    ("unwrap", atom_leaf(xfn_2ary(unwrap))),
-    ("wrap", atom_leaf(xfn_2ary(wrap))),
-    ("get_impl", atom_leaf(xfn_2ary(get_impl))),
-    ("resolve", atom_leaf(xfn_2ary(resolve))),
+    xfn_ent("unwrap", [unwrap]),
+    xfn_ent("wrap", [wrap]),
+    xfn_ent("get_impl", [get_impl]),
+    xfn_ent("resolve", [resolve]),
   ])])
 }

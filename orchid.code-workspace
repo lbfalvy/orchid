@@ -19,12 +19,14 @@
 			"editor.lineNumbers": "off",
 			"editor.glyphMargin": false,
 			"editor.rulers": [],
-			"editor.guides.indentation": false, 
+			"editor.guides.indentation": false,
 			"editor.formatOnSave": true,
 			"editor.formatOnType": true,
 		},
 		"[rust]": {
-			"editor.rulers": [80],
+			"editor.rulers": [
+				100
+			],
 		},
 		"rust-analyzer.showUnlinkedFileNotification": false,
 		"rust-analyzer.checkOnSave": true,

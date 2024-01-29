@@ -94,6 +94,8 @@ export const enumerate := \list. (
       cons t[n, head] $ r tail $ n + 1
 )
 
+export const count := \list. fold list 0 \a. \n. a + 1
+
 --[
   Turn a list of CPS commands into a sequence. This is achieved by calling every
   element on the return value of the next element with the tail passed to it.
@@ -128,10 +130,10 @@ export ::(new)
         (pmatch::take_binds $h_binds (
           (\pmatch::pass. (\pmatch::value. $t_expr) tail)
           (pmatch::take_binds $t_binds (
-            pmatch::give_binds pmatch::chain_binds $h_binds $t_binds pmatch::pass
+            pmatch::give_binds (pmatch::chain_binds $h_binds $t_binds) pmatch::pass
           ))
         ))
       )
   )
-  (pmatch::chain_binds $h_binds $t_binds)
+  ( (pmatch::chain_binds $h_binds $t_binds) )
 )

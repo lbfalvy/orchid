@@ -1,5 +1,6 @@
 import super::known::*
-import super::pmatch::*
+import super::pmatch
+import super::pmatch::(match, =>)
 import super::macro
 
 --[ Do nothing. Especially useful as a passive cps operation ]--
@@ -24,10 +25,11 @@ export macro ...$prefix $ ...$suffix:1 =0x1p38=> ...$prefix (...$suffix)
 export macro ...$prefix |> $fn ..$suffix:1 =0x2p32=> $fn (...$prefix) ..$suffix
 
 ( macro (..$argv) => ...$body
-  =0x2p127=> lambda_walker macro::comma_list (..$argv) (...$body)
+  =0x3p127=> lambda_walker macro::comma_list (..$argv) (...$body)
 )
 ( macro $_arg => ...$body
-  =0x2p127=> \$_arg. ...$body)
+  =0x2p127=> \$_arg. ...$body
+)
 ( macro lambda_walker ( macro::list_item ($_argname) $tail ) $body
   =0x2p254=> \$_argname. lambda_walker $tail $body
 )

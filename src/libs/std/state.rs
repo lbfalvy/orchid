@@ -1,13 +1,11 @@
 use std::sync::{Arc, Mutex};
 
-use crate::foreign::fn_bridge::constructors::{xfn_2ary, xfn_3ary};
 use crate::foreign::fn_bridge::Thunk;
 use crate::foreign::inert::{Inert, InertPayload};
 use crate::gen::tpl;
 use crate::gen::traits::Gen;
-use crate::gen::tree::{atom_leaf, ConstTree};
+use crate::gen::tree::{xfn_ent, ConstTree};
 use crate::interpreter::gen_nort::nort_gen;
-use crate::interpreter::nort_builder::NortBuilder;
 use crate::interpreter::handler::HandlerTable;
 use crate::interpreter::nort::Expr;
 
@@ -77,8 +75,8 @@ pub fn state_handlers() -> HandlerTable<'static> {
 
 pub fn state_lib() -> ConstTree {
   ConstTree::ns("std::state", [ConstTree::tree([
-    ("new_state", atom_leaf(xfn_2ary(new_state))),
-    ("get_state", atom_leaf(xfn_2ary(get_state))),
-    ("set_state", atom_leaf(xfn_3ary(set_state))),
+    xfn_ent("new_state", [new_state]),
+    xfn_ent("get_state", [get_state]),
+    xfn_ent("set_state", [set_state]),
   ])])
 }

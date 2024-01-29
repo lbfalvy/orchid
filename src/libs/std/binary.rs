@@ -9,11 +9,8 @@ use itertools::Itertools;
 use super::runtime_error::RuntimeError;
 use crate::foreign::atom::Atomic;
 use crate::foreign::error::ExternResult;
-use crate::foreign::fn_bridge::constructors::{
-  xfn_1ary, xfn_2ary, xfn_3ary, xfn_4ary,
-};
 use crate::foreign::inert::{Inert, InertPayload};
-use crate::gen::tree::{atom_leaf, ConstTree};
+use crate::gen::tree::{atom_ent, xfn_ent, ConstTree};
 use crate::interpreter::nort::Clause;
 use crate::utils::iter_find::iter_find;
 use crate::utils::unwrap_or::unwrap_or;
@@ -40,8 +37,7 @@ impl Debug for Binary {
       let a = chunk.next().expect("Chunks cannot be empty");
       let b = unwrap_or!(chunk.next(); return write!(f, "{a:02x}"));
       let c = unwrap_or!(chunk.next(); return write!(f, "{a:02x}{b:02x}"));
-      let d =
-        unwrap_or!(chunk.next(); return write!(f, "{a:02x}{b:02x}{c:02x}"));
+      let d = unwrap_or!(chunk.next(); return write!(f, "{a:02x}{b:02x}{c:02x}"));
       write!(f, "{a:02x}{b:02x}{c:02x}{d:02x}")?
     }
     if iter.next().is_some() { write!(f, "...") } else { Ok(()) }
@@ -55,16 +51,9 @@ pub fn concatenate(a: Inert<Binary>, b: Inert<Binary>) -> Inert<Binary> {
 }
 
 /// Extract a subsection of the binary data
-pub fn slice(
-  s: Inert<Binary>,
-  i: Inert<usize>,
-  len: Inert<usize>,
-) -> ExternResult<Inert<Binary>> {
+pub fn slice(s: Inert<Binary>, i: Inert<usize>, len: Inert<usize>) -> ExternResult<Inert<Binary>> {
   if i.0 + len.0 < s.0.0.len() {
-    RuntimeError::fail(
-      "Byte index out of bounds".to_string(),
-      "indexing binary",
-    )?
+    RuntimeError::fail("Byte index out of bounds".to_string(), "indexing binary")?
   }
   Ok(Inert(Binary(Arc::new(s.0.0[i.0..i.0 + len.0].to_vec()))))
 }
@@ -76,21 +65,12 @@ pub fn find(haystack: Inert<Binary>, needle: Inert<Binary>) -> Option<Clause> {
 }
 
 /// Split binary data block into two smaller blocks
-pub fn split(
-  bin: Inert<Binary>,
-  i: Inert<usize>,
-) -> ExternResult<(Inert<Binary>, Inert<Binary>)> {
+pub fn split(bin: Inert<Binary>, i: Inert<usize>) -> ExternResult<(Inert<Binary>, Inert<Binary>)> {
   if bin.0.0.len() < i.0 {
-    RuntimeError::fail(
-      "Byte index out of bounds".to_string(),
-      "splitting binary",
-    )?
+    RuntimeError::fail("Byte index out of bounds".to_string(), "splitting binary")?
   }
   let (asl, bsl) = bin.0.0.split_at(i.0);
-  Ok((
-    Inert(Binary(Arc::new(asl.to_vec()))),
-    Inert(Binary(Arc::new(bsl.to_vec()))),
-  ))
+  Ok((Inert(Binary(Arc::new(asl.to_vec()))), Inert(Binary(Arc::new(bsl.to_vec())))))
 }
 
 /// Read a number from a binary blob
@@ -101,10 +81,7 @@ pub fn get_num(
   is_le: Inert<bool>,
 ) -> ExternResult<Inert<usize>> {
   if buf.0.0.len() < (loc.0 + size.0) {
-    RuntimeError::fail(
-      "section out of range".to_string(),
-      "reading number from binary data",
-    )?
+    RuntimeError::fail("section out of range".to_string(), "reading number from binary data")?
   }
   if INT_BYTES < size.0 {
     RuntimeError::fail(
@@ -148,13 +125,13 @@ pub fn size(b: Inert<Binary>) -> Inert<usize> { Inert(b.0.len()) }
 
 pub(super) fn bin_lib() -> ConstTree {
   ConstTree::ns("std::binary", [ConstTree::tree([
-    ("concat", atom_leaf(xfn_2ary(concatenate))),
-    ("slice", atom_leaf(xfn_3ary(slice))),
-    ("find", atom_leaf(xfn_2ary(find))),
-    ("split", atom_leaf(xfn_2ary(split))),
-    ("get_num", atom_leaf(xfn_4ary(get_num))),
-    ("from_num", atom_leaf(xfn_3ary(from_num))),
-    ("size", atom_leaf(xfn_1ary(size))),
-    ("int_bytes", atom_leaf(Inert(INT_BYTES))),
+    xfn_ent("concat", [concatenate]),
+    xfn_ent("slice", [slice]),
+    xfn_ent("find", [find]),
+    xfn_ent("split", [split]),
+    xfn_ent("get_num", [get_num]),
+    xfn_ent("from_num", [from_num]),
+    xfn_ent("size", [size]),
+    atom_ent("int_bytes", [Inert(INT_BYTES)]),
   ])])
 }

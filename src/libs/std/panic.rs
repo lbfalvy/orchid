@@ -5,9 +5,8 @@ use never::Never;
 
 use super::string::OrcString;
 use crate::foreign::error::{ExternError, ExternResult};
-use crate::foreign::fn_bridge::constructors::xfn_1ary;
 use crate::foreign::inert::Inert;
-use crate::gen::tree::{atom_leaf, ConstTree};
+use crate::gen::tree::{xfn_leaf, ConstTree}; 
 
 /// An unrecoverable error in Orchid land. Because Orchid is lazy, this only
 /// invalidates expressions that reference the one that generated it.
@@ -28,6 +27,4 @@ pub fn orc_panic(msg: Inert<OrcString>) -> ExternResult<Never> {
   Err(OrchidPanic(Arc::new(msg.0.get_string())).rc())
 }
 
-pub fn panic_lib() -> ConstTree {
-  ConstTree::ns("std::panic", [atom_leaf(xfn_1ary(orc_panic))])
-}
+pub fn panic_lib() -> ConstTree { ConstTree::ns("std::panic", [xfn_leaf(orc_panic)]) }

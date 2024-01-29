@@ -1,15 +1,14 @@
 use std::any::{Any, TypeId};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 
-use super::atom::{Atomic, AtomicResult, AtomicReturn};
+use intern_all::{i, Tok};
+
+use super::atom::{Atomic, AtomicResult, AtomicReturn, CallData, RunData};
 use super::error::ExternResult;
 use super::to_clause::ToClause;
 use super::try_from_expr::TryFromExpr;
-use crate::interpreter::apply::CallData;
-use crate::interpreter::context::Halt;
-use crate::interpreter::nort::{Clause, ClauseInst, Expr};
-use crate::interpreter::run::{run, RunData};
+use crate::interpreter::nort::{Clause, Expr};
 use crate::utils::ddispatch::Responder;
 
 /// Return a unary lambda wrapped in this struct to take an additional argument
@@ -27,22 +26,31 @@ use crate::utils::ddispatch::Responder;
 /// type's [TryFromExpr] impl.
 pub struct Param<T, U, F> {
   data: F,
+  name: Tok<String>,
   _t: PhantomData<T>,
   _u: PhantomData<U>,
 }
 unsafe impl<T, U, F: Send> Send for Param<T, U, F> {}
 impl<T, U, F> Param<T, U, F> {
   /// Wrap a new function in a parametric struct
-  pub fn new(f: F) -> Self
+  pub fn new(name: Tok<String>, f: F) -> Self
   where F: FnOnce(T) -> U {
-    Self { data: f, _t: PhantomData, _u: PhantomData }
+    Self { name, data: f, _t: PhantomData, _u: PhantomData }
   }
   /// Take out the function
   pub fn get(self) -> F { self.data }
 }
 impl<T, U, F: Clone> Clone for Param<T, U, F> {
   fn clone(&self) -> Self {
-    Self { data: self.data.clone(), _t: PhantomData, _u: PhantomData }
+    Self { name: self.name.clone(), data: self.data.clone(), _t: PhantomData, _u: PhantomData }
+  }
+}
+impl<T, U, F> Display for Param<T, U, F> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str(&self.name) }
+}
+impl<T, U, F> Debug for Param<T, U, F> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_tuple("Param").field(&*self.name).finish()
   }
 }
 
@@ -65,9 +73,7 @@ impl<T, U, F: Clone> Clone for FnMiddleStage<T, U, F> {
 }
 impl<T, U, F> Debug for FnMiddleStage<T, U, F> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.debug_struct("FnMiddleStage")
-      .field("argument", &self.arg)
-      .finish_non_exhaustive()
+    write!(f, "FnMiddleStage({} {})", self.f, self.arg)
   }
 }
 impl<T, U, F> Responder for FnMiddleStage<T, U, F> {}
@@ -79,26 +85,18 @@ impl<
 {
   fn as_any(self: Box<Self>) -> Box<dyn std::any::Any> { self }
   fn as_any_ref(&self) -> &dyn std::any::Any { self }
-  fn redirect(&mut self) -> Option<&mut ClauseInst> {
+  fn redirect(&mut self) -> Option<&mut Expr> {
     // this should be ctfe'd
-    (TypeId::of::<T>() != TypeId::of::<Thunk>()).then(|| &mut self.arg.clause)
+    (TypeId::of::<T>() != TypeId::of::<Thunk>()).then_some(&mut self.arg)
   }
   fn run(self: Box<Self>, r: RunData) -> AtomicResult {
     let Self { arg, f: Param { data: f, .. } } = *self;
-    let clause = f(arg.downcast()?).to_clause(r.location);
-    Ok(AtomicReturn { gas: r.ctx.gas, inert: false, clause })
+    Ok(AtomicReturn::Change(0, f(arg.downcast()?).to_clause(r.location)))
   }
-  fn apply_ref(&self, _: CallData) -> ExternResult<Clause> {
-    panic!("Atom should have decayed")
-  }
+  fn apply_ref(&self, _: CallData) -> ExternResult<Clause> { panic!("Atom should have decayed") }
 }
 
 impl<T, U, F> Responder for Param<T, U, F> {}
-impl<T, U, F> Debug for Param<T, U, F> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "Param")
-  }
-}
 
 impl<
   T: 'static + TryFromExpr + Clone,
@@ -108,10 +106,8 @@ impl<
 {
   fn as_any(self: Box<Self>) -> Box<dyn std::any::Any> { self }
   fn as_any_ref(&self) -> &dyn std::any::Any { self }
-  fn redirect(&mut self) -> Option<&mut ClauseInst> { None }
-  fn run(self: Box<Self>, r: RunData) -> AtomicResult {
-    AtomicReturn::inert(*self, r.ctx)
-  }
+  fn redirect(&mut self) -> Option<&mut Expr> { None }
+  fn run(self: Box<Self>, _: RunData) -> AtomicResult { AtomicReturn::inert(*self) }
   fn apply_ref(&self, call: CallData) -> ExternResult<Clause> {
     Ok(FnMiddleStage { arg: call.arg, f: self.clone() }.atom_cls())
   }
@@ -120,17 +116,42 @@ impl<
   }
 }
 
+/// Convert a Rust function to Orchid. If you can, register your Rust functions
+/// statically with functions in [crate::gen::tree].
+pub fn xfn<const N: usize, Argv, Ret>(
+  name: &str,
+  x: impl Xfn<N, Argv, Ret>,
+) -> impl Atomic + Clone {
+  x.to_atomic(i(name))
+}
+
+/// Trait for functions that can be directly passed to Orchid. Constraints in a
+/// nutshell:
+///
+/// - the function must live as long as ['static]
+/// - All arguments must implement [TryFromExpr]
+/// - all but the last argument must implement [Clone] and [Send]
+/// - the return type must implement [ToClause]
+///
+/// Take [Thunk] to consume the argument as-is, without normalization.
+pub trait Xfn<const N: usize, Argv, Ret>: Clone + 'static {
+  /// Convert Rust type to Orchid function, given a name for logging
+  fn to_atomic(self, name: Tok<String>) -> impl Atomic + Clone;
+}
+
 /// Conversion functions from [Fn] traits into [Atomic]. Since Rust's type
 /// system allows overloaded [Fn] implementations, we must specify the arity and
 /// argument types for this process. Arities are only defined up to 9, but the
 /// function can always return another call to `xfn_`N`ary` to consume more
 /// arguments.
-pub mod constructors {
+pub mod xfn_impls {
+  use intern_all::{i, Tok};
+
   use super::super::atom::Atomic;
   use super::super::try_from_expr::TryFromExpr;
   #[allow(unused)] // for doc
   use super::Thunk;
-  use super::{Param, ToClause};
+  use super::{Param, ToClause, Xfn};
 
   macro_rules! xfn_variant {
     (
@@ -139,42 +160,40 @@ pub mod constructors {
       ($($alt:expr)*)
     ) => {
       paste::paste!{
-        #[doc = "Convert a function of " $number " argument(s) into a curried"
-          " Orchid function. See also Constraints summarized:\n\n"
-          "- the callback must live as long as `'static`\n"
-          "- All arguments must implement [TryFromExpr]\n"
-          "- all but the last argument must implement [Clone] and [Send]\n"
-          "- the return type must implement [ToClause].\n\n"
-        ]
-        #[doc = "Take [Lazy] to take the argument as-is,\n"
-          "without normalization\n\n"
-        ]
-        #[doc = "Other arities: " $( "[xfn_" $alt "ary], " )+ ]
-        pub fn [< xfn_ $number ary >] <
+        impl<
           $( $t : TryFromExpr + Clone + Send + 'static, )*
           TLast: TryFromExpr + Clone + 'static,
           TReturn: ToClause + Send + 'static,
           TFunction: FnOnce( $( $t , )* TLast )
             -> TReturn + Clone + Send + 'static
-        >(function: TFunction) -> impl Atomic + Clone {
-          xfn_variant!(@BODY_LOOP function
-            ( $( ( $t [< $t:lower >] ) )* )
-            ( $( [< $t:lower >] )* )
-          )
+        > Xfn<$number, ($($t,)* TLast,), TReturn> for TFunction {
+          fn to_atomic(self, name: Tok<String>) -> impl Atomic + Clone {
+            #[allow(unused_variables)]
+            let argc = 0;
+            let stage_n = name.clone();
+            xfn_variant!(@BODY_LOOP self name stage_n argc
+              ( $( ( $t [< $t:lower >] ) )* )
+              ( $( [< $t:lower >] )* )
+            )
+          }
         }
       }
     };
-    (@BODY_LOOP $function:ident (
+    (@BODY_LOOP $function:ident $name:ident $stage_n:ident $argc:ident (
       ( $Next:ident $next:ident )
       $( ( $T:ident $t:ident ) )*
-    ) $full:tt) => {
-      Param::new(|$next : $Next| {
-        xfn_variant!(@BODY_LOOP $function ( $( ( $T $t ) )* ) $full)
+    ) $full:tt) => {{
+      Param::new($stage_n, move |$next : $Next| {
+        let $argc = $argc + 1;
+        let $stage_n = i(&format!("{}/{}", $name, $argc));
+        xfn_variant!(@BODY_LOOP $function $name $stage_n $argc ( $( ( $T $t ) )* ) $full)
       })
-    };
-    (@BODY_LOOP $function:ident () ( $( $t:ident )* )) => {
-      Param::new(|last: TLast| $function ( $( $t , )* last ))
-    };
+    }};
+    (@BODY_LOOP $function:ident $name:ident $stage_n:ident $argc:ident (
+
+    ) ( $( $t:ident )* )) => {{
+      Param::new($stage_n, |last: TLast| $function ( $( $t , )* last ))
+    }};
   }
 
   xfn_variant!(1, () (2 3 4 5 6 7 8 9 10 11 12 13 14 15 16));

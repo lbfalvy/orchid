@@ -3,13 +3,12 @@
 use intern_all::i;
 use itertools::Itertools;
 
-use super::errors::{
-  BadCodePoint, BadEscapeSequence, NoStringEnd, NotHex, ParseErrorKind,
-};
+use super::context::ParseCtx;
+use super::errors::{BadCodePoint, BadEscapeSequence, NoStringEnd, NotHex, ParseErrorKind};
 #[allow(unused)] // for doc
 use super::lex_plugin::LexerPlugin;
 use super::lexer::{Entry, LexRes, Lexeme};
-use crate::error::ProjectResult;
+use crate::error::{ProjectErrorObj, ProjectResult};
 use crate::foreign::atom::AtomGenerator;
 use crate::foreign::inert::Inert;
 use crate::libs::std::string::OrcString;
@@ -30,6 +29,19 @@ pub struct StringError {
   pos: usize,
   /// Reason for the error
   kind: StringErrorKind,
+}
+
+impl StringError {
+  /// Convert into project error for reporting
+  pub fn to_proj(self, ctx: &dyn ParseCtx, pos: usize) -> ProjectErrorObj {
+    let start = pos + self.pos;
+    let location = ctx.range_loc(&(start..start + 1));
+    match self.kind {
+      StringErrorKind::NotHex => NotHex.pack(location),
+      StringErrorKind::BadCodePoint => BadCodePoint.pack(location),
+      StringErrorKind::BadEscSeq => BadEscapeSequence.pack(location),
+    }
+  }
 }
 
 /// Process escape sequences in a string literal
@@ -61,18 +73,14 @@ pub fn parse_string(str: &str) -> Result<String, StringError> {
       'u' => {
         let acc = ((0..4).rev())
           .map(|radical| {
-            let (j, c) = (iter.next())
-              .ok_or(StringError { pos, kind: StringErrorKind::NotHex })?;
+            let (j, c) = (iter.next()).ok_or(StringError { pos, kind: StringErrorKind::NotHex })?;
             pos = j;
-            let b =
-              u32::from_str_radix(&String::from(c), 16).map_err(|_| {
-                StringError { pos, kind: StringErrorKind::NotHex }
-              })?;
+            let b = u32::from_str_radix(&String::from(c), 16)
+              .map_err(|_| StringError { pos, kind: StringErrorKind::NotHex })?;
             Ok(16u32.pow(radical) + b)
           })
           .fold_ok(0, u32::wrapping_add)?;
-        char::from_u32(acc)
-          .ok_or(StringError { pos, kind: StringErrorKind::BadCodePoint })?
+        char::from_u32(acc).ok_or(StringError { pos, kind: StringErrorKind::BadCodePoint })?
       },
       _ => return Err(StringError { pos, kind: StringErrorKind::BadEscSeq }),
     };
@@ -91,26 +99,15 @@ impl LexerPlugin for StringLexer {
     req.tail().strip_prefix('"').map(|data| {
       let mut leftover = data;
       return loop {
-        let (inside, outside) =
-          (leftover.split_once('"')).ok_or_else(|| {
-            NoStringEnd.pack(req.ctx().code_range(data.len(), ""))
-          })?;
-        let backslashes =
-          inside.chars().rev().take_while(|c| *c == '\\').count();
+        let (inside, outside) = (leftover.split_once('"'))
+          .ok_or_else(|| NoStringEnd.pack(req.ctx().source_range(data.len(), "")))?;
+        let backslashes = inside.chars().rev().take_while(|c| *c == '\\').count();
         if backslashes % 2 == 0 {
           // cut form tail to recoup what string_content doesn't have
-          let (string_data, tail) =
-            data.split_at(data.len() - outside.len() - 1);
+          let (string_data, tail) = data.split_at(data.len() - outside.len() - 1);
           let tail = &tail[1..]; // push the tail past the end quote
-          let string = parse_string(string_data).map_err(|e| {
-            let start = req.ctx().pos(data) + e.pos;
-            let location = req.ctx().range_loc(&(start..start + 1));
-            match e.kind {
-              StringErrorKind::NotHex => NotHex.pack(location),
-              StringErrorKind::BadCodePoint => BadCodePoint.pack(location),
-              StringErrorKind::BadEscSeq => BadEscapeSequence.pack(location),
-            }
-          })?;
+          let string =
+            parse_string(string_data).map_err(|e| e.to_proj(req.ctx(), req.ctx().pos(data)))?;
           let output = Inert(OrcString::from(i(&string)));
           let ag = AtomGenerator::cloner(output);
           let range = req.ctx().range(string_data.len(), tail);
@@ -144,8 +141,7 @@ mod test {
       [Entry { lexeme: Lexeme::Atom(ag), .. }] => ag,
       _ => panic!("Expected a single atom"),
     };
-    let atom =
-      ag.run().try_downcast::<Inert<OrcString>>().expect("Lexed to inert");
+    let atom = ag.run().try_downcast::<Inert<OrcString>>().expect("Lexed to inert");
     assert_eq!(atom.0.as_str(), "hello world!");
     assert_eq!(res.tail, " - says the programmer");
   }

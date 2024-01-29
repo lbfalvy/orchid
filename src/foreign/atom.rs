@@ -5,35 +5,27 @@ use std::sync::{Arc, Mutex};
 use never::Never;
 
 use super::error::{ExternError, ExternResult};
-use crate::interpreter::apply::CallData;
 use crate::interpreter::context::RunContext;
 use crate::interpreter::error::RunError;
 use crate::interpreter::nort;
-use crate::interpreter::run::RunData;
 use crate::location::{CodeLocation, SourceRange};
 use crate::name::NameLike;
 use crate::parse::parsed;
 use crate::utils::ddispatch::{request, Request, Responder};
 
-/// Information returned by [Atomic::run]. This mirrors
-/// [crate::interpreter::Return] but with a clause instead of an Expr.
-pub struct AtomicReturn {
-  /// The next form of the expression
-  pub clause: nort::Clause,
-  /// Remaining gas
-  pub gas: Option<usize>,
-  /// Whether further normalization is possible by repeated calls to
-  /// [Atomic::run]
-  pub inert: bool,
+/// Information returned by [Atomic::run].
+pub enum AtomicReturn {
+  /// No work was done. If the atom takes an argument, it can be provided now
+  Inert(nort::Clause),
+  /// Work was done, returns new clause and consumed gas. 1 gas is already
+  /// consumed by the virtual call, so nonzero values indicate expensive
+  /// operations.
+  Change(usize, nort::Clause),
 }
 impl AtomicReturn {
   /// Report indicating that the value is inert
-  pub fn inert<T: Atomic, E>(this: T, ctx: RunContext) -> Result<Self, E> {
-    Ok(Self { clause: this.atom_cls(), gas: ctx.gas, inert: true })
-  }
-  /// Report indicating that the value has been processed
-  pub fn run<E>(clause: nort::Clause, run: RunData) -> Result<Self, E> {
-    Ok(Self { clause, gas: run.ctx.gas, inert: false })
+  pub fn inert<T: Atomic, E>(this: T) -> Result<Self, E> {
+    Ok(Self::Inert(this.atom_cls()))
   }
 }
 
@@ -49,6 +41,25 @@ impl Display for NotAFunction {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{:?} is not a function", self.0)
   }
+}
+
+/// Information about a function call presented to an external function
+pub struct CallData<'a> {
+  /// Location of the function expression
+  pub location: CodeLocation,
+  /// The argument the function was called on. Functions are curried
+  pub arg: nort::Expr,
+  /// Information relating to this interpreter run
+  pub ctx: RunContext<'a>,
+}
+
+/// Information about a normalization run presented to an atom
+#[derive(Clone)]
+pub struct RunData<'a> {
+  /// Location of the atom
+  pub location: CodeLocation,
+  /// Information about the execution
+  pub ctx: RunContext<'a>,
 }
 
 /// Functionality the interpreter needs to handle a value
@@ -91,7 +102,7 @@ where Self: 'static
 
   /// Returns a reference to a possible expression held inside the atom which
   /// can be reduced. For an overview of the lifecycle see [Atomic]
-  fn redirect(&mut self) -> Option<&mut nort::ClauseInst>;
+  fn redirect(&mut self) -> Option<&mut nort::Expr>;
 
   /// Attempt to normalize this value. If it wraps a value, this should report
   /// inert. If it wraps a computation, it should execute one logical step of
@@ -172,7 +183,7 @@ impl AtomGenerator {
 }
 impl Debug for AtomGenerator {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.debug_struct("AtomGenerator").finish_non_exhaustive()
+    write!(f, "{:?}", self.run())
   }
 }
 
@@ -239,7 +250,7 @@ impl Responder for Never {
 impl Atomic for Never {
   fn as_any(self: Box<Self>) -> Box<dyn Any> { match *self {} }
   fn as_any_ref(&self) -> &dyn Any { match *self {} }
-  fn redirect(&mut self) -> Option<&mut nort::ClauseInst> { match *self {} }
+  fn redirect(&mut self) -> Option<&mut nort::Expr> { match *self {} }
   fn run(self: Box<Self>, _: RunData) -> AtomicResult { match *self {} }
   fn apply_ref(&self, _: CallData) -> ExternResult<nort::Clause> {
     match *self {}

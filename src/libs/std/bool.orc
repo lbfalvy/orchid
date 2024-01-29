@@ -1,4 +1,5 @@
 import std::(pmatch, inspect)
+import std::known::(=)
 
 export ::(!=, ==)
 
@@ -12,7 +13,7 @@ export macro if ...$cond then ...$true else ...$false:1 =0x1p84=> (
 )
 
 (
-  macro pmatch::request (== ...$other)
+  macro pmatch::request (= ...$other)
   =0x1p230=> pmatch::response (
     if pmatch::value == (...$other)
     then pmatch::pass

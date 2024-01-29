@@ -1,34 +1,66 @@
-use std::fmt::{Debug, Display};
-use std::sync::Arc;
+use std::fmt::{self, Debug, Display};
 
-use crate::foreign::error::ExternError;
+use itertools::Itertools;
+
+use super::nort::Expr;
+use super::run::Interrupted;
+use crate::foreign::error::{ExternError, ExternErrorObj};
 use crate::location::CodeLocation;
 use crate::name::Sym;
 
-use super::run::Interrupted;
+/// Print a stack trace
+pub fn strace(stack: &[Expr]) -> String {
+  stack.iter().rev().map(|x| format!("{x}\n    at {}", x.location)).join("\n")
+}
 
 /// Problems in the process of execution
 #[derive(Debug, Clone)]
 pub enum RunError {
   /// A Rust function encountered an error
-  Extern(Arc<dyn ExternError>),
-  /// Symbol not in context
-  MissingSymbol(Sym, CodeLocation),
+  Extern(ExternErrorObj),
   /// Ran out of gas
-  Interrupted(Interrupted)
+  Interrupted(Interrupted),
 }
 
-impl From<Arc<dyn ExternError>> for RunError {
-  fn from(value: Arc<dyn ExternError>) -> Self { Self::Extern(value) }
+impl<T: ExternError + 'static> From<T> for RunError {
+  fn from(value: T) -> Self { Self::Extern(value.rc()) }
+}
+
+impl From<ExternErrorObj> for RunError {
+  fn from(value: ExternErrorObj) -> Self { Self::Extern(value) }
 }
 
 impl Display for RunError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Self::Extern(e) => write!(f, "Error in external function: {e}"),
-      Self::MissingSymbol(sym, loc) => {
-        write!(f, "{sym}, called at {loc} is not loaded")
+      Self::Interrupted(i) => {
+        write!(f, "Ran out of gas:\n{}", strace(&i.stack))
       },
+      Self::Extern(e) => write!(f, "Program fault: {e}"),
     }
+  }
+}
+
+#[derive(Clone)]
+pub(crate) struct StackOverflow {
+  pub stack: Vec<Expr>,
+}
+impl ExternError for StackOverflow {}
+impl Display for StackOverflow {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    let limit = self.stack.len() - 2; // 1 for failed call, 1 for current
+    write!(f, "Stack depth exceeded {limit}:\n{}", strace(&self.stack))
+  }
+}
+
+#[derive(Clone)]
+pub(crate) struct MissingSymbol {
+  pub sym: Sym,
+  pub loc: CodeLocation,
+}
+impl ExternError for MissingSymbol {}
+impl Display for MissingSymbol {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}, called at {} is not loaded", self.sym, self.loc)
   }
 }

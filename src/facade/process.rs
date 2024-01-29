@@ -9,7 +9,6 @@ use crate::interpreter::handler::{run_handler, HandlerTable};
 use crate::interpreter::nort::{Clause, Expr};
 use crate::location::CodeLocation;
 use crate::name::Sym;
-use crate::utils::boxed_iter::BoxedIter;
 
 /// This struct ties the state of systems to loaded code, and allows to call
 /// Orchid-defined functions
@@ -37,7 +36,7 @@ impl<'a> Process<'a> {
     prompt: Expr,
     gas: Option<usize>,
   ) -> Result<Halt, RunError> {
-    let ctx = RunContext { gas, symbols: &self.symbols };
+    let ctx = RunContext { gas, symbols: &self.symbols, stack_size: 1000 };
     run_handler(prompt, &mut self.handlers, ctx)
   }
 
@@ -48,7 +47,7 @@ impl<'a> Process<'a> {
     let mut errors = Vec::new();
     let sym = self.symbols.get(&key).expect("symbol must exist");
     sym.search_all(&mut |s: &Expr| {
-      if let Clause::Constant(sym) = &*s.clause.cls() {
+      if let Clause::Constant(sym) = &*s.cls() {
         if !self.symbols.contains_key(sym) {
           errors.push((sym.clone(), s.location()))
         }

@@ -9,12 +9,9 @@ use never::Never;
 use super::load_solution::Prelude;
 use super::path::absolute_path;
 use super::project::{
-  ItemKind, ProjItem, ProjRule, ProjXEnt, ProjXMod, ProjectEntry, ProjectMod,
-  SourceModule,
+  ItemKind, ProjItem, ProjRule, ProjXEnt, ProjXMod, ProjectEntry, ProjectMod, SourceModule,
 };
-use crate::error::{
-  ErrorPosition, ProjectError, ProjectErrorObj, ProjectResult,
-};
+use crate::error::{ErrorPosition, ProjectError, ProjectErrorObj, ProjectResult};
 use crate::location::{CodeLocation, SourceRange};
 use crate::name::{Sym, VName, VPath};
 use crate::parse::parsed::{
@@ -112,8 +109,7 @@ pub(super) fn process_ns(
             external_references.insert(abs.to_sym(), import.range.clone());
           }
           match import.name {
-            None => (glob_imports.x.0)
-              .push(GlobImpReport { target: abs, location: import.range }),
+            None => (glob_imports.x.0).push(GlobImpReport { target: abs, location: import.range }),
             Some(key) => {
               let entry = get_or_make(&mut entries, &key, default_entry);
               entry.x.locations.push(CodeLocation::Source(import.range));
@@ -151,8 +147,7 @@ pub(super) fn process_ns(
           entry.x.comments.append(&mut new_comments);
         },
         MemberKind::Rule(Rule { pattern, prio, template }) => {
-          let prule =
-            ProjRule { pattern, prio, template, comments: new_comments };
+          let prule = ProjRule { pattern, prio, template, comments: new_comments };
           new_comments = Vec::new();
           for name in prule.collect_root_names() {
             let entry = get_or_make(&mut entries, &name, default_entry);
@@ -171,10 +166,7 @@ pub(super) fn process_ns(
         MemberKind::Module(ModuleBlock { name, body }) => {
           let entry = get_or_make(&mut entries, &name, default_entry);
           entry.x.locations.push(CodeLocation::Source(range.clone()));
-          if !matches!(
-            entry.member,
-            ModMember::Item(ProjItem { kind: ItemKind::None })
-          ) {
+          if !matches!(entry.member, ModMember::Item(ProjItem { kind: ItemKind::None })) {
             let err = MultipleDefinitions {
               path: (*path).clone().as_prefix_of(name).to_sym(),
               locations: entry.x.locations.clone(),
@@ -196,14 +188,12 @@ pub(super) fn process_ns(
           entry.member = ModMember::Sub(report.module);
           // record new external references
           external_references.extend(
-            (report.external_references.into_iter())
-              .filter(|(r, _)| !r[..].starts_with(&path.0)),
+            (report.external_references.into_iter()).filter(|(r, _)| !r[..].starts_with(&path.0)),
           );
           // add glob_imports subtree to own tree
-          glob_imports.entries.insert(name, ModEntry {
-            x: (),
-            member: ModMember::Sub(report.glob_imports),
-          });
+          glob_imports
+            .entries
+            .insert(name, ModEntry { x: (), member: ModMember::Sub(report.glob_imports) });
         },
       },
     }
@@ -219,15 +209,10 @@ pub(super) fn process_ns(
   })
 }
 
-fn walk_at_path(
-  e: WalkError,
-  root: &ProjectMod,
-  path: &[Tok<String>],
-) -> ProjectErrorObj {
-  let submod = (root.walk_ref(&[], path, |_| true))
-    .expect("Invalid source path in walk error populator");
-  let src =
-    submod.x.src.as_ref().expect("Import cannot appear in implied module");
+fn walk_at_path(e: WalkError, root: &ProjectMod, path: &[Tok<String>]) -> ProjectErrorObj {
+  let submod =
+    (root.walk_ref(&[], path, |_| true)).expect("Invalid source path in walk error populator");
+  let src = submod.x.src.as_ref().expect("Import cannot appear in implied module");
   e.at(&CodeLocation::Source(src.range.clone()))
 }
 
@@ -244,15 +229,12 @@ pub fn resolve_globs(
   contention: &mut HashMap<(Sym, Sym), Vec<CodeLocation>>,
 ) -> ProjectResult<()> {
   // All glob imports in this module
-  let all = (globtree.x.0.into_iter())
-    .map(|gir| (gir.target, CodeLocation::Source(gir.location)))
-    .chain(
+  let all =
+    (globtree.x.0.into_iter()).map(|gir| (gir.target, CodeLocation::Source(gir.location))).chain(
       preludes
         .iter()
         .filter(|&pre| !globtree_prefix.0.starts_with(&pre.exclude[..]))
-        .map(|Prelude { target, owner, .. }| {
-          (target.clone(), CodeLocation::Gen(owner.clone()))
-        }),
+        .map(|Prelude { target, owner, .. }| (target.clone(), CodeLocation::Gen(owner.clone()))),
     );
   for (target, location) in all {
     let (tgt, parent) = project_root
@@ -272,13 +254,12 @@ pub fn resolve_globs(
           .chain(module.keys(|e| e.x.exported))
           .collect_vec();
         // Reference to the module to be modified
-        let mut_mod =
-          globtree_prefix.0.iter().fold(&mut *project_root, |m, k| {
-            let entry = m.entries.get_mut(k).expect("this is a source path");
-            unwrap_or!(&mut entry.member => ModMember::Sub; {
-              panic!("This is also a source path")
-            })
-          });
+        let mut_mod = globtree_prefix.0.iter().fold(&mut *project_root, |m, k| {
+          let entry = m.entries.get_mut(k).expect("this is a source path");
+          unwrap_or!(&mut entry.member => ModMember::Sub; {
+            panic!("This is also a source path")
+          })
+        });
         // Walk errors for the environment are suppressed because leaf-node
         // conflicts will emerge when merging modules, and walking off the tree
         // is valid.
@@ -286,23 +267,12 @@ pub fn resolve_globs(
           let entry = get_or_make(&mut mut_mod.entries, &key, default_entry);
           entry.x.locations.push(location.clone());
           let alias_tgt = target.clone().suffix([key.clone()]).to_sym();
-          match &mut entry.member {
-            ModMember::Item(ProjItem { kind: kref @ ItemKind::None }) =>
-              *kref = ItemKind::Alias(alias_tgt),
-            ModMember::Item(ProjItem { kind: ItemKind::Alias(prev_alias) }) =>
-              if prev_alias != &alias_tgt {
-                let local_name =
-                  globtree_prefix.clone().as_prefix_of(key.clone()).to_sym();
-                let locs = pushed_ref(&entry.x.locations, location.clone());
-                contention.insert((alias_tgt, local_name), locs);
-              },
-            _ => {
-              let err = MultipleDefinitions {
-                locations: entry.x.locations.clone(),
-                path: globtree_prefix.as_prefix_of(key).to_sym(),
-              };
-              return Err(err.pack());
-            },
+          if let ModMember::Item(ProjItem { kind: kref @ ItemKind::None }) = &mut entry.member {
+            *kref = ItemKind::Alias(alias_tgt)
+          } else {
+            let local_name = globtree_prefix.clone().as_prefix_of(key.clone()).to_sym();
+            let locs = pushed_ref(&entry.x.locations, location.clone());
+            contention.insert((alias_tgt, local_name), locs);
           }
         }
       },
@@ -313,14 +283,7 @@ pub fn resolve_globs(
       ModMember::Item(n) => match n {},
       ModMember::Sub(module) => {
         let subpath = VPath(pushed_ref(&globtree_prefix.0, key));
-        resolve_globs(
-          subpath,
-          module,
-          preludes.clone(),
-          project_root,
-          env,
-          contention,
-        )?;
+        resolve_globs(subpath, module, preludes.clone(), project_root, env, contention)?;
       },
     }
   }
@@ -333,12 +296,9 @@ struct MultipleExports {
 }
 impl ProjectError for MultipleExports {
   const DESCRIPTION: &'static str = "A symbol was exported in multiple places";
-  fn message(&self) -> String {
-    format!("{} exported multiple times", self.path)
-  }
+  fn message(&self) -> String { format!("{} exported multiple times", self.path) }
   fn positions(&self) -> impl IntoIterator<Item = ErrorPosition> {
-    (self.locations.iter())
-      .map(|l| ErrorPosition { location: l.clone(), message: None })
+    (self.locations.iter()).map(|l| ErrorPosition { location: l.clone(), message: None })
   }
 }
 
@@ -348,11 +308,8 @@ pub(super) struct MultipleDefinitions {
 }
 impl ProjectError for MultipleDefinitions {
   const DESCRIPTION: &'static str = "Symbol defined twice";
-  fn message(&self) -> String {
-    format!("{} refers to multiple conflicting items", self.path)
-  }
+  fn message(&self) -> String { format!("{} refers to multiple conflicting items", self.path) }
   fn positions(&self) -> impl IntoIterator<Item = ErrorPosition> {
-    (self.locations.iter())
-      .map(|l| ErrorPosition { location: l.clone(), message: None })
+    (self.locations.iter()).map(|l| ErrorPosition { location: l.clone(), message: None })
   }
 }

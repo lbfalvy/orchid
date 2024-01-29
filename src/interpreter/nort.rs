@@ -97,6 +97,28 @@ impl Expr {
       | Clause::Bottom(_) => None,
     })
   }
+
+  /// Clone the refcounted [ClauseInst] out of the expression
+  #[must_use]
+  pub fn clsi(&self) -> ClauseInst { self.clause.clone() }
+
+  /// Readonly access to the [Clause]
+  ///
+  /// # Panics
+  ///
+  /// if the clause is already borrowed
+  #[must_use]
+  pub fn cls(&self) -> impl Deref<Target = Clause> + '_ { self.clause.cls() }
+
+  /// Read-Write access to the [Clause]
+  ///
+  /// # Panics
+  ///
+  /// if the clause is already borrowed
+  #[must_use]
+  pub fn cls_mut(&self) -> impl DerefMut<Target = Clause> + '_ {
+    self.clause.cls_mut()
+  }
 }
 
 impl Debug for Expr {
@@ -160,15 +182,21 @@ impl ClauseInst {
   /// Call a normalization function on the expression. The expr is
   /// updated with the new clause which affects all copies of it
   /// across the tree.
+  ///
+  /// This function bypasses and collapses identities, but calling it in a plain
+  /// loop intermittently re-acquires the mutex, and looping inside of it breaks
+  /// identity collapsing. [ClauseInst::try_normalize_trampoline] solves these
+  /// problems.
   pub fn try_normalize<T>(
     &self,
     mapper: impl FnOnce(Clause) -> Result<(Clause, T), RunError>,
-  ) -> Result<(ClauseInst, T), RunError> {
+  ) -> Result<(Self, T), RunError> {
     enum Report<T> {
       Nested(ClauseInst, T),
       Plain(T),
     }
     let ret = take_with_output(&mut *self.cls_mut(), |clause| match &clause {
+      // don't modify identities, instead update and return the nested clause
       Clause::Identity(alt) => match alt.try_normalize(mapper) {
         Ok((nested, t)) => (clause, Ok(Report::Nested(nested, t))),
         Err(e) => (Clause::Bottom(e.clone()), Err(e)),
@@ -182,6 +210,32 @@ impl ClauseInst {
       Report::Nested(nested, t) => (nested, t),
       Report::Plain(t) => (self.clone(), t),
     })
+  }
+
+  /// Repeatedly call a normalization function on the held clause, switching
+  /// [ClauseInst] values as needed to ensure that
+  pub fn try_normalize_trampoline<T>(
+    mut self,
+    mut mapper: impl FnMut(Clause) -> Result<(Clause, Option<T>), RunError>,
+  ) -> Result<(Self, T), RunError> {
+    loop {
+      let (next, exit) = self.try_normalize(|mut cls| {
+        loop {
+          if matches!(cls, Clause::Identity(_)) {
+            break Ok((cls, None));
+          }
+          let (next, exit) = mapper(cls)?;
+          if let Some(exit) = exit {
+            break Ok((next, Some(exit)));
+          }
+          cls = next;
+        }
+      })?;
+      if let Some(exit) = exit {
+        break Ok((next, exit));
+      }
+      self = next
+    }
   }
 
   /// Call a predicate on the clause, returning whatever the
@@ -320,11 +374,11 @@ impl Display for Clause {
       Clause::Apply { f: fun, x } =>
         write!(f, "({fun} {})", x.iter().join(" ")),
       Clause::Lambda { args, body } => match args {
-        Some(path) => write!(f, "\\{path:?}.{body}"),
-        None => write!(f, "\\_.{body}"),
+        Some(path) => write!(f, "[\\{path}.{body}]"),
+        None => write!(f, "[\\_.{body}]"),
       },
       Clause::Constant(t) => write!(f, "{t}"),
-      Clause::Identity(other) => write!(f, "({other})"),
+      Clause::Identity(other) => write!(f, "{{{other}}}"),
     }
   }
 }

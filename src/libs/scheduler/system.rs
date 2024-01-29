@@ -1,11 +1,11 @@
 //! Object to pass to [crate::facade::loader::Loader::add_system] to enable the
 //! scheduling subsystem. Other systems also take clones as dependencies.
-//! 
+//!
 //! ```
+//! use orchidlang::facade::loader::Loader;
 //! use orchidlang::libs::asynch::system::AsynchSystem;
 //! use orchidlang::libs::scheduler::system::SeqScheduler;
 //! use orchidlang::libs::std::std_system::StdConfig;
-//! use orchidlang::facade::loader::Loader;
 //!
 //! let mut asynch = AsynchSystem::new();
 //! let scheduler = SeqScheduler::new(&mut asynch);
@@ -30,9 +30,8 @@ use super::thread_pool::ThreadPool;
 use crate::facade::system::{IntoSystem, System};
 use crate::foreign::cps_box::CPSBox;
 use crate::foreign::error::{AssertionError, ExternResult};
-use crate::foreign::fn_bridge::constructors::xfn_1ary;
 use crate::foreign::inert::{Inert, InertPayload};
-use crate::gen::tree::{atom_leaf, ConstTree};
+use crate::gen::tree::{xfn_ent, ConstTree};
 use crate::interpreter::handler::HandlerTable;
 use crate::interpreter::nort::Expr;
 use crate::libs::asynch::system::{AsynchSystem, MessagePort};
@@ -70,9 +69,7 @@ pub struct SharedHandle<T>(pub(super) Arc<Mutex<SharedResource<T>>>);
 
 impl<T> SharedHandle<T> {
   /// Wrap a value to be accessible to a [SeqScheduler].
-  pub fn wrap(t: T) -> Self {
-    Self(Arc::new(Mutex::new(SharedResource::Free(t))))
-  }
+  pub fn wrap(t: T) -> Self { Self(Arc::new(Mutex::new(SharedResource::Free(t)))) }
 
   /// Check the state of the handle
   pub fn state(&self) -> SharedState {
@@ -151,9 +148,7 @@ fn take_and_drop(x: Expr) -> ExternResult<CPSBox<TakeCmd>> {
   }
 }
 
-fn is_taken_error(x: Expr) -> Inert<bool> {
-  Inert(x.downcast::<Inert<SealedOrTaken>>().is_ok())
-}
+fn is_taken_e(x: Expr) -> Inert<bool> { Inert(x.downcast::<Inert<SealedOrTaken>>().is_ok()) }
 
 trait_set! {
   /// The part of processing a blocking I/O task that cannot be done on a remote
@@ -221,11 +216,9 @@ impl SeqScheduler {
       |state| {
         match state {
           SharedResource::Taken => (SharedResource::Taken, Err(SealedOrTaken)),
-          SharedResource::Busy(mut b) => {
-            match b.enqueue(operation, handler, early_cancel) {
-              Some(cancelled) => (SharedResource::Busy(b), Ok(cancelled)),
-              None => (SharedResource::Busy(b), Err(SealedOrTaken)),
-            }
+          SharedResource::Busy(mut b) => match b.enqueue(operation, handler, early_cancel) {
+            Some(cancelled) => (SharedResource::Busy(b), Ok(cancelled)),
+            None => (SharedResource::Busy(b), Err(SealedOrTaken)),
           },
           SharedResource::Free(t) => {
             let cancelled = CancelFlag::new();
@@ -251,11 +244,9 @@ impl SeqScheduler {
   ) -> CancelFlag {
     let cancelled = CancelFlag::new();
     let canc1 = cancelled.clone();
-    let opid = self.0.pending.borrow_mut().insert(Box::new(
-      |data: Box<dyn Any + Send>, _| {
-        handler(*data.downcast().expect("This is associated by ID"), canc1)
-      },
-    ));
+    let opid = self.0.pending.borrow_mut().insert(Box::new(|data: Box<dyn Any + Send>, _| {
+      handler(*data.downcast().expect("This is associated by ID"), canc1)
+    }));
     let canc1 = cancelled.clone();
     let mut port = self.0.port.clone();
     self.0.pool.submit(Box::new(move || {
@@ -298,8 +289,7 @@ impl SeqScheduler {
     let opid = self.0.pending.borrow_mut().insert(Box::new({
       let cancelled = cancelled.clone();
       move |data: Box<dyn Any + Send>, this: SeqScheduler| {
-        let (t, u): (T, Box<dyn Any + Send>) =
-          *data.downcast().expect("This is associated by ID");
+        let (t, u): (T, Box<dyn Any + Send>) = *data.downcast().expect("This is associated by ID");
         let handle2 = handle.clone();
         take_with_output(&mut *handle.0.lock().unwrap(), |state| {
           let busy = unwrap_or! { state => SharedResource::Busy;
@@ -307,15 +297,9 @@ impl SeqScheduler {
           };
           let report = busy.rotate(t, u, cancelled);
           match report.kind {
-            NextItemReportKind::Free(t) =>
-              (SharedResource::Free(t), report.events),
+            NextItemReportKind::Free(t) => (SharedResource::Free(t), report.events),
             NextItemReportKind::Taken => (SharedResource::Taken, report.events),
-            NextItemReportKind::Next {
-              instance,
-              cancelled,
-              operation,
-              rest,
-            } => {
+            NextItemReportKind::Next { instance, cancelled, operation, rest } => {
               this.submit(instance, handle2, cancelled, operation);
               (SharedResource::Busy(rest), report.events)
             },
@@ -352,8 +336,8 @@ impl IntoSystem<'static> for SeqScheduler {
       lexer_plugins: vec![],
       line_parsers: vec![],
       constants: ConstTree::ns("system::scheduler", [ConstTree::tree([
-        ("is_taken_error", atom_leaf(xfn_1ary(is_taken_error))),
-        ("take_and_drop", atom_leaf(xfn_1ary(take_and_drop))),
+        xfn_ent("is_taken_e", [is_taken_e]),
+        xfn_ent("take_and_drop", [take_and_drop]),
       ])]),
     }
   }

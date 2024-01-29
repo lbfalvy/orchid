@@ -11,6 +11,8 @@ import std::panic
   Response contains an expression and the list of names 
 ]--
 
+export ::(match, value, pass, fail, request, response, =>)
+
 (
   macro ..$prefix:1 match ...$argument:0 { ..$body } ..$suffix:1
   =0x1p130=> ..$prefix (
@@ -33,21 +35,21 @@ macro request (( ..$pattern )) =0x1p254=> request ( ..$pattern )
 
 export ::(no_binds, add_bind, chain_binds, give_binds, take_binds)
 
-macro add_bind $_new no_binds =0x1p254=> ( binds_list $_new no_binds )
-( macro add_bind $_new ( binds_list ...$tail )
-  =0x1p254=> ( binds_list $_new ( binds_list ...$tail ) )
+macro ( add_bind $_new no_binds ) =0x1p254=> ( binds_list $_new no_binds )
+( macro ( add_bind $_new (binds_list ...$tail) )
+  =0x1p254=> ( binds_list $_new (binds_list ...$tail) )
 )
-macro give_binds no_binds $cont =0x1p254=> $cont
-( macro give_binds ( binds_list $_name $tail ) $cont
-  =0x1p254=> (give_binds $tail $cont $_name)
+macro ( give_binds no_binds $cont ) =0x1p254=> $cont
+( macro ( give_binds ( binds_list $_name $tail ) $cont )
+  =0x1p254=> (( give_binds $tail $cont ) $_name )
 )
-macro take_binds no_binds $cont =0x1p254=> $cont
-( macro take_binds ( binds_list $_name $tail ) $cont
-  =0x1p254=> \$_name. take_binds $tail $cont
+macro ( take_binds no_binds $cont ) =0x1p254=> $cont
+( macro ( take_binds ( binds_list $_name $tail ) $cont )
+  =0x1p254=> ( take_binds $tail \$_name. $cont )
 )
-macro chain_binds no_binds $second =0x1p254=> $second
-( macro chain_binds ( binds_list $_head $tail ) $second
-  =0x1p254=> add_bind $_head chain_binds $tail $second
+macro ( chain_binds no_binds $second ) =0x1p254=> $second
+( macro ( chain_binds ( binds_list $_head $tail ) $second )
+  =0x1p254=> ( add_bind $_head ( chain_binds $tail $second ))
 )
 
 --[ primitive pattern ( _ ) ]--
@@ -61,7 +63,7 @@ macro chain_binds no_binds $second =0x1p254=> $second
 
 (
   macro request ( $_name )
-  =0x1p226=> response ( pass value ) ( add_bind $_name no_binds )
+  =0x1p226=> response ( pass value ) ( ( add_bind $_name no_binds ) )
 )
 
 --[ primitive pattern ( and ) ]--
@@ -74,11 +76,11 @@ macro chain_binds no_binds $second =0x1p254=> $second
   =0x1p254=> response (
       (\pass. $lh_expr) (take_binds $lh_binds (
         (\pass. $rh_expr) (take_binds $rh_binds (
-          give_binds chain_binds $lh_binds $rh_binds pass
+          give_binds (chain_binds $lh_binds $rh_binds) pass
         ))
       ))
     )
-    ( chain_binds $lh_binds $rh_binds ) 
+    ( (chain_binds $lh_binds $rh_binds) ) 
 )
 
 --[ primitive pattern ( or ) ]--
@@ -93,7 +95,7 @@ macro chain_binds no_binds $second =0x1p254=> $second
 ( -- for this to work, lh and rh must produce the same bindings
   macro await_or_subpatterns ( response $lh_expr ( $lh_binds) ) ( response $rh_expr ( $rh_binds ) )
   =0x1p254=> response (
-    (\cancel. $lh_expr) -- lh works with pass directly because its bindings are reported up
+    (\fail. $lh_expr) -- lh works with pass directly because its bindings are reported up
     ($rh_expr (take_binds $rh_binds -- rh runs if lh cancels
       (give_binds $lh_binds pass) -- translate rh binds to lh binds
     ))
@@ -101,4 +103,3 @@ macro chain_binds no_binds $second =0x1p254=> $second
   ( $lh_binds ) -- report lh bindings
 )
 
-export ::(match, cancel, argument, request, response, =>)

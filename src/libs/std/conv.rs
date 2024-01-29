@@ -6,14 +6,12 @@ use super::protocol::{gen_resolv, Protocol};
 use super::string::OrcString;
 use crate::foreign::atom::Atomic;
 use crate::foreign::error::{AssertionError, ExternResult};
-use crate::foreign::fn_bridge::constructors::xfn_1ary;
 use crate::foreign::inert::Inert;
 use crate::foreign::try_from_expr::WithLoc;
 use crate::gen::tpl;
 use crate::gen::traits::Gen;
-use crate::gen::tree::{atom_leaf, ConstTree};
+use crate::gen::tree::{xfn_ent, ConstTree};
 use crate::interpreter::gen_nort::nort_gen;
-use crate::interpreter::nort_builder::NortBuilder;
 use crate::interpreter::nort::{ClauseInst, Expr};
 use crate::parse::numeric::parse_num;
 
@@ -63,9 +61,9 @@ pub fn conv_lib() -> ConstTree {
   ConstTree::ns("std", [ConstTree::tree([
     TO_STRING.as_tree_ent([]),
     ConstTree::tree_ent("conv", [
-      ("to_float", atom_leaf(xfn_1ary(to_float))),
-      ("to_uint", atom_leaf(xfn_1ary(to_uint))),
-      ("to_string", atom_leaf(xfn_1ary(to_string))),
+      xfn_ent("to_float", [to_float]),
+      xfn_ent("to_uint", [to_uint]),
+      xfn_ent("to_string", [to_string]),
     ]),
   ])])
 }

@@ -1,11 +1,9 @@
 use std::fmt::Debug;
 
-use super::atom::{Atomic, AtomicReturn};
+use super::atom::{Atomic, AtomicReturn, CallData, RunData};
 use super::error::ExternResult;
 use super::to_clause::ToClause;
-use crate::interpreter::apply::CallData;
-use crate::interpreter::nort::{Clause, ClauseInst};
-use crate::interpreter::run::RunData;
+use crate::interpreter::nort::{Clause, Expr};
 use crate::utils::ddispatch::Responder;
 
 /// An atom that immediately decays to the result of the function when
@@ -33,7 +31,7 @@ impl<F: FnOnce(RunData) -> R + Send + 'static, R: ToClause> Atomic
   }
   fn run(self: Box<Self>, run: RunData) -> super::atom::AtomicResult {
     let clause = self.0(run.clone()).to_clause(run.location.clone());
-    AtomicReturn::run(clause, run)
+    Ok(AtomicReturn::Change(0, clause))
   }
-  fn redirect(&mut self) -> Option<&mut ClauseInst> { None }
+  fn redirect(&mut self) -> Option<&mut Expr> { None }
 }

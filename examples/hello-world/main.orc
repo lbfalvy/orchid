@@ -1,9 +1,10 @@
 import std::exit_status
 import std::conv
+import std::number
+import std::tuple
+import std::list
 
-const main2 := (
-  println "Hello, world!"
-    exit_status::success
-)
-
-const main := conv::to_string t[1, 2, 3]
+const main := match t["set", "foo", 1] {
+  t[= "set", key, val] => 
+    $"Setting ${ key ++ $"${1 + 1}" } to ${val}"
+}

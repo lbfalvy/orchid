@@ -15,6 +15,7 @@ use super::protocol::{parsers, protocol_lib};
 use super::reflect::reflect_lib;
 use super::state::{state_handlers, state_lib};
 use super::string::str_lib;
+use super::tstring::TStringLexer;
 use super::tuple::tuple_lib;
 use crate::facade::system::{IntoSystem, System};
 use crate::gen::tree::{ConstCombineErr, ConstTree};
@@ -66,20 +67,19 @@ impl StdConfig {
 
 impl IntoSystem<'static> for StdConfig {
   fn into_system(self) -> System<'static> {
-    let gen = CodeGenInfo::no_details("std");
     System {
       name: "stdlib",
       constants: self.stdlib().expect("stdlib tree is malformed"),
       code: ModEntry::ns("std", [ModEntry::leaf(
-        EmbeddedFS::new::<StdEmbed>(".orc", gen.clone()).rc(),
+        EmbeddedFS::new::<StdEmbed>(".orc", CodeGenInfo::no_details("std::fs")).rc(),
       )]),
       prelude: vec![Prelude {
         target: VName::literal("std::prelude"),
         exclude: VName::literal("std"),
-        owner: gen.clone(),
+        owner: CodeGenInfo::no_details("std::prelude"),
       }],
       handlers: state_handlers(),
-      lexer_plugins: vec![],
+      lexer_plugins: vec![Box::new(TStringLexer)],
       line_parsers: parsers(),
     }
   }

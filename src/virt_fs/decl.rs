@@ -30,7 +30,7 @@ impl VirtFS for DeclTree {
       ModMember::Sub(module) => match path.split_first() {
         None => Ok(Loaded::collection(module.keys(|_| true))),
         Some((head, tail)) => (module.entries.get(head))
-          .ok_or_else(|| CodeNotFound(full_path.to_vpath()).pack())
+          .ok_or_else(|| CodeNotFound::new(full_path.to_vpath()).pack())
           .and_then(|ent| ent.get(tail, full_path)),
       },
     }

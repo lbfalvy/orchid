@@ -1,7 +1,8 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use intern_all::Tok;
+use intern_all::{i, Tok};
+use itertools::Itertools;
 
 use crate::error::{ErrorSansLocation, ErrorSansLocationObj};
 use crate::name::{PathSlice, VPath};
@@ -31,6 +32,11 @@ pub type FSResult = Result<Loaded, ErrorSansLocationObj>;
 /// Distinguished error for missing code
 #[derive(Clone, PartialEq, Eq)]
 pub struct CodeNotFound(pub VPath);
+impl CodeNotFound {
+  pub fn new(path: VPath) -> Self {
+    Self(path)
+  }
+}
 impl ErrorSansLocation for CodeNotFound {
   const DESCRIPTION: &'static str = "No source code for path";
   fn message(&self) -> String { format!("{} not found", self.0) }
@@ -60,7 +66,5 @@ impl VirtFS for &dyn VirtFS {
   fn get(&self, path: &[Tok<String>], full_path: PathSlice) -> FSResult {
     (*self).get(path, full_path)
   }
-  fn display(&self, path: &[Tok<String>]) -> Option<String> {
-    (*self).display(path)
-  }
+  fn display(&self, path: &[Tok<String>]) -> Option<String> { (*self).display(path) }
 }

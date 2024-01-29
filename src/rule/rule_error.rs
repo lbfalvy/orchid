@@ -7,7 +7,6 @@ use crate::error::{ErrorPosition, ProjectError, ProjectErrorObj};
 use crate::location::{CodeLocation, SourceRange};
 use crate::parse::parsed::{search_all_slcs, Clause, PHClass, Placeholder};
 use crate::pipeline::project::ProjRule;
-use crate::utils::boxed_iter::BoxedIter;
 
 /// Various reasons why a substitution rule may be invalid
 #[derive(Debug, Clone, PartialEq, Eq)]

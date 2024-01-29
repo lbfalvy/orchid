@@ -8,9 +8,8 @@ use std::sync::atomic::{self, AtomicUsize};
 
 use intern_all::i;
 
-use crate::foreign::fn_bridge::constructors::{xfn_1ary, xfn_2ary};
 use crate::foreign::inert::{Inert, InertPayload};
-use crate::gen::tree::{atom_ent, ConstTree};
+use crate::gen::tree::{xfn_ent, ConstTree};
 use crate::interpreter::nort::Clause;
 use crate::name::Sym;
 
@@ -57,9 +56,7 @@ impl Ord for RefEqual {
   fn cmp(&self, other: &Self) -> cmp::Ordering { self.id().cmp(&other.id()) }
 }
 impl PartialOrd for RefEqual {
-  fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-    Some(self.cmp(other))
-  }
+  fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> { Some(self.cmp(other)) }
 }
 impl Hash for RefEqual {
   fn hash<H: std::hash::Hasher>(&self, state: &mut H) { self.id().hash(state) }
@@ -67,11 +64,6 @@ impl Hash for RefEqual {
 
 pub(super) fn reflect_lib() -> ConstTree {
   ConstTree::ns("std::reflect", [ConstTree::tree([
-    atom_ent("auto_tuple_test", [xfn_1ary(|_: Inert<usize>| {
-      (Inert(1usize), Inert(2usize), Inert(3usize))
-    })]),
-    atom_ent("ref_equal", [xfn_2ary(
-      |l: Inert<RefEqual>, r: Inert<RefEqual>| Inert(l.0.id() == r.0.id()),
-    )]),
+    xfn_ent("ref_equal", [|l: Inert<RefEqual>, r: Inert<RefEqual>| Inert(l.0.id() == r.0.id())]),
   ])])
 }

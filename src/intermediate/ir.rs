@@ -64,16 +64,16 @@ fn parametric_fmt(
   body: &Expr,
   wrap_right: bool,
 ) -> std::fmt::Result {
-  if wrap_right {
+  // if wrap_right {
     f.write_char('(')?;
-  }
+  // }
   f.write_str(prefix)?;
   f.write_str(&string_from_charset(depth as u64, ARGNAME_CHARSET))?;
   f.write_str(".")?;
   body.deep_fmt(f, depth + 1, Wrap(false, false))?;
-  if wrap_right {
+  // if wrap_right {
     f.write_char(')')?;
-  }
+  // }
   Ok(())
 }
 
@@ -92,18 +92,18 @@ impl Clause {
         f.write_str(&string_from_charset(lambda_depth, ARGNAME_CHARSET))
       },
       Self::Apply(func, x) => {
-        if wl {
+        // if wl {
           f.write_char('(')?;
-        }
+        // }
         func.deep_fmt(f, depth, Wrap(false, true))?;
         f.write_char(' ')?;
         x.deep_fmt(f, depth, Wrap(true, wr && !wl))?;
-        if wl {
+        // if wl {
           f.write_char(')')?;
-        }
+        // }
         Ok(())
       },
-      Self::Constant(token) => write!(f, "{:?}", token),
+      Self::Constant(token) => write!(f, "{token}"),
     }
   }
 }

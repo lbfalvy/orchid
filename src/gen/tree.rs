@@ -4,11 +4,15 @@
 use std::fmt::Debug;
 
 use dyn_clone::{clone_box, DynClone};
+use intern_all::Tok;
+use itertools::Itertools;
+use substack::Substack;
 use trait_set::trait_set;
 
 use super::tpl;
 use super::traits::{Gen, GenClause};
-use crate::foreign::atom::Atomic;
+use crate::foreign::atom::{AtomGenerator, Atomic};
+use crate::foreign::fn_bridge::{xfn, Xfn};
 use crate::interpreter::gen_nort::nort_gen;
 use crate::interpreter::nort::Expr;
 use crate::location::CodeLocation;
@@ -17,22 +21,46 @@ use crate::utils::combine::Combine;
 
 trait_set! {
   trait TreeLeaf = Gen<Expr, [Expr; 0]> + DynClone;
+  trait XfnCB = FnOnce(Substack<Tok<String>>) -> AtomGenerator + DynClone;
+}
+
+enum GCKind {
+  Const(Box<dyn TreeLeaf>),
+  Xfn(usize, Box<dyn XfnCB>),
 }
 
 /// A leaf in the [ConstTree]
-#[derive(Debug)]
-pub struct GenConst(Box<dyn TreeLeaf>);
+pub struct GenConst(GCKind);
 impl GenConst {
-  fn new(data: impl GenClause + Clone + 'static) -> Self {
-    Self(Box::new(data))
+  fn c(data: impl GenClause + Clone + 'static) -> Self { Self(GCKind::Const(Box::new(data))) }
+  fn f<const N: usize, Argv, Ret>(f: impl Xfn<N, Argv, Ret>) -> Self {
+    Self(GCKind::Xfn(N, Box::new(move |stck| {
+      AtomGenerator::cloner(xfn(&stck.unreverse().iter().join("::"), f))
+    })))
   }
-  /// Instantiate template as [crate::interpreter::nort]
-  pub fn gen_nort(&self, location: CodeLocation) -> Expr {
-    self.0.template(nort_gen(location), [])
+  /// Instantiate as [crate::interpreter::nort]
+  pub fn gen_nort(self, stck: Substack<Tok<String>>, location: CodeLocation) -> Expr {
+    match self.0 {
+      GCKind::Const(c) => c.template(nort_gen(location), []),
+      GCKind::Xfn(_, cb) => tpl::AnyAtom(cb(stck)).template(nort_gen(location), []),
+    }
+  }
+}
+impl Debug for GenConst {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match &self.0 {
+      GCKind::Const(c) => write!(f, "{c:?}"),
+      GCKind::Xfn(n, _) => write!(f, "xfn/{n}"),
+    }
   }
 }
 impl Clone for GenConst {
-  fn clone(&self) -> Self { Self(clone_box(&*self.0)) }
+  fn clone(&self) -> Self {
+    match &self.0 {
+      GCKind::Const(c) => Self(GCKind::Const(clone_box(&**c))),
+      GCKind::Xfn(n, cb) => Self(GCKind::Xfn(*n, clone_box(&**cb))),
+    }
+  }
 }
 
 /// Error condition when constant trees that define the the same constant are
@@ -43,9 +71,7 @@ pub struct ConflictingConsts;
 
 impl Combine for GenConst {
   type Error = ConflictingConsts;
-  fn combine(self, _: Self) -> Result<Self, Self::Error> {
-    Err(ConflictingConsts)
-  }
+  fn combine(self, _: Self) -> Result<Self, Self::Error> { Err(ConflictingConsts) }
 }
 
 /// A lightweight module tree that can be built declaratively by hand to
@@ -56,16 +82,14 @@ pub type ConstTree = ModEntry<GenConst, (), ()>;
 /// Describe a constant
 #[must_use]
 pub fn leaf(value: impl GenClause + Clone + 'static) -> ConstTree {
-  ModEntry { x: (), member: ModMember::Item(GenConst::new(value)) }
+  ModEntry::wrap(ModMember::Item(GenConst::c(value)))
 }
 
 /// Describe an [Atomic]
 #[must_use]
-pub fn atom_leaf(atom: impl Atomic + Clone + 'static) -> ConstTree {
-  leaf(tpl::V(atom))
-}
+pub fn atom_leaf(atom: impl Atomic + Clone + 'static) -> ConstTree { leaf(tpl::V(atom)) }
 
-/// Describe an [Atomic] which appears as an entry in a [ConstTree#tree]
+/// Describe an [Atomic] which appears as an entry in a [ConstTree::tree]
 ///
 /// The unarray is used to trick rustfmt into breaking the atom into a block
 /// without breaking this call into a block
@@ -75,6 +99,23 @@ pub fn atom_ent<K: AsRef<str>>(
   [atom]: [impl Atomic + Clone + 'static; 1],
 ) -> (K, ConstTree) {
   (key, atom_leaf(atom))
+}
+
+/// Describe a function
+pub fn xfn_leaf<const N: usize, Argv, Ret>(f: impl Xfn<N, Argv, Ret>) -> ConstTree {
+  ModEntry::wrap(ModMember::Item(GenConst::f(f)))
+}
+
+/// Describe a function which appears as an entry in a [ConstTree::tree]
+///
+/// The unarray is used to trick rustfmt into breaking the atom into a block
+/// without breaking this call into a block
+#[must_use]
+pub fn xfn_ent<const N: usize, Argv, Ret, K: AsRef<str>>(
+  key: K,
+  [f]: [impl Xfn<N, Argv, Ret>; 1],
+) -> (K, ConstTree) {
+  (key, xfn_leaf(f))
 }
 
 /// Errors produced duriung the merger of constant trees

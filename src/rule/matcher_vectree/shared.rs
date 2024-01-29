@@ -1,3 +1,5 @@
+//! Datastructures for cached pattern
+
 use std::fmt::{Display, Write};
 use std::rc::Rc;
 

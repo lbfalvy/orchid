@@ -5,7 +5,7 @@ version = "Two"
 
 # space
 tab_spaces = 2
-max_width = 80
+max_width = 100
 error_on_line_overflow = true
 format_macro_matchers = true
 newline_style = "Unix"

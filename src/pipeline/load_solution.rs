@@ -10,9 +10,7 @@ use intern_all::{sweep_t, Tok};
 use super::dealias::resolve_aliases::resolve_aliases;
 use super::process_source::{process_ns, resolve_globs, GlobImports};
 use super::project::{ItemKind, ProjItem, ProjXEnt, ProjectMod, ProjectTree};
-use crate::error::{
-  bundle_location, ErrorPosition, ProjectError, ProjectResult,
-};
+use crate::error::{bundle_location, ErrorPosition, ProjectError, ProjectResult};
 use crate::location::{CodeGenInfo, CodeLocation, SourceCode, SourceRange};
 use crate::name::{PathSlice, Sym, VName, VPath};
 use crate::parse::context::ParseCtxImpl;
@@ -42,10 +40,7 @@ fn split_max_prefix<'a, T>(
   path: &'a [T],
   is_valid: &impl Fn(&[T]) -> bool,
 ) -> Option<(&'a [T], &'a [T])> {
-  (0..=path.len())
-    .rev()
-    .map(|i| path.split_at(i))
-    .find(|(file, _)| is_valid(file))
+  (0..=path.len()).rev().map(|i| path.split_at(i)).find(|(file, _)| is_valid(file))
 }
 
 /// Represents a prelude / implicit import requested by a library.
@@ -94,10 +89,8 @@ pub fn load_solution(
 ) -> ProjectResult<ProjectTree> {
   let mut target_queue = VecDeque::<(Sym, CodeLocation)>::new();
   target_queue.extend(targets.into_iter());
-  target_queue.extend(
-    (ctx.preludes.iter())
-      .map(|p| (p.target.to_sym(), CodeLocation::Gen(p.owner.clone()))),
-  );
+  target_queue
+    .extend((ctx.preludes.iter()).map(|p| (p.target.to_sym(), CodeLocation::Gen(p.owner.clone()))));
   let mut known_files = HashSet::new();
   let mut tree_acc: ProjectMod = Module::wrap([]);
   let mut glob_acc: GlobImports = Module::wrap([]);
@@ -111,21 +104,16 @@ pub fn load_solution(
       }
       known_files.insert(filename.to_vec());
       let path = VPath(filename.to_vec());
-      let loaded = fs
-        .read(PathSlice(filename))
-        .map_err(|e| bundle_location(&referrer, &*e))?;
+      let loaded = fs.read(PathSlice(filename)).map_err(|e| bundle_location(&referrer, &*e))?;
       let code = match loaded {
-        Loaded::Collection(_) =>
-          return Err(UnexpectedDirectory { path }.pack()),
+        Loaded::Collection(_) => return Err(UnexpectedDirectory { path }.pack()),
         Loaded::Code(source) => SourceCode { source, path: Arc::new(path) },
       };
-      let full_range =
-        SourceRange { range: 0..code.source.len(), code: code.clone() };
+      let full_range = SourceRange { range: 0..code.source.len(), code: code.clone() };
       let lines = parse_file(&ctx.parsing(code.clone()))?;
       let report = process_ns(code.path, lines, full_range)?;
       target_queue.extend(
-        (report.external_references.into_iter())
-          .map(|(k, v)| (k, CodeLocation::Source(v))),
+        (report.external_references.into_iter()).map(|(k, v)| (k, CodeLocation::Source(v))),
       );
       if !report.comments.is_empty() && filename.is_empty() {
         todo!("panic - module op comments on root are lost")
@@ -137,23 +125,22 @@ pub fn load_solution(
         // i over valid indices of filename
         let key = filename[i].clone(); // last segment
         let comments = comments.take().into_iter().flatten().collect();
-        glob =
-          Module::wrap([(key.clone(), ModEntry::wrap(ModMember::Sub(glob)))]);
+        glob = Module::wrap([(key.clone(), ModEntry::wrap(ModMember::Sub(glob)))]);
         module = Module::wrap([(key, ModEntry {
           member: ModMember::Sub(module),
           x: ProjXEnt { comments, ..Default::default() },
         })]);
       }
-      glob_acc = (glob_acc.combine(glob))
-        .expect("source code loaded for two nested paths");
-      tree_acc = (tree_acc.combine(module))
-        .expect("source code loaded for two nested paths");
+      glob_acc = (glob_acc.combine(glob)).expect("source code loaded for two nested paths");
+      tree_acc = (tree_acc.combine(module)).expect("source code loaded for two nested paths");
     } else {
       known_files.insert(target[..].to_vec());
       // If the path is not within a file, load it as directory
       match fs.read(target.as_path_slice()) {
-        Ok(Loaded::Collection(c)) => target_queue
-          .extend(c.iter().map(|e| (Sym::parse(e).unwrap(), referrer.clone()))),
+        Ok(Loaded::Collection(c)) => target_queue.extend(c.iter().map(|e| {
+          let name = VPath::new(target.iter()).as_prefix_of(e.clone()).to_sym();
+          (name, referrer.clone())
+        })),
         Ok(Loaded::Code(_)) => unreachable!("Should have split to self and []"),
         // Ignore error if the path is walkable in the const tree
         Err(_) if env.walk1_ref(&[], &target[..], |_| true).is_ok() => (),
@@ -172,12 +159,10 @@ pub fn load_solution(
   )?;
   let ret = resolve_aliases(tree_acc, env)?;
   for ((glob, original), locations) in contention {
-    let (glob_val, _) = ret
-      .walk1_ref(&[], &glob[..], |_| true)
-      .expect("Should've emerged in dealias");
-    let (original_val, _) = ret
-      .walk1_ref(&[], &original[..], |_| true)
-      .expect("Should've emerged in dealias");
+    let (glob_val, _) =
+      ret.walk1_ref(&[], &glob[..], |_| true).expect("Should've emerged in dealias");
+    let (original_val, _) =
+      ret.walk1_ref(&[], &original[..], |_| true).expect("Should've emerged in dealias");
     let glob_real = match &glob_val.member {
       ModMember::Item(ProjItem { kind: ItemKind::Alias(glob_tgt) }) => glob_tgt,
       _ => &glob,
@@ -208,9 +193,7 @@ struct UnexpectedDirectory {
 impl ProjectError for UnexpectedDirectory {
   const DESCRIPTION: &'static str = "A stage that deals specifically with code \
     encountered a path that refers to a directory";
-  fn message(&self) -> String {
-    format!("{} was expected to be a file", self.path)
-  }
+  fn message(&self) -> String { format!("{} was expected to be a file", self.path) }
   fn positions(&self) -> impl IntoIterator<Item = ErrorPosition> { [] }
 }
 
@@ -223,8 +206,7 @@ struct ConflictingGlobs {
   locations: Vec<CodeLocation>,
 }
 impl ProjectError for ConflictingGlobs {
-  const DESCRIPTION: &'static str =
-    "A symbol from a glob import conflicts with an existing name";
+  const DESCRIPTION: &'static str = "A symbol from a glob import conflicts with an existing name";
   fn message(&self) -> String {
     let Self { glob, glob_real, original, real, .. } = self;
     format!(
@@ -233,7 +215,6 @@ impl ProjectError for ConflictingGlobs {
     )
   }
   fn positions(&self) -> impl IntoIterator<Item = ErrorPosition> {
-    (self.locations.iter())
-      .map(|l| ErrorPosition { location: l.clone(), message: None })
+    (self.locations.iter()).map(|l| ErrorPosition { location: l.clone(), message: None })
   }
 }
