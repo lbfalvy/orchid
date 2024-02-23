@@ -8,8 +8,7 @@ pub type SyncResult<T> = (T, Box<dyn Any + Send>);
 /// Output from handlers contains the resource being processed and any Orchid
 /// handlers executed as a result of the operation
 pub type HandlerRes<T> = (T, Vec<Expr>);
-pub type SyncOperation<T> =
-  Box<dyn FnOnce(T, CancelFlag) -> SyncResult<T> + Send>;
+pub type SyncOperation<T> = Box<dyn FnOnce(T, CancelFlag) -> SyncResult<T> + Send>;
 pub type SyncOpResultHandler<T> =
   Box<dyn FnOnce(T, Box<dyn Any + Send>, CancelFlag) -> (T, Vec<Expr>) + Send>;
 
@@ -22,12 +21,7 @@ struct SyncQueueItem<T> {
 
 pub enum NextItemReportKind<T> {
   Free(T),
-  Next {
-    instance: T,
-    cancelled: CancelFlag,
-    operation: SyncOperation<T>,
-    rest: BusyState<T>,
-  },
+  Next { instance: T, cancelled: CancelFlag, operation: SyncOperation<T>, rest: BusyState<T> },
   Taken,
 }
 
@@ -47,9 +41,7 @@ impl<T> BusyState<T> {
   ) -> Self {
     BusyState {
       handler: Box::new(|t, payload, cancel| {
-        let u = *payload
-          .downcast()
-          .expect("mismatched initial handler and operation");
+        let u = *payload.downcast().expect("mismatched initial handler and operation");
         handler(t, u, cancel)
       }),
       queue: VecDeque::new(),
@@ -84,10 +76,7 @@ impl<T> BusyState<T> {
     Some(cancelled)
   }
 
-  pub fn seal(
-    &mut self,
-    recipient: impl FnOnce(T) -> Vec<Expr> + Send + 'static,
-  ) {
+  pub fn seal(&mut self, recipient: impl FnOnce(T) -> Vec<Expr> + Send + 'static) {
     assert!(self.seal.is_none(), "Already sealed");
     self.seal = Some(Box::new(recipient))
   }
@@ -100,8 +89,7 @@ impl<T> BusyState<T> {
     result: Box<dyn Any + Send>,
     cancelled: CancelFlag,
   ) -> NextItemReport<T> {
-    let (mut instance, mut events) =
-      (self.handler)(instance, result, cancelled);
+    let (mut instance, mut events) = (self.handler)(instance, result, cancelled);
     let next_item = loop {
       if let Some(candidate) = self.queue.pop_front() {
         if candidate.cancelled.is_cancelled() {

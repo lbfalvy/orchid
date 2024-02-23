@@ -17,7 +17,7 @@
 
 use std::any::{type_name, Any};
 use std::cell::RefCell;
-use std::fmt::Debug;
+use std::fmt;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -29,7 +29,7 @@ use super::id_map::IdMap;
 use super::thread_pool::ThreadPool;
 use crate::facade::system::{IntoSystem, System};
 use crate::foreign::cps_box::CPSBox;
-use crate::foreign::error::{AssertionError, ExternResult};
+use crate::foreign::error::{AssertionError, RTResult};
 use crate::foreign::inert::{Inert, InertPayload};
 use crate::gen::tree::{xfn_ent, ConstTree};
 use crate::interpreter::handler::HandlerTable;
@@ -84,7 +84,7 @@ impl<T> SharedHandle<T> {
   /// Remove the value from the handle if it's free. To interact with a handle
   /// you probably want to use a [SeqScheduler], but sometimes this makes
   /// sense as eg. an optimization. You can return the value after processing
-  /// via [SyncHandle::untake].
+  /// via [SharedHandle::untake].
   pub fn take(&self) -> Option<T> {
     take_with_output(&mut *self.0.lock().unwrap(), |state| match state {
       SharedResource::Free(t) => (SharedResource::Taken, Some(t)),
@@ -94,7 +94,7 @@ impl<T> SharedHandle<T> {
 
   /// Return the value to a handle that doesn't have one. The intended use case
   /// is to return values synchronously after they have been removed with
-  /// [SyncHandle::untake].
+  /// [SharedHandle::take].
   pub fn untake(&self, value: T) -> Result<(), T> {
     take_with_output(&mut *self.0.lock().unwrap(), |state| match state {
       SharedResource::Taken => (SharedResource::Free(value), Ok(())),
@@ -105,8 +105,8 @@ impl<T> SharedHandle<T> {
 impl<T> Clone for SharedHandle<T> {
   fn clone(&self) -> Self { Self(self.0.clone()) }
 }
-impl<T> Debug for SharedHandle<T> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T> fmt::Debug for SharedHandle<T> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("SharedHandle")
       .field("state", &self.state())
       .field("type", &type_name::<T>())
@@ -127,8 +127,8 @@ impl<T: Send + 'static> InertPayload for SharedHandle<T> {
 
 #[derive(Clone)]
 struct TakeCmd(pub Arc<dyn Fn(SeqScheduler) + Send + Sync>);
-impl Debug for TakeCmd {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for TakeCmd {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "A command to drop a shared resource")
   }
 }
@@ -141,7 +141,7 @@ impl InertPayload for SealedOrTaken {
   const TYPE_STR: &'static str = "SealedOrTaken";
 }
 
-fn take_and_drop(x: Expr) -> ExternResult<CPSBox<TakeCmd>> {
+fn take_and_drop(x: Expr) -> RTResult<CPSBox<TakeCmd>> {
   match x.clause.request() {
     Some(t) => Ok(CPSBox::<TakeCmd>::new(1, t)),
     None => AssertionError::fail(x.location(), "SharedHandle", format!("{x}")),

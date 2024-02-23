@@ -2,37 +2,37 @@ mod cli;
 mod features;
 
 use std::fs::File;
-use std::io::BufReader;
-use std::num::NonZeroUsize;
-use std::path::{Path, PathBuf};
+use std::io::{stdin, stdout, Write};
+use std::path::PathBuf;
 use std::process::ExitCode;
-use std::thread::available_parallelism;
 
 use clap::{Parser, Subcommand};
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashSet;
 use itertools::Itertools;
-use orchidlang::error::{ProjectError, ProjectErrorObj, ProjectResult};
-use orchidlang::facade::loader::Loader;
+use never::Never;
+use orchidlang::error::Reporter;
 use orchidlang::facade::macro_runner::MacroRunner;
-use orchidlang::facade::merge_trees::merge_trees;
+use orchidlang::facade::merge_trees::{merge_trees, NortConst};
 use orchidlang::facade::process::Process;
 use orchidlang::foreign::inert::Inert;
-use orchidlang::interpreter::context::Halt;
-use orchidlang::interpreter::nort;
-use orchidlang::libs::asynch::system::AsynchSystem;
-use orchidlang::libs::directfs::DirectFS;
-use orchidlang::libs::io::{IOService, Stream};
-use orchidlang::libs::scheduler::system::SeqScheduler;
-use orchidlang::libs::std::exit_status::ExitStatus;
-use orchidlang::libs::std::std_system::StdConfig;
-use orchidlang::location::{CodeGenInfo, CodeLocation};
+use orchidlang::gen::tpl;
+use orchidlang::gen::traits::Gen;
+use orchidlang::interpreter::gen_nort::nort_gen;
+use orchidlang::interpreter::nort::{self};
+use orchidlang::libs::std::exit_status::OrcExitStatus;
+use orchidlang::libs::std::string::OrcString;
+use orchidlang::location::{CodeGenInfo, CodeLocation, SourceRange};
 use orchidlang::name::Sym;
+use orchidlang::parse::context::FlatLocContext;
+use orchidlang::parse::lexer::{lex, Lexeme};
+use orchidlang::sym;
 use orchidlang::tree::{ModMemberRef, TreeTransforms};
-use rayon::prelude::ParallelIterator;
-use rayon::slice::ParallelSlice;
+use orchidlang::virt_fs::{decl_file, DeclTree};
 
 use crate::features::macro_debug;
 use crate::features::print_project::{print_proj_mod, ProjPrintOpts};
+use crate::features::shared::{stderr_sink, stdout_sink, unwrap_exit, with_env, with_std_env};
+use crate::features::tests::{get_tree_tests, mock_source, run_test, run_tests, with_mock_env};
 
 #[derive(Subcommand, Debug)]
 enum Command {
@@ -58,6 +58,7 @@ enum Command {
     #[arg(long)]
     width: Option<u16>,
   },
+  Repl,
 }
 /// Orchid interpreter
 #[derive(Parser, Debug)]
@@ -111,132 +112,35 @@ impl Args {
   pub fn chk_proj(&self) -> Result<(), String> { self.chk_dir_main() }
 }
 
-macro_rules! unwrap_exit {
-  ($param:expr) => {
-    match $param {
-      Ok(v) => v,
-      Err(e) => {
-        eprintln!("{e}");
-        return ExitCode::FAILURE;
-      },
-    }
-  };
-}
-
-pub fn with_std_proc<T>(
-  dir: &Path,
-  macro_limit: usize,
-  f: impl for<'a> FnOnce(Process<'a>) -> ProjectResult<T>,
-) -> ProjectResult<T> {
-  with_std_env(|env| {
-    let mr = MacroRunner::new(&env.load_dir(dir.to_owned())?)?;
-    let source_syms = mr.run_macros(Some(macro_limit))?;
-    let consts = merge_trees(source_syms, env.systems())?;
-    let proc = Process::new(consts, env.handlers());
-    f(proc)
-  })
-}
-
-// TODO
-pub fn run_test(proc: &mut Process, name: Sym) -> ProjectResult<()> { Ok(()) }
-pub fn run_tests(
-  dir: &Path,
-  macro_limit: usize,
-  threads: Option<usize>,
-  tests: &[Sym],
-) -> ProjectResult<()> {
-  with_std_proc(dir, macro_limit, |proc| proc.validate_refs())?;
-  let threads = threads
-    .or_else(|| available_parallelism().ok().map(NonZeroUsize::into))
-    .unwrap_or(1);
-  rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
-  let batch_size = tests.len().div_ceil(threads);
-  let errors = tests
-    .par_chunks(batch_size)
-    .map(|tests| {
-      let res = with_std_proc(dir, macro_limit, |mut proc| {
-        let mut errors = HashMap::new();
-        for test in tests {
-          if let Err(e) = run_test(&mut proc, test.clone()) {
-            errors.insert(test.clone(), e);
-          }
-        }
-        Ok(errors)
-      });
-      res.expect("Tested earlier")
-    })
-    .reduce(HashMap::new, |l, r| l.into_iter().chain(r).collect());
-  if errors.is_empty() { Ok(()) } else { Err(TestsFailed(errors).pack()) }
-}
-
-pub struct TestsFailed(HashMap<Sym, ProjectErrorObj>);
-impl ProjectError for TestsFailed {
-  const DESCRIPTION: &'static str = "Various tests failed";
-  fn message(&self) -> String {
-    format!(
-      "{} tests failed. Errors:\n{}",
-      self.0.len(),
-      self.0.iter().map(|(k, e)| format!("In {k}, {e}")).join("\n")
-    )
-  }
-}
-
-fn get_tree_tests(dir: &Path) -> ProjectResult<Vec<Sym>> {
-  with_std_env(|env| {
-    env.load_dir(dir.to_owned()).map(|tree| {
-      (tree.all_consts().into_iter())
-        .filter(|(_, rep)| rep.comments.iter().any(|s| s.trim() == "test"))
-        .map(|(k, _)| k.clone())
-        .collect::<Vec<_>>()
-    })
-  })
-}
-
-pub fn with_std_env<T>(cb: impl for<'a> FnOnce(Loader<'a>) -> T) -> T {
-  let mut asynch = AsynchSystem::new();
-  let scheduler = SeqScheduler::new(&mut asynch);
-  let std_streams = [
-    ("stdin", Stream::Source(BufReader::new(Box::new(std::io::stdin())))),
-    ("stdout", Stream::Sink(Box::new(std::io::stdout()))),
-    ("stderr", Stream::Sink(Box::new(std::io::stderr()))),
-  ];
-  let env = Loader::new()
-    .add_system(StdConfig { impure: true })
-    .add_system(asynch)
-    .add_system(scheduler.clone())
-    .add_system(IOService::new(scheduler.clone(), std_streams))
-    .add_system(DirectFS::new(scheduler));
-  cb(env)
-}
-
 pub fn main() -> ExitCode {
   let args = Args::parse();
   unwrap_exit!(args.chk_proj());
   let dir = PathBuf::from(args.dir);
-  let main = args.main.map_or_else(
-    || Sym::literal("tree::main::main"),
-    |main| Sym::parse(&main).expect("--main cannot be empty"),
-  );
+  let main_s = args.main.as_ref().map_or("tree::main::main", |s| s);
+  let main = Sym::parse(main_s).expect("--main cannot be empty");
+  let location = CodeLocation::new_gen(CodeGenInfo::no_details(sym!(orcx::entrypoint)));
+  let reporter = Reporter::new();
 
   // subcommands
+  #[allow(clippy::blocks_in_conditions)]
   match args.command {
-    Some(Command::ListMacros) => with_std_env(|env| {
-      let tree = unwrap_exit!(env.load_main(dir, main));
-      let mr = unwrap_exit!(MacroRunner::new(&tree));
+    Some(Command::ListMacros) => with_mock_env(|env| {
+      let tree = env.load_main(dir, [main], &reporter);
+      let mr = MacroRunner::new(&tree, None, &reporter);
       println!("Parsed rules: {}", mr.repo);
       ExitCode::SUCCESS
     }),
     Some(Command::ProjectTree { hide_locations, width }) => {
-      let tree = unwrap_exit!(with_std_env(|env| env.load_main(dir, main)));
+      let tree = with_mock_env(|env| env.load_main(dir, [main], &reporter));
       let w = width.or_else(|| termsize::get().map(|s| s.cols)).unwrap_or(74);
       let print_opts = ProjPrintOpts { width: w, hide_locations };
       println!("Project tree: {}", print_proj_mod(&tree.0, 0, print_opts));
       ExitCode::SUCCESS
     },
-    Some(Command::MacroDebug { symbol }) => with_std_env(|env| {
-      let tree = unwrap_exit!(env.load_main(dir, main));
+    Some(Command::MacroDebug { symbol }) => with_mock_env(|env| {
+      let tree = env.load_main(dir, [main], &reporter);
       let symbol = Sym::parse(&symbol).expect("macro-debug needs an argument");
-      macro_debug::main(unwrap_exit!(MacroRunner::new(&tree)), symbol).code()
+      macro_debug::main(tree, symbol).code()
     }),
     Some(Command::Test { only: Some(_), threads: Some(_), .. }) => {
       eprintln!(
@@ -253,25 +157,33 @@ pub fn main() -> ExitCode {
       ExitCode::FAILURE
     },
     Some(Command::Test { only: None, threads, system: None }) => {
-      let tree_tests = unwrap_exit!(get_tree_tests(&dir));
+      let tree_tests = reporter.unwrap_exit(get_tree_tests(&dir, &reporter));
       unwrap_exit!(run_tests(&dir, args.macro_limit, threads, &tree_tests));
       ExitCode::SUCCESS
     },
     Some(Command::Test { only: Some(symbol), threads: None, system: None }) => {
       let symbol = Sym::parse(&symbol).expect("Test needs an argument");
-      unwrap_exit!(run_tests(&dir, args.macro_limit, Some(1), &[symbol]));
-      ExitCode::SUCCESS
+      with_env(mock_source(), stdout_sink(), stderr_sink(), |env| {
+        // iife in lieu of try blocks
+        let tree = env.load_main(dir.clone(), [symbol.clone()], &reporter);
+        let mr = MacroRunner::new(&tree, Some(args.macro_limit), &reporter);
+        let consts = mr.run_macros(tree, &reporter).all_consts();
+        let test = consts.get(&symbol).expect("Test not found");
+        let nc = NortConst::convert_from(test.clone(), &reporter);
+        let mut proc = Process::new(merge_trees(consts, env.systems(), &reporter), env.handlers());
+        unwrap_exit!(run_test(&mut proc, symbol.clone(), nc.clone()));
+        ExitCode::SUCCESS
+      })
     },
     Some(Command::Test { only: None, threads, system: Some(system) }) => {
-      let subtrees = unwrap_exit!(with_std_env(|env| {
+      let subtrees = unwrap_exit!(with_mock_env(|env| {
         match env.systems().find(|s| s.name == system) {
           None => Err(format!("System {system} not found")),
           Some(sys) => {
             let mut paths = HashSet::new();
             sys.code.search_all((), |path, node, ()| {
               if matches!(node, ModMemberRef::Item(_)) {
-                let name = Sym::new(path.unreverse())
-                  .expect("Empty path means global file");
+                let name = Sym::new(path.unreverse()).expect("Empty path means global file");
                 paths.insert(name);
               }
             });
@@ -279,47 +191,92 @@ pub fn main() -> ExitCode {
           },
         }
       }));
-      let in_subtrees =
-        |sym: Sym| subtrees.iter().any(|sub| sym[..].starts_with(&sub[..]));
-      let tests = unwrap_exit!(with_std_env(|env| -> ProjectResult<_> {
-        let tree = env.load_main(dir.clone(), main.clone())?;
-        let mr = MacroRunner::new(&tree)?;
-        let src_consts = mr.run_macros(Some(args.macro_limit))?;
-        let consts = merge_trees(src_consts, env.systems())?;
-        let test_names = (consts.into_iter())
-          .filter(|(k, v)| {
-            in_subtrees(k.clone())
-              && v.comments.iter().any(|c| c.trim() == "test")
-          })
-          .map(|p| p.0)
-          .collect_vec();
-        Ok(test_names)
-      }));
+      let in_subtrees = |sym: Sym| subtrees.iter().any(|sub| sym[..].starts_with(&sub[..]));
+      let tests = with_mock_env(|env| {
+        let tree = env.load_main(dir.clone(), [main.clone()], &reporter);
+        let mr = MacroRunner::new(&tree, Some(args.macro_limit), &reporter);
+        let src_consts = mr.run_macros(tree, &reporter).all_consts();
+        let consts = merge_trees(src_consts, env.systems(), &reporter);
+        (consts.into_iter())
+          .filter(|(k, v)| in_subtrees(k.clone()) && v.comments.iter().any(|c| c.trim() == "test"))
+          .collect_vec()
+      });
       eprintln!("Running {} tests", tests.len());
       unwrap_exit!(run_tests(&dir, args.macro_limit, threads, &tests));
       eprintln!("All tests pass");
       ExitCode::SUCCESS
     },
     None => with_std_env(|env| {
-      let tree = unwrap_exit!(env.load_main(dir, main.clone()));
-      let mr = unwrap_exit!(MacroRunner::new(&tree));
-      let src_consts = unwrap_exit!(mr.run_macros(Some(args.macro_limit)));
-      let consts = unwrap_exit!(merge_trees(src_consts, env.systems()));
-      let mut proc = Process::new(consts, env.handlers());
-      unwrap_exit!(proc.validate_refs());
-      let main = nort::Clause::Constant(main.clone())
-        .to_expr(CodeLocation::Gen(CodeGenInfo::no_details("entrypoint")));
-      let ret = unwrap_exit!(proc.run(main, None));
-      let Halt { state, inert, .. } = ret;
+      let proc = env.proc_main(dir, [main.clone()], true, Some(args.macro_limit), &reporter);
+      reporter.assert_exit();
+      let ret = unwrap_exit!(proc.run(nort::Clause::Constant(main).into_expr(location), None));
       drop(proc);
-      assert!(inert, "Gas is not used, only inert data should be yielded");
-      match state.clone().downcast() {
-        Ok(Inert(ExitStatus::Success)) => ExitCode::SUCCESS,
-        Ok(Inert(ExitStatus::Failure)) => ExitCode::FAILURE,
+      match ret.clone().downcast() {
+        Ok(Inert(OrcExitStatus::Success)) => ExitCode::SUCCESS,
+        Ok(Inert(OrcExitStatus::Failure)) => ExitCode::FAILURE,
         Err(_) => {
-          println!("{}", state.clause);
+          println!("{}", ret.clause);
           ExitCode::SUCCESS
         },
+      }
+    }),
+    Some(Command::Repl) => with_std_env(|env| {
+      let sctx = env.project_ctx(&reporter);
+      loop {
+        let reporter = Reporter::new();
+        print!("orc");
+        let mut src = String::new();
+        let mut paren_tally = 0;
+        loop {
+          print!("> ");
+          stdout().flush().unwrap();
+          let mut buf = String::new();
+          stdin().read_line(&mut buf).unwrap();
+          src += &buf;
+          let range = SourceRange::mock();
+          let spctx = sctx.parsing(range.code());
+          let pctx = FlatLocContext::new(&spctx, &range);
+          let res =
+            lex(Vec::new(), &buf, &pctx, |_| Ok::<_, Never>(false)).unwrap_or_else(|e| match e {});
+          res.tokens.iter().for_each(|e| match &e.lexeme {
+            Lexeme::LP(_) => paren_tally += 1,
+            Lexeme::RP(_) => paren_tally -= 1,
+            _ => (),
+          });
+          if 0 == paren_tally {
+            break;
+          }
+        }
+        let tree = env.load_project_main(
+          [sym!(tree::main::__repl_input__)],
+          DeclTree::ns("tree::main", [decl_file(&format!("const __repl_input__ := {src}"))]),
+          &reporter,
+        );
+        let mr = MacroRunner::new(&tree, Some(args.macro_limit), &reporter);
+        let proj_consts = mr.run_macros(tree, &reporter).all_consts();
+        let consts = merge_trees(proj_consts, env.systems(), &reporter);
+        let ctx = nort_gen(location.clone());
+        let to_string_tpl = tpl::A(tpl::C("std::string::convert"), tpl::Slot);
+        if let Err(err) = reporter.bind() {
+          eprintln!("{err}");
+          continue;
+        }
+        let proc = Process::new(consts, env.handlers());
+        let prompt = tpl::C("tree::main::__repl_input__").template(ctx.clone(), []);
+        let out = match proc.run(prompt, Some(1000)) {
+          Ok(out) => out,
+          Err(e) => {
+            eprintln!("{e}");
+            continue;
+          },
+        };
+        if let Ok(out) = proc.run(to_string_tpl.template(ctx, [out.clone()]), Some(1000)) {
+          if let Ok(s) = out.clone().downcast::<Inert<OrcString>>() {
+            println!("{}", s.0.as_str());
+            continue;
+          }
+        }
+        println!("{out}")
       }
     }),
   }

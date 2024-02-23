@@ -1,8 +1,8 @@
 import super::(option, tuple, tuple::t, panic, pmatch, pmatch::=>, macro, tee)
-import super::(functional::*, procedural::*)
+import super::(fn::*, procedural::*)
 import super::(loop::*, bool::*, known::*, number::*)
 
-as_type list ()
+as_type ()
 
 export const cons := \hd. \tl. wrap (option::some t[hd, unwrap tl])
 export const end := wrap option::none

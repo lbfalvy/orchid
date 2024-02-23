@@ -44,8 +44,7 @@ where
       },
       Err(arc) => take_with_output(&mut *arc.lock().unwrap(), |s| match s {
         State::End => (State::End, (Self::wrap(State::End), None)),
-        State::Cont(next, data) =>
-          (State::Cont(next.clone(), data.clone()), (next, Some(data))),
+        State::Cont(next, data) => (State::Cont(next.clone(), data.clone()), (next, Some(data))),
         State::Head(mut iter) => match iter.next() {
           None => (State::End, (Self::wrap(State::End), None)),
           Some(data) => {

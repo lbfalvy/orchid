@@ -1,5 +1,8 @@
 //! Abstractions for dynamic extensions to the lexer to parse custom literals
 
+use dyn_clone::DynClone;
+use never::Never;
+
 use super::context::{FlatLocContext, ParseCtx};
 use super::lexer::{lex, Entry, LexRes};
 use crate::error::ProjectResult;
@@ -37,13 +40,16 @@ pub trait LexPluginReq<'a> {
 
 /// External plugin that parses a literal into recognized Orchid lexemes, most
 /// likely atoms.
-pub trait LexerPlugin: Send + Sync {
+pub trait LexerPlugin: Send + Sync + DynClone {
   /// Run the lexer
   fn lex<'a>(&self, req: &'_ dyn LexPluginReq<'a>) -> Option<ProjectResult<LexRes<'a>>>;
 }
 
-pub(super) struct LexPlugReqImpl<'a, 'b, TCtx: ParseCtx> {
+/// Implementation of [LexPluginReq]
+pub struct LexPlugReqImpl<'a, 'b, TCtx: ParseCtx> {
+  /// Text to be lexed
   pub tail: &'a str,
+  /// Context data
   pub ctx: &'b TCtx,
 }
 impl<'a, 'b, TCtx: ParseCtx> LexPluginReq<'a> for LexPlugReqImpl<'a, 'b, TCtx> {
@@ -54,8 +60,6 @@ impl<'a, 'b, TCtx: ParseCtx> LexPluginReq<'a> for LexPlugReqImpl<'a, 'b, TCtx> {
   }
   fn insert(&self, data: &str, range: SourceRange) -> Vec<Entry> {
     let ctx = FlatLocContext::new(self.ctx as &dyn ParseCtx, &range);
-    lex(Vec::new(), data, &ctx, |_| Ok(false))
-      .expect("Insert failed to lex")
-      .tokens
+    lex(Vec::new(), data, &ctx, |_| Ok::<_, Never>(false)).unwrap_or_else(|e| match e {}).tokens
   }
 }

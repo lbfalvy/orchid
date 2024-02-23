@@ -21,9 +21,7 @@ pub struct Frag<'a> {
 }
 impl<'a> Frag<'a> {
   /// Create a new fragment
-  pub fn new(fallback: &'a Entry, data: &'a [Entry]) -> Self {
-    Self { fallback, data }
-  }
+  pub fn new(fallback: &'a Entry, data: &'a [Entry]) -> Self { Self { fallback, data } }
 
   /// Remove comments and line breaks from both ends of the text
   pub fn trim(self) -> Self {
@@ -45,19 +43,12 @@ impl<'a> Frag<'a> {
   }
 
   /// Get the first entry
-  pub fn pop(
-    self,
-    ctx: &(impl ParseCtx + ?Sized),
-  ) -> ProjectResult<(&'a Entry, Self)> {
+  pub fn pop(self, ctx: &(impl ParseCtx + ?Sized)) -> ProjectResult<(&'a Entry, Self)> {
     Ok((self.get(0, ctx)?, self.step(ctx)?))
   }
 
-  /// Retrieve an index from a slice or raise an [UnexpectedEOL].
-  pub fn get(
-    self,
-    idx: usize,
-    ctx: &(impl ParseCtx + ?Sized),
-  ) -> ProjectResult<&'a Entry> {
+  /// Retrieve an index from a slice or raise an error if it isn't found.
+  pub fn get(self, idx: usize, ctx: &(impl ParseCtx + ?Sized)) -> ProjectResult<&'a Entry> {
     self.data.get(idx).ok_or_else(|| {
       let entry = self.data.last().unwrap_or(self.fallback).clone();
       UnexpectedEOL(entry.lexeme).pack(ctx.range_loc(&entry.range))
@@ -74,7 +65,7 @@ impl<'a> Frag<'a> {
   }
 
   /// Find a given token, split the fragment there and read some value from the
-  /// separator. See also [fragment::find]
+  /// separator. See also [Frag::find]
   pub fn find_map<T>(
     self,
     msg: &'static str,
@@ -91,7 +82,7 @@ impl<'a> Frag<'a> {
   }
 
   /// Split the fragment at a token and return just the two sides.
-  /// See also [fragment::find_map].
+  /// See also [Frag::find_map].
   pub fn find(
     self,
     descr: &'static str,
@@ -103,15 +94,10 @@ impl<'a> Frag<'a> {
   }
 
   /// Remove the last item from the fragment
-  pub fn pop_back(
-    self,
-    ctx: &(impl ParseCtx + ?Sized),
-  ) -> ProjectResult<(&'a Entry, Self)> {
+  pub fn pop_back(self, ctx: &(impl ParseCtx + ?Sized)) -> ProjectResult<(&'a Entry, Self)> {
     let Self { data, fallback } = self;
-    let (last, data) = (data.split_last()).ok_or_else(|| {
-      UnexpectedEOL(fallback.lexeme.clone())
-        .pack(ctx.range_loc(&fallback.range))
-    })?;
+    let (last, data) = (data.split_last())
+      .ok_or_else(|| UnexpectedEOL(fallback.lexeme.clone()).pack(ctx.range_loc(&fallback.range)))?;
     Ok((last, Self { fallback, data }))
   }
 
@@ -119,16 +105,12 @@ impl<'a> Frag<'a> {
   ///
   /// If the slice is empty
   pub fn from_slice(data: &'a [Entry]) -> Self {
-    let fallback =
-      (data.first()).expect("Empty slice cannot be converted into a parseable");
+    let fallback = (data.first()).expect("Empty slice cannot be converted into a parseable");
     Self { data, fallback }
   }
 
   /// Assert that the fragment is empty.
-  pub fn expect_empty(
-    self,
-    ctx: &(impl ParseCtx + ?Sized),
-  ) -> ProjectResult<()> {
+  pub fn expect_empty(self, ctx: &(impl ParseCtx + ?Sized)) -> ProjectResult<()> {
     match self.data.first() {
       Some(x) => Err(ExpectedEOL.pack(ctx.range_loc(&x.range))),
       None => Ok(()),

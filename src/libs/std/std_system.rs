@@ -14,17 +14,16 @@ use super::panic::panic_lib;
 use super::protocol::{parsers, protocol_lib};
 use super::reflect::reflect_lib;
 use super::state::{state_handlers, state_lib};
-use super::string::str_lib;
-use super::tstring::TStringLexer;
+use super::string::{str_lib, StringLexer};
 use super::tuple::tuple_lib;
 use crate::facade::system::{IntoSystem, System};
 use crate::gen::tree::{ConstCombineErr, ConstTree};
 use crate::location::CodeGenInfo;
-use crate::name::VName;
-use crate::pipeline::load_solution::Prelude;
+use crate::pipeline::load_project::Prelude;
 use crate::tree::ModEntry;
 use crate::utils::combine::Combine;
 use crate::virt_fs::{EmbeddedFS, VirtFS};
+use crate::{sym, vname};
 
 #[derive(RustEmbed)]
 #[folder = "src/libs/std"]
@@ -51,13 +50,6 @@ impl StdConfig {
       .combine(reflect_lib())?
       .combine(state_lib())?
       .combine(str_lib())?;
-    // panic!(
-    //   "{:?}",
-    //   pure_tree
-    //     .unwrap_mod_ref()
-    //     .walk1_ref(&[], &[i("std"), i("protocol")], |_| true)
-    //     .map(|p| p.0)
-    // );
     if !self.impure {
       return Ok(pure_tree);
     }
@@ -71,15 +63,15 @@ impl IntoSystem<'static> for StdConfig {
       name: "stdlib",
       constants: self.stdlib().expect("stdlib tree is malformed"),
       code: ModEntry::ns("std", [ModEntry::leaf(
-        EmbeddedFS::new::<StdEmbed>(".orc", CodeGenInfo::no_details("std::fs")).rc(),
+        EmbeddedFS::new::<StdEmbed>(".orc", CodeGenInfo::no_details(sym!(std::fs))).rc(),
       )]),
       prelude: vec![Prelude {
-        target: VName::literal("std::prelude"),
-        exclude: VName::literal("std"),
-        owner: CodeGenInfo::no_details("std::prelude"),
+        target: vname!(std::prelude),
+        exclude: vname!(std),
+        owner: CodeGenInfo::no_details(sym!(std::prelude)),
       }],
       handlers: state_handlers(),
-      lexer_plugins: vec![Box::new(TStringLexer)],
+      lexer_plugins: vec![Box::new(StringLexer)],
       line_parsers: parsers(),
     }
   }

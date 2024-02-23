@@ -1,4 +1,4 @@
-//! A variant of [std::any::Provider]
+//! A simplified, stable variant of `std::any::Provider`.
 
 use std::any::Any;
 
@@ -12,9 +12,7 @@ impl<'a> Request<'a> {
   }
 
   /// Serve a value if it's the correct type
-  pub fn serve<T: 'static>(&mut self, value: T) {
-    self.serve_with::<T>(|| value)
-  }
+  pub fn serve<T: 'static>(&mut self, value: T) { self.serve_with::<T>(|| value) }
 
   /// Invoke the callback to serve the request only if the return type matches
   pub fn serve_with<T: 'static>(&mut self, provider: impl FnOnce() -> T) {

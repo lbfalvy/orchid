@@ -1,8 +1,8 @@
 //! Error produced by numeric opperations
 
-use std::fmt::Display;
+use std::fmt;
 
-use crate::foreign::error::ExternError;
+use crate::foreign::error::RTError;
 
 /// Various errors produced by arithmetic operations
 #[derive(Clone)]
@@ -17,8 +17,8 @@ pub enum ArithmeticError {
   NaN,
 }
 
-impl Display for ArithmeticError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ArithmeticError {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::NaN => write!(f, "Operation resulted in NaN"),
       Self::Overflow => write!(f, "Integer overflow"),
@@ -28,4 +28,4 @@ impl Display for ArithmeticError {
   }
 }
 
-impl ExternError for ArithmeticError {}
+impl RTError for ArithmeticError {}

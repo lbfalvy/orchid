@@ -9,5 +9,5 @@ export const main := do{
     |> list::reduce ((a, b) => a + b)
     |> option::assume;
   cps println $ to_string sum;
-  0
+  exit_status::success
 }

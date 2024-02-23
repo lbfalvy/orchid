@@ -1,22 +1,23 @@
-use std::collections::VecDeque;
 use std::iter;
 use std::rc::Rc;
+
+use itertools::Itertools;
 
 use crate::foreign::atom::Atomic;
 use crate::foreign::fn_bridge::xfn;
 use crate::foreign::process::Unstable;
 use crate::foreign::to_clause::ToClause;
-use crate::foreign::try_from_expr::TryFromExpr;
-use crate::location::{CodeLocation, SourceRange};
+use crate::foreign::try_from_expr::{TryFromExpr, WithLoc};
+use crate::location::SourceRange;
 use crate::parse::parsed::{self, PType};
 use crate::utils::pure_seq::pushed;
 
-pub trait DeferredRuntimeCallback<T, U, R: ToClause>:
-  Fn(Vec<(T, U)>) -> R + Clone + Send + 'static
+pub trait DeferredRuntimeCallback<T, R: ToClause>:
+  FnOnce(Vec<T>) -> R + Clone + Send + 'static
 {
 }
-impl<T, U, R: ToClause, F: Fn(Vec<(T, U)>) -> R + Clone + Send + 'static>
-  DeferredRuntimeCallback<T, U, R> for F
+impl<T, R: ToClause, F: FnOnce(Vec<T>) -> R + Clone + Send + 'static> DeferredRuntimeCallback<T, R>
+  for F
 {
 }
 
@@ -26,56 +27,39 @@ impl<T, U, R: ToClause, F: Fn(Vec<(T, U)>) -> R + Clone + Send + 'static>
 /// # Panics
 ///
 /// If the list of remaining keys is empty
-fn table_receiver_rec<
-  T: Clone + Send + 'static,
-  U: TryFromExpr + Clone + Send + 'static,
-  R: ToClause + 'static,
->(
-  range: SourceRange,
-  results: Vec<(T, U)>,
-  mut remaining_keys: VecDeque<T>,
-  callback: impl DeferredRuntimeCallback<T, U, R>,
+fn table_receiver_rec<T: TryFromExpr + Clone + Send + 'static, R: ToClause + 'static>(
+  results: Vec<T>,
+  items: usize,
+  callback: impl DeferredRuntimeCallback<T, R>,
 ) -> impl Atomic {
-  let t = remaining_keys.pop_front().expect("empty handled elsewhere");
-  xfn("__table_receiver__", move |u: U| {
-    let results = pushed(results, (t, u));
-    match remaining_keys.is_empty() {
-      true => callback(results).to_clause(CodeLocation::Source(range)),
-      false => table_receiver_rec(range, results, remaining_keys, callback).atom_cls(),
+  xfn("__table_receiver__", move |WithLoc(loc, t): WithLoc<T>| {
+    let results: Vec<T> = pushed(results, t);
+    match items == results.len() {
+      true => callback(results).to_clause(loc),
+      false => table_receiver_rec(results, items, callback).atom_cls(),
     }
   })
 }
 
-fn table_receiver<
-  T: Clone + Send + 'static,
-  U: TryFromExpr + Clone + Send + 'static,
-  R: ToClause + 'static,
->(
-  range: SourceRange,
-  keys: VecDeque<T>,
-  callback: impl DeferredRuntimeCallback<T, U, R>,
+fn table_receiver<T: TryFromExpr + Clone + Send + 'static, R: ToClause + 'static>(
+  items: usize,
+  callback: impl DeferredRuntimeCallback<T, R>,
 ) -> parsed::Clause {
-  if keys.is_empty() {
+  if items == 0 {
     Unstable::new(move |_| callback(Vec::new())).ast_cls()
   } else {
-    Unstable::new(move |_| table_receiver_rec(range, Vec::new(), keys, callback).atom_cls())
-      .ast_cls()
+    Unstable::new(move |_| table_receiver_rec(Vec::new(), items, callback).atom_cls()).ast_cls()
   }
 }
 
 /// Defers the execution of the callback to runtime, allowing it to depend on
 /// the result of Otchid expressions.
-pub fn defer_to_runtime<
-  T: Clone + Send + 'static,
-  U: TryFromExpr + Clone + Send + 'static,
-  R: ToClause + 'static,
->(
+pub fn defer_to_runtime<T: TryFromExpr + Clone + Send + 'static, R: ToClause + 'static>(
   range: SourceRange,
-  pairs: impl IntoIterator<Item = (T, Vec<parsed::Expr>)>,
-  callback: impl DeferredRuntimeCallback<T, U, R>,
+  exprs: impl Iterator<Item = Vec<parsed::Expr>>,
+  callback: impl DeferredRuntimeCallback<T, R>,
 ) -> parsed::Clause {
-  let (keys, ast_values) = pairs.into_iter().unzip::<_, _, VecDeque<_>, Vec<_>>();
-  let items = iter::once(table_receiver(range.clone(), keys, callback))
-    .chain(ast_values.into_iter().map(|v| parsed::Clause::S(PType::Par, Rc::new(v))));
+  let argv = exprs.into_iter().map(|v| parsed::Clause::S(PType::Par, Rc::new(v))).collect_vec();
+  let items = iter::once(table_receiver(argv.len(), callback)).chain(argv);
   parsed::Clause::s('(', items, range)
 }

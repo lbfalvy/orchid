@@ -1,4 +1,6 @@
-use std::fmt::{Debug, Display};
+//! Collects, prioritizes and executes rules.
+
+use std::fmt;
 use std::rc::Rc;
 
 use hashbrown::HashSet;
@@ -8,9 +10,9 @@ use ordered_float::NotNan;
 use super::matcher::{Matcher, RuleExpr};
 use super::matcher_vectree::shared::VectreeMatcher;
 use super::prepare_rule::prepare_rule;
-use super::rule_error::RuleError;
 use super::state::apply_exprv;
 use super::update_first_seq;
+use crate::error::Reporter;
 use crate::name::Sym;
 use crate::parse::numeric::print_nat16;
 use crate::pipeline::project::ProjRule;
@@ -24,8 +26,8 @@ pub(super) struct CachedRule<M: Matcher> {
   save_location: HashSet<Sym>,
 }
 
-impl<M: Display + Matcher> Display for CachedRule<M> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<M: fmt::Display + Matcher> fmt::Display for CachedRule<M> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     let patterns = self.pattern.iter().join(" ");
     write!(
       f,
@@ -48,35 +50,25 @@ pub struct Repository<M: Matcher> {
 }
 impl<M: Matcher> Repository<M> {
   /// Build a new repository to hold the given set of rules
-  pub fn new(mut rules: Vec<ProjRule>) -> Result<Self, (ProjRule, RuleError)> {
+  pub fn new(mut rules: Vec<ProjRule>, reporter: &Reporter) -> Self {
     rules.sort_by_key(|r| -r.prio);
     let cache = rules
       .into_iter()
-      .map(|r| {
-        let ProjRule { pattern, prio, template, comments: _ } =
-          prepare_rule(r.clone()).map_err(|e| (r, e))?;
+      .filter_map(|r| {
+        let ProjRule { pattern, prio, template, comments: _ } = prepare_rule(r.clone())
+          .inspect_err(|e| reporter.report(e.clone().into_project(&r)))
+          .ok()?;
         let mut pat_glossary = HashSet::new();
-        pat_glossary.extend(
-          pattern.iter().flat_map(|e| e.value.collect_names().into_iter()),
-        );
+        pat_glossary.extend(pattern.iter().flat_map(|e| e.value.collect_names().into_iter()));
         let mut tpl_glossary = HashSet::new();
-        tpl_glossary.extend(
-          template.iter().flat_map(|e| e.value.collect_names().into_iter()),
-        );
-        let save_location =
-          pat_glossary.intersection(&tpl_glossary).cloned().collect();
+        tpl_glossary.extend(template.iter().flat_map(|e| e.value.collect_names().into_iter()));
+        let save_location = pat_glossary.intersection(&tpl_glossary).cloned().collect();
         let matcher = M::new(Rc::new(pattern.clone()));
-        let prep = CachedRule {
-          matcher,
-          pattern,
-          template,
-          pat_glossary,
-          save_location,
-        };
-        Ok((prep, prio))
+        let prep = CachedRule { matcher, pattern, template, pat_glossary, save_location };
+        Some((prep, prio))
       })
-      .collect::<Result<Vec<_>, _>>()?;
-    Ok(Self { cache })
+      .collect::<Vec<_>>();
+    Self { cache }
   }
 
   /// Attempt to run each rule in priority order once
@@ -117,11 +109,7 @@ impl<M: Matcher> Repository<M> {
   /// Attempt to run each rule in priority order `limit` times. Returns
   /// the final tree and the number of iterations left to the limit.
   #[must_use]
-  pub fn long_step(
-    &self,
-    code: &RuleExpr,
-    mut limit: usize,
-  ) -> (RuleExpr, usize) {
+  pub fn long_step(&self, code: &RuleExpr, mut limit: usize) -> (RuleExpr, usize) {
     if limit == 0 {
       return (code.clone(), 0);
     }
@@ -144,8 +132,8 @@ impl<M: Matcher> Repository<M> {
   }
 }
 
-impl<M: Debug + Matcher> Debug for Repository<M> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<M: fmt::Debug + Matcher> fmt::Debug for Repository<M> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     for rule in self.cache.iter() {
       writeln!(f, "{rule:?}")?
     }
@@ -153,8 +141,8 @@ impl<M: Debug + Matcher> Debug for Repository<M> {
   }
 }
 
-impl<M: Display + Matcher> Display for Repository<M> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<M: fmt::Display + Matcher> fmt::Display for Repository<M> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     writeln!(f, "Repository[")?;
     for (rule, p) in self.cache.iter() {
       let prio = print_nat16(*p);

@@ -3,7 +3,7 @@
 //! innovations in the processing and execution of code will likely operate on
 //! this representation.
 
-use std::fmt::{Debug, Write};
+use std::fmt;
 use std::rc::Rc;
 
 use crate::foreign::atom::AtomGenerator;
@@ -16,40 +16,44 @@ use crate::utils::string_from_charset::string_from_charset;
 #[derive(PartialEq, Eq, Clone, Copy)]
 struct Wrap(bool, bool);
 
+/// Code element with associated metadata
 #[derive(Clone)]
 pub struct Expr {
+  /// Code element
   pub value: Clause,
+  /// Location metadata
   pub location: CodeLocation,
 }
 
 impl Expr {
-  pub fn new(value: Clause, location: SourceRange) -> Self {
-    Self { value, location: CodeLocation::Source(location) }
+  /// Create an IR expression
+  pub fn new(value: Clause, location: SourceRange, module: Sym) -> Self {
+    Self { value, location: CodeLocation::new_src(location, module) }
   }
 
-  fn deep_fmt(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    depth: usize,
-    tr: Wrap,
-  ) -> std::fmt::Result {
+  fn deep_fmt(&self, f: &mut fmt::Formatter<'_>, depth: usize, tr: Wrap) -> fmt::Result {
     let Expr { value, .. } = self;
     value.deep_fmt(f, depth, tr)?;
     Ok(())
   }
 }
 
-impl Debug for Expr {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for Expr {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     self.deep_fmt(f, 0, Wrap(false, false))
   }
 }
 
+/// Semantic code element
 #[derive(Clone)]
 pub enum Clause {
+  /// Function call expression
   Apply(Rc<Expr>, Rc<Expr>),
+  /// Function expression
   Lambda(Rc<Expr>),
+  /// Reference to an external constant
   Constant(Sym),
+  /// Reference to a function argument
   LambdaArg(usize),
   /// An opaque non-callable value, eg. a file handle
   Atom(AtomGenerator),
@@ -58,32 +62,27 @@ pub enum Clause {
 const ARGNAME_CHARSET: &str = "abcdefghijklmnopqrstuvwxyz";
 
 fn parametric_fmt(
-  f: &mut std::fmt::Formatter<'_>,
+  f: &mut fmt::Formatter<'_>,
   depth: usize,
   prefix: &str,
   body: &Expr,
   wrap_right: bool,
-) -> std::fmt::Result {
-  // if wrap_right {
-    f.write_char('(')?;
-  // }
+) -> fmt::Result {
+  if wrap_right {
+    write!(f, "(")?;
+  }
   f.write_str(prefix)?;
   f.write_str(&string_from_charset(depth as u64, ARGNAME_CHARSET))?;
   f.write_str(".")?;
   body.deep_fmt(f, depth + 1, Wrap(false, false))?;
-  // if wrap_right {
-    f.write_char(')')?;
-  // }
+  if wrap_right {
+    write!(f, ")")?;
+  }
   Ok(())
 }
 
 impl Clause {
-  fn deep_fmt(
-    &self,
-    f: &mut std::fmt::Formatter<'_>,
-    depth: usize,
-    Wrap(wl, wr): Wrap,
-  ) -> std::fmt::Result {
+  fn deep_fmt(&self, f: &mut fmt::Formatter<'_>, depth: usize, Wrap(wl, wr): Wrap) -> fmt::Result {
     match self {
       Self::Atom(a) => write!(f, "{a:?}"),
       Self::Lambda(body) => parametric_fmt(f, depth, "\\", body, wr),
@@ -92,15 +91,15 @@ impl Clause {
         f.write_str(&string_from_charset(lambda_depth, ARGNAME_CHARSET))
       },
       Self::Apply(func, x) => {
-        // if wl {
-          f.write_char('(')?;
-        // }
+        if wl {
+          write!(f, "(")?;
+        }
         func.deep_fmt(f, depth, Wrap(false, true))?;
-        f.write_char(' ')?;
+        write!(f, " ")?;
         x.deep_fmt(f, depth, Wrap(true, wr && !wl))?;
-        // if wl {
-          f.write_char(')')?;
-        // }
+        if wl {
+          write!(f, ")")?;
+        }
         Ok(())
       },
       Self::Constant(token) => write!(f, "{token}"),
@@ -108,8 +107,8 @@ impl Clause {
   }
 }
 
-impl Debug for Clause {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for Clause {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     self.deep_fmt(f, 0, Wrap(false, false))
   }
 }

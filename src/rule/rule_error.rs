@@ -1,10 +1,12 @@
-use std::fmt::{self, Display};
+//! Error conditions encountered by the rule processor
+
+use std::fmt;
 
 use hashbrown::HashSet;
 use intern_all::Tok;
 
 use crate::error::{ErrorPosition, ProjectError, ProjectErrorObj};
-use crate::location::{CodeLocation, SourceRange};
+use crate::location::{CodeOrigin, SourceRange};
 use crate::parse::parsed::{search_all_slcs, Clause, PHClass, Placeholder};
 use crate::pipeline::project::ProjRule;
 
@@ -23,7 +25,7 @@ pub enum RuleError {
 impl RuleError {
   /// Convert into a unified error trait object shared by all Orchid errors
   #[must_use]
-  pub fn to_project(self, rule: &ProjRule) -> ProjectErrorObj {
+  pub fn into_project(self, rule: &ProjRule) -> ProjectErrorObj {
     match self {
       Self::Missing(name) => Missing::new(rule, name).pack(),
       Self::Multiple(name) => Multiple::new(rule, name).pack(),
@@ -33,7 +35,7 @@ impl RuleError {
   }
 }
 
-impl Display for RuleError {
+impl fmt::Display for RuleError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Missing(key) => write!(f, "Key {key} not in match pattern"),
@@ -74,19 +76,12 @@ impl Missing {
   }
 }
 impl ProjectError for Missing {
-  const DESCRIPTION: &'static str =
-    "A key appears in the template but not the pattern of a rule";
+  const DESCRIPTION: &'static str = "A key appears in the template but not the pattern of a rule";
   fn message(&self) -> String {
-    format!(
-      "The key {} appears in the template but not the pattern of this rule",
-      self.name
-    )
+    format!("The key {} appears in the template but not the pattern of this rule", self.name)
   }
   fn positions(&self) -> impl IntoIterator<Item = ErrorPosition> {
-    (self.locations.iter()).cloned().map(|range| ErrorPosition {
-      location: CodeLocation::Source(range),
-      message: None,
-    })
+    self.locations.iter().map(|range| CodeOrigin::Source(range.clone()).into())
   }
 }
 
@@ -114,16 +109,12 @@ impl Multiple {
   }
 }
 impl ProjectError for Multiple {
-  const DESCRIPTION: &'static str =
-    "A key appears multiple times in the pattern of a rule";
+  const DESCRIPTION: &'static str = "A key appears multiple times in the pattern of a rule";
   fn message(&self) -> String {
     format!("The key {} appears multiple times in this pattern", self.name)
   }
   fn positions(&self) -> impl IntoIterator<Item = ErrorPosition> {
-    (self.locations.iter()).cloned().map(|range| ErrorPosition {
-      location: CodeLocation::Source(range),
-      message: None,
-    })
+    self.locations.iter().map(|range| CodeOrigin::Source(range.clone()).into())
   }
 }
 
@@ -151,17 +142,13 @@ impl ArityMismatch {
   }
 }
 impl ProjectError for ArityMismatch {
-  const DESCRIPTION: &'static str =
-    "A key appears with different arities in a rule";
+  const DESCRIPTION: &'static str = "A key appears with different arities in a rule";
   fn message(&self) -> String {
-    format!(
-      "The key {} appears multiple times with different arities in this rule",
-      self.name
-    )
+    format!("The key {} appears multiple times with different arities in this rule", self.name)
   }
   fn positions(&self) -> impl IntoIterator<Item = ErrorPosition> {
-    (self.locations.iter()).cloned().map(|(location, class)| ErrorPosition {
-      location: CodeLocation::Source(location),
+    self.locations.iter().map(|(origin, class)| ErrorPosition {
+      origin: CodeOrigin::Source(origin.clone()),
       message: Some(
         "This instance represents ".to_string()
           + match class {
@@ -206,18 +193,11 @@ impl VecNeighbors {
   }
 }
 impl ProjectError for VecNeighbors {
-  const DESCRIPTION: &'static str =
-    "Two vectorial placeholders appear next to each other";
+  const DESCRIPTION: &'static str = "Two vectorial placeholders appear next to each other";
   fn message(&self) -> String {
-    format!(
-      "The keys {} and {} appear next to each other with a vectorial arity",
-      self.n1, self.n2
-    )
+    format!("The keys {} and {} appear next to each other with a vectorial arity", self.n1, self.n2)
   }
   fn positions(&self) -> impl IntoIterator<Item = ErrorPosition> {
-    (self.locations.iter()).cloned().map(|location| ErrorPosition {
-      location: CodeLocation::Source(location),
-      message: None,
-    })
+    self.locations.iter().map(|range| CodeOrigin::Source(range.clone()).into())
   }
 }

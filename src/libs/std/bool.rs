@@ -1,6 +1,6 @@
 use super::number::Numeric;
 use super::string::OrcString;
-use crate::foreign::error::{AssertionError, ExternResult};
+use crate::foreign::error::{AssertionError, RTResult};
 use crate::foreign::inert::Inert;
 use crate::foreign::try_from_expr::WithLoc;
 use crate::gen::tpl;
@@ -26,7 +26,7 @@ pub fn if_then_else(WithLoc(loc, b): WithLoc<Inert<bool>>) -> Expr {
 /// - both are string,
 /// - both are bool,
 /// - both are either uint or num
-pub fn equals(WithLoc(loc, a): WithLoc<Expr>, b: Expr) -> ExternResult<Inert<bool>> {
+pub fn equals(WithLoc(loc, a): WithLoc<Expr>, b: Expr) -> RTResult<Inert<bool>> {
   Ok(Inert(if let Ok(l) = a.clone().downcast::<Inert<OrcString>>() {
     b.downcast::<Inert<OrcString>>().is_ok_and(|r| *l == *r)
   } else if let Ok(l) = a.clone().downcast::<Inert<bool>>() {

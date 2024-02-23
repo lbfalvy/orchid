@@ -10,7 +10,7 @@ use intern_all::{i, Tok};
 
 use super::common::CodeNotFound;
 use super::{FSResult, Loaded, VirtFS};
-use crate::error::{ErrorSansLocation, ErrorSansLocationObj};
+use crate::error::{ErrorSansOrigin, ErrorSansOriginObj};
 use crate::name::PathSlice;
 
 #[derive(Clone)]
@@ -19,12 +19,11 @@ struct OpenError {
   dir: Arc<Mutex<io::Error>>,
 }
 impl OpenError {
-  pub fn wrap(file: io::Error, dir: io::Error) -> ErrorSansLocationObj {
-    Self { dir: Arc::new(Mutex::new(dir)), file: Arc::new(Mutex::new(file)) }
-      .pack()
+  pub fn wrap(file: io::Error, dir: io::Error) -> ErrorSansOriginObj {
+    Self { dir: Arc::new(Mutex::new(dir)), file: Arc::new(Mutex::new(file)) }.pack()
   }
 }
-impl ErrorSansLocation for OpenError {
+impl ErrorSansOrigin for OpenError {
   const DESCRIPTION: &'static str = "A file system error occurred";
   fn message(&self) -> String {
     let Self { dir, file } = self;
@@ -40,25 +39,19 @@ impl ErrorSansLocation for OpenError {
 #[derive(Clone)]
 struct IOError(Arc<Mutex<io::Error>>);
 impl IOError {
-  pub fn wrap(inner: io::Error) -> ErrorSansLocationObj {
-    Self(Arc::new(Mutex::new(inner))).pack()
-  }
+  pub fn wrap(inner: io::Error) -> ErrorSansOriginObj { Self(Arc::new(Mutex::new(inner))).pack() }
 }
-impl ErrorSansLocation for IOError {
+impl ErrorSansOrigin for IOError {
   const DESCRIPTION: &'static str = "an I/O error occured";
-  fn message(&self) -> String {
-    format!("File read error: {}", self.0.lock().unwrap())
-  }
+  fn message(&self) -> String { format!("File read error: {}", self.0.lock().unwrap()) }
 }
 
 #[derive(Clone)]
 struct NotUtf8(PathBuf);
 impl NotUtf8 {
-  pub fn wrap(path: &Path) -> ErrorSansLocationObj {
-    Self(path.to_owned()).pack()
-  }
+  pub fn wrap(path: &Path) -> ErrorSansOriginObj { Self(path.to_owned()).pack() }
 }
-impl ErrorSansLocation for NotUtf8 {
+impl ErrorSansOrigin for NotUtf8 {
   const DESCRIPTION: &'static str = "Source files must be UTF-8";
   fn message(&self) -> String {
     format!("{} is a source file but contains invalid UTF-8", self.0.display())
@@ -78,21 +71,18 @@ impl DirNode {
     Self { cached: RefCell::default(), root, suffix }
   }
 
-  fn ext(&self) -> &str {
-    self.suffix.strip_prefix('.').expect("Checked in constructor")
-  }
+  fn ext(&self) -> &str { self.suffix.strip_prefix('.').expect("Checked in constructor") }
 
-  fn load_file(&self, fpath: &Path, orig_path: PathSlice) -> FSResult {
+  fn load_file(&self, fpath: &Path, orig_path: &PathSlice) -> FSResult {
     match fpath.read_dir() {
       Err(dir_e) => {
         let fpath = fpath.with_extension(self.ext());
-        let mut file = File::open(&fpath).map_err(|file_e| {
-          match (dir_e.kind(), file_e.kind()) {
+        let mut file =
+          File::open(&fpath).map_err(|file_e| match (dir_e.kind(), file_e.kind()) {
             (ErrorKind::NotFound, ErrorKind::NotFound) =>
               CodeNotFound::new(orig_path.to_vpath()).pack(),
             _ => OpenError::wrap(file_e, dir_e),
-          }
-        })?;
+          })?;
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).map_err(IOError::wrap)?;
         let text = String::from_utf8(buf).map_err(|_| NotUtf8::wrap(&fpath))?;
@@ -116,7 +106,7 @@ impl DirNode {
   }
 }
 impl VirtFS for DirNode {
-  fn get(&self, path: &[Tok<String>], full_path: PathSlice) -> FSResult {
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult {
     let fpath = self.mk_pathbuf(path);
     let mut binding = self.cached.borrow_mut();
     let (_, res) = (binding.raw_entry_mut().from_key(&fpath))

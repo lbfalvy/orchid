@@ -2,15 +2,15 @@ This document is a wishlist, its items aren't ordered in any way other than inli
 
 # Language
 
-## Typeclasses
-Elixir-style protocols probably, only with n-ary dispatch which I saw in SICP-js
+None! Thanks to very aggressive modularization, changes to the core language are almost never needed to achieve specific goals
 
 # Rules
 
 ## Placeholder constraints
 Simultaneously match a pattern to a subexpression and give it a name to copy it over
 
-- Copy unique 1->1 names over by default to preserve their location info
+## Role annotations
+Some way for the rule repository to record the roles certain tokens took in patterns, and some way for the macros to attach semantic information to these roles, so that dev tooling can understand the purpose of each token
 
 # STL
 
@@ -20,11 +20,8 @@ Functions for each command type which destructure it and pass it to an Orchid ca
 ## Runtime error handling
 result? multipath cps utils? Not sure yet.
 
-## Pattern matching
-This was the main trick in Orchid, still want to do it, still need to polish the language first
-
 ## Macro error handling
-Error tokens with rules to lift them out. Kinda depends on preservation of location info in rules to be really useful
+Error tokens with rules to lift them out.
 
 # Systems
 
@@ -36,3 +33,11 @@ Event-driven I/O with single-fire events and resubscription to relay backpressur
 
 ## New: Marshall
 Serialization of Orchid data, including code, given customizable sets of serializable foreign items. Alternatively, code reflection so that all this can go in the STL
+
+# Miscellaneous
+
+## Language server
+A very rudimentary language server to visually indicate what the macros do to your code
+
+## Type checker
+In the distant hopeful future, I'd like to support a type system

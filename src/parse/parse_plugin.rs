@@ -1,9 +1,10 @@
 //! Abstractions for dynamic extensions to the parser that act across entries.
 //! Macros are the primary syntax extension  mechanism, but they only operate
-//! within a constant and can't interfere with name resolution.
+//! within a constant and can't interfere with name reproject.
 
 use std::ops::Range;
 
+use dyn_clone::DynClone;
 use intern_all::Tok;
 
 use super::context::ParseCtx;
@@ -11,14 +12,12 @@ use super::errors::{expect, expect_block, expect_name};
 use super::facade::parse_entries;
 use super::frag::Frag;
 use super::lexer::{Entry, Lexeme};
-use super::parsed::{
-  Constant, Expr, ModuleBlock, PType, Rule, SourceLine, SourceLineKind,
-};
+use super::parsed::{Constant, Expr, ModuleBlock, PType, Rule, SourceLine, SourceLineKind};
 use super::sourcefile::{
-  parse_const, parse_exprv, parse_line, parse_module, parse_module_body,
-  parse_nsname, parse_rule, split_lines, vec_to_single,
+  exprv_to_single, parse_const, parse_exprv, parse_line, parse_module, parse_module_body,
+  parse_nsname, parse_rule, split_lines,
 };
-use crate::error::ProjectResult;
+use crate::error::{ProjectErrorObj, ProjectResult};
 use crate::location::SourceRange;
 use crate::name::VName;
 use crate::utils::boxed_iter::BoxedIter;
@@ -61,20 +60,12 @@ pub trait ParsePluginReq<'t> {
   fn parse_module(&self, frag: Frag) -> ProjectResult<ModuleBlock>;
   /// Parse a sequence of expressions. In principle, it never makes sense to
   /// parse a single expression because it could always be a macro invocation.
-  fn parse_exprv<'a>(
-    &self,
-    f: Frag<'a>,
-    p: Option<PType>,
-  ) -> ProjectResult<(Vec<Expr>, Frag<'a>)>;
+  fn parse_exprv<'a>(&self, f: Frag<'a>, p: Option<PType>) -> ProjectResult<(Vec<Expr>, Frag<'a>)>;
   /// Parse a prepared string of code
   fn parse_entries(&self, t: &'static str, r: SourceRange) -> Vec<SourceLine>;
   /// Convert a sequence of expressions to a single one by parenthesization if
   /// necessary
-  fn vec_to_single(
-    &self,
-    fallback: &Entry,
-    v: Vec<Expr>,
-  ) -> ProjectResult<Expr>;
+  fn vec_to_single(&self, fallback: &Entry, v: Vec<Expr>) -> ProjectResult<Expr>;
 
   // ################ Assertions ################
 
@@ -86,17 +77,17 @@ pub trait ParsePluginReq<'t> {
   fn expect_block<'a>(&self, f: Frag<'a>, p: PType) -> ProjectResult<Frag<'a>>;
   /// Ensure that the fragment is empty
   fn expect_empty(&self, f: Frag) -> ProjectResult<()>;
+  /// Report a fatal error while also producing output to be consumed by later
+  /// stages for improved error reporting
+  fn report_err(&self, e: ProjectErrorObj);
 }
 
 /// External plugin that parses an unrecognized source line into lines of
 /// recognized types
-pub trait ParseLinePlugin: Sync + Send {
+pub trait ParseLinePlugin: Sync + Send + DynClone {
   /// Attempt to parse a line. Returns [None] if the line isn't recognized,
   /// [Some][Err] if it's recognized but incorrect.
-  fn parse(
-    &self,
-    req: &dyn ParsePluginReq,
-  ) -> Option<ProjectResult<Vec<SourceLineKind>>>;
+  fn parse(&self, req: &dyn ParsePluginReq) -> Option<ProjectResult<Vec<SourceLineKind>>>;
 }
 
 /// Implementation of [ParsePluginReq] exposing sub-parsers and data to the
@@ -107,15 +98,11 @@ pub struct ParsePlugReqImpl<'a, TCtx: ParseCtx + ?Sized> {
   /// Context for recursive commands and to expose to the plugin
   pub ctx: &'a TCtx,
 }
-impl<'ty, TCtx: ParseCtx + ?Sized> ParsePluginReq<'ty>
-  for ParsePlugReqImpl<'ty, TCtx>
-{
+impl<'ty, TCtx: ParseCtx + ?Sized> ParsePluginReq<'ty> for ParsePlugReqImpl<'ty, TCtx> {
   fn frag(&self) -> Frag { self.frag }
   fn frag_loc(&self, f: Frag) -> SourceRange { self.range_loc(f.range()) }
   fn range_loc(&self, r: Range<usize>) -> SourceRange { self.ctx.range_loc(&r) }
-  fn pop<'a>(&self, f: Frag<'a>) -> ProjectResult<(&'a Entry, Frag<'a>)> {
-    f.pop(self.ctx)
-  }
+  fn pop<'a>(&self, f: Frag<'a>) -> ProjectResult<(&'a Entry, Frag<'a>)> { f.pop(self.ctx) }
   fn pop_back<'a>(&self, f: Frag<'a>) -> ProjectResult<(&'a Entry, Frag<'a>)> {
     f.pop_back(self.ctx)
   }
@@ -127,46 +114,29 @@ impl<'ty, TCtx: ParseCtx + ?Sized> ParsePluginReq<'ty>
     Box::new(split_lines(f, self.ctx))
   }
   fn parse_module_body(&self, f: Frag) -> ProjectResult<Vec<SourceLine>> {
-    parse_module_body(f, self.ctx)
+    Ok(parse_module_body(f, self.ctx))
   }
-  fn parse_line(&self, f: Frag) -> ProjectResult<Vec<SourceLineKind>> {
-    parse_line(f, self.ctx)
-  }
-  fn parse_rule(&self, f: Frag) -> ProjectResult<Rule> {
-    parse_rule(f, self.ctx)
-  }
-  fn parse_const(&self, f: Frag) -> ProjectResult<Constant> {
-    parse_const(f, self.ctx)
-  }
+  fn parse_line(&self, f: Frag) -> ProjectResult<Vec<SourceLineKind>> { parse_line(f, self.ctx) }
+  fn parse_rule(&self, f: Frag) -> ProjectResult<Rule> { parse_rule(f, self.ctx) }
+  fn parse_const(&self, f: Frag) -> ProjectResult<Constant> { parse_const(f, self.ctx) }
   fn parse_nsname<'a>(&self, f: Frag<'a>) -> ProjectResult<(VName, Frag<'a>)> {
     parse_nsname(f, self.ctx)
   }
-  fn parse_module(&self, f: Frag) -> ProjectResult<ModuleBlock> {
-    parse_module(f, self.ctx)
-  }
-  fn parse_exprv<'a>(
-    &self,
-    f: Frag<'a>,
-    p: Option<PType>,
-  ) -> ProjectResult<(Vec<Expr>, Frag<'a>)> {
+  fn parse_module(&self, f: Frag) -> ProjectResult<ModuleBlock> { parse_module(f, self.ctx) }
+  fn parse_exprv<'a>(&self, f: Frag<'a>, p: Option<PType>) -> ProjectResult<(Vec<Expr>, Frag<'a>)> {
     parse_exprv(f, p, self.ctx)
   }
   fn parse_entries(&self, s: &'static str, r: SourceRange) -> Vec<SourceLine> {
     parse_entries(&self.ctx, s, r)
   }
   fn vec_to_single(&self, fb: &Entry, v: Vec<Expr>) -> ProjectResult<Expr> {
-    vec_to_single(fb, v, self.ctx)
+    exprv_to_single(fb, v, self.ctx)
   }
-  fn expect_name(&self, e: &Entry) -> ProjectResult<Tok<String>> {
-    expect_name(e, self.ctx)
-  }
-  fn expect(&self, l: Lexeme, e: &Entry) -> ProjectResult<()> {
-    expect(l, e, self.ctx)
-  }
+  fn expect_name(&self, e: &Entry) -> ProjectResult<Tok<String>> { expect_name(e, self.ctx) }
+  fn expect(&self, l: Lexeme, e: &Entry) -> ProjectResult<()> { expect(l, e, self.ctx) }
   fn expect_block<'a>(&self, f: Frag<'a>, t: PType) -> ProjectResult<Frag<'a>> {
     expect_block(f, t, self.ctx)
   }
-  fn expect_empty(&self, f: Frag) -> ProjectResult<()> {
-    f.expect_empty(self.ctx)
-  }
+  fn expect_empty(&self, f: Frag) -> ProjectResult<()> { f.expect_empty(self.ctx) }
+  fn report_err(&self, e: ProjectErrorObj) { self.ctx.reporter().report(e) }
 }

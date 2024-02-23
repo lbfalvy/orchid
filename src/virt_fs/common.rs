@@ -1,10 +1,9 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use intern_all::{i, Tok};
-use itertools::Itertools;
+use intern_all::Tok;
 
-use crate::error::{ErrorSansLocation, ErrorSansLocationObj};
+use crate::error::{ErrorSansOrigin, ErrorSansOriginObj};
 use crate::name::{PathSlice, VPath};
 
 /// Represents the result of loading code from a string-tree form such
@@ -27,17 +26,27 @@ impl Loaded {
 }
 
 /// Returned by any source loading callback
-pub type FSResult = Result<Loaded, ErrorSansLocationObj>;
+pub type FSResult = Result<Loaded, ErrorSansOriginObj>;
+
+/// Type that indicates the type of an entry without reading the contents
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum FSKind {
+  /// Invalid path or read error
+  None,
+  /// Source code
+  Code,
+  /// Internal tree node
+  Collection,
+}
 
 /// Distinguished error for missing code
 #[derive(Clone, PartialEq, Eq)]
 pub struct CodeNotFound(pub VPath);
 impl CodeNotFound {
-  pub fn new(path: VPath) -> Self {
-    Self(path)
-  }
+  /// Instantiate error
+  pub fn new(path: VPath) -> Self { Self(path) }
 }
-impl ErrorSansLocation for CodeNotFound {
+impl ErrorSansOrigin for CodeNotFound {
   const DESCRIPTION: &'static str = "No source code for path";
   fn message(&self) -> String { format!("{} not found", self.0) }
 }
@@ -47,7 +56,17 @@ impl ErrorSansLocation for CodeNotFound {
 /// formats and other sources for libraries and dependencies.
 pub trait VirtFS {
   /// Implementation of [VirtFS::read]
-  fn get(&self, path: &[Tok<String>], full_path: PathSlice) -> FSResult;
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult;
+  /// Discover information about a path without reading it.
+  ///
+  /// Implement this if your vfs backend can do expensive operations
+  fn kind(&self, path: &PathSlice) -> FSKind {
+    match self.read(path) {
+      Err(_) => FSKind::None,
+      Ok(Loaded::Code(_)) => FSKind::Code,
+      Ok(Loaded::Collection(_)) => FSKind::Collection,
+    }
+  }
   /// Convert a path into a human-readable string that is meaningful in the
   /// target context.
   fn display(&self, path: &[Tok<String>]) -> Option<String>;
@@ -59,12 +78,19 @@ pub trait VirtFS {
   }
   /// Read a path, returning either a text file, a directory listing or an
   /// error. Wrapper for [VirtFS::get]
-  fn read(&self, path: PathSlice) -> FSResult { self.get(path.0, path) }
+  fn read(&self, path: &PathSlice) -> FSResult { self.get(path, path) }
 }
 
 impl VirtFS for &dyn VirtFS {
-  fn get(&self, path: &[Tok<String>], full_path: PathSlice) -> FSResult {
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult {
     (*self).get(path, full_path)
   }
   fn display(&self, path: &[Tok<String>]) -> Option<String> { (*self).display(path) }
+}
+
+impl<T: VirtFS + ?Sized> VirtFS for Rc<T> {
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult {
+    (**self).get(path, full_path)
+  }
+  fn display(&self, path: &[Tok<String>]) -> Option<String> { (**self).display(path) }
 }

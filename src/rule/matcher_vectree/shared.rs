@@ -1,6 +1,6 @@
 //! Datastructures for cached pattern
 
-use std::fmt::{Display, Write};
+use std::fmt;
 use std::rc::Rc;
 
 use intern_all::Tok;
@@ -46,7 +46,7 @@ pub(super) enum VecMatcher {
     right_sep: Vec<ScalMatcher>,
     /// Matches the right outer region
     right: Box<VecMatcher>,
-    /// Order of significance for sorting equally good solutions based on
+    /// Order of significance for sorting equally good projects based on
     /// the length of matches on either side.
     ///
     /// Vectorial keys that appear on either side, in priority order
@@ -72,8 +72,8 @@ impl Matcher for AnyMatcher {
 
 // ################ Display ################
 
-impl Display for ScalMatcher {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ScalMatcher {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Atom(a) => write!(f, "{a:?}"),
       Self::Placeh { key, name_only } => match name_only {
@@ -87,22 +87,14 @@ impl Display for ScalMatcher {
   }
 }
 
-impl Display for VecMatcher {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for VecMatcher {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Self::Placeh { key, nonzero } => {
-        if *nonzero {
-          f.write_char('.')?;
-        };
-        write!(f, "..${key}")
-      },
-      Self::Scan { left, sep, right, direction } => match direction {
-        Side::Left => {
-          write!(f, "Scan{{{left} <== {} <== {right}}}", sep.iter().join(" "))
-        },
-        Side::Right => {
-          write!(f, "Scan{{{left} ==> {} ==> {right}}}", sep.iter().join(" "))
-        },
+      Self::Placeh { key, nonzero: true } => write!(f, "...${key}"),
+      Self::Placeh { key, nonzero: false } => write!(f, "..${key}"),
+      Self::Scan { left, sep, right, direction } => {
+        let arrow = if direction == &Side::Left { "<==" } else { "==>" };
+        write!(f, "Scan{{{left} {arrow} {} {arrow} {right}}}", sep.iter().join(" "))
       },
       Self::Middle { left, left_sep, mid, right_sep, right, .. } => {
         let left_sep_s = left_sep.iter().join(" ");
@@ -113,8 +105,8 @@ impl Display for VecMatcher {
   }
 }
 
-impl Display for AnyMatcher {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for AnyMatcher {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Scalar(s) => {
         write!(f, "({})", s.iter().join(" "))
@@ -144,8 +136,6 @@ impl Matcher for VectreeMatcher {
     self.0.apply(source, save_loc)
   }
 }
-impl Display for VectreeMatcher {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    self.0.fmt(f)
-  }
+impl fmt::Display for VectreeMatcher {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.0.fmt(f) }
 }

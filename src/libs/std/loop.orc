@@ -1,6 +1,6 @@
 import super::procedural::*
 import super::bool::*
-import super::functional::(return, identity)
+import super::fn::(return, identity)
 import super::known::*
 
 --[

@@ -1,14 +1,12 @@
-import std::(to_float, to_string, panic, string::char_at)
+import std::(panic, string::char_at)
+import std::conv::(to_float, to_string)
 
 export const main := do{
-  cps print "left operand: ";
-  cps data = readln;
+  cps data = prompt "left operand: ";
   let a = to_float data;
-  cps print "operator: ";
-  cps op = readln;
-  cps println ("you selected \"" ++ op ++ "\"");
-  cps print "right operand: ";
-  cps data = readln;
+  cps op = prompt "operator: ";
+  cps println "you selected \"${op}\"";
+  cps data = prompt "right operand: ";
   let b = to_float data;
   let result = (
     if op == "+" then a + b
@@ -17,6 +15,6 @@ export const main := do{
     else if op == "/" then a / b
     else (panic "Unsupported operation")
   );
-  cps println ("Result: " ++ to_string result);
-  0
+  cps println "Result: ${result}";
+  exit_status::success
 }

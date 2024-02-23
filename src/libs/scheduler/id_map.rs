@@ -20,8 +20,7 @@ impl<T> IdMap<T> {
   pub fn insert(&mut self, t: T) -> u64 {
     let id = self.next_id;
     self.next_id += 1;
-    (self.data.try_insert(id, t))
-      .unwrap_or_else(|_| panic!("IdMap keys should be unique"));
+    (self.data.try_insert(id, t)).unwrap_or_else(|_| panic!("IdMap keys should be unique"));
     id
   }
 

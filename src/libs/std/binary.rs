@@ -1,6 +1,6 @@
 //! `std::binary` Operations on binary buffers.
 
-use std::fmt::Debug;
+use std::fmt;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -8,7 +8,7 @@ use itertools::Itertools;
 
 use super::runtime_error::RuntimeError;
 use crate::foreign::atom::Atomic;
-use crate::foreign::error::ExternResult;
+use crate::foreign::error::RTResult;
 use crate::foreign::inert::{Inert, InertPayload};
 use crate::gen::tree::{atom_ent, xfn_ent, ConstTree};
 use crate::interpreter::nort::Clause;
@@ -29,8 +29,8 @@ impl Deref for Binary {
   fn deref(&self) -> &Self::Target { &self.0 }
 }
 
-impl Debug for Binary {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for Binary {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     let mut iter = self.0.iter().copied();
     f.write_str("Binary")?;
     for mut chunk in iter.by_ref().take(32).chunks(4).into_iter() {
@@ -51,7 +51,7 @@ pub fn concatenate(a: Inert<Binary>, b: Inert<Binary>) -> Inert<Binary> {
 }
 
 /// Extract a subsection of the binary data
-pub fn slice(s: Inert<Binary>, i: Inert<usize>, len: Inert<usize>) -> ExternResult<Inert<Binary>> {
+pub fn slice(s: Inert<Binary>, i: Inert<usize>, len: Inert<usize>) -> RTResult<Inert<Binary>> {
   if i.0 + len.0 < s.0.0.len() {
     RuntimeError::fail("Byte index out of bounds".to_string(), "indexing binary")?
   }
@@ -65,7 +65,7 @@ pub fn find(haystack: Inert<Binary>, needle: Inert<Binary>) -> Option<Clause> {
 }
 
 /// Split binary data block into two smaller blocks
-pub fn split(bin: Inert<Binary>, i: Inert<usize>) -> ExternResult<(Inert<Binary>, Inert<Binary>)> {
+pub fn split(bin: Inert<Binary>, i: Inert<usize>) -> RTResult<(Inert<Binary>, Inert<Binary>)> {
   if bin.0.0.len() < i.0 {
     RuntimeError::fail("Byte index out of bounds".to_string(), "splitting binary")?
   }
@@ -79,7 +79,7 @@ pub fn get_num(
   loc: Inert<usize>,
   size: Inert<usize>,
   is_le: Inert<bool>,
-) -> ExternResult<Inert<usize>> {
+) -> RTResult<Inert<usize>> {
   if buf.0.0.len() < (loc.0 + size.0) {
     RuntimeError::fail("section out of range".to_string(), "reading number from binary data")?
   }
@@ -106,7 +106,7 @@ pub fn from_num(
   size: Inert<usize>,
   is_le: Inert<bool>,
   data: Inert<usize>,
-) -> ExternResult<Inert<Binary>> {
+) -> RTResult<Inert<Binary>> {
   if INT_BYTES < size.0 {
     RuntimeError::fail(
       "more than std::bin::int_bytes bytes requested".to_string(),

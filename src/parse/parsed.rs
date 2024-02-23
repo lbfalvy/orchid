@@ -3,7 +3,7 @@
 //! These structures are produced by the pipeline, processed by the macro
 //! executor, and then converted to other usable formats.
 
-use std::fmt::Display;
+use std::fmt;
 use std::hash::Hash;
 use std::rc::Rc;
 
@@ -32,50 +32,34 @@ impl Expr {
   /// Process all names with the given mapper.
   /// Return a new object if anything was processed
   #[must_use]
-  pub fn map_names(
-    &self,
-    pred: &mut impl FnMut(Sym) -> Option<Sym>,
-  ) -> Option<Self> {
-    (self.value.map_names(pred))
-      .map(|value| Self { value, range: self.range.clone() })
+  pub fn map_names(&self, pred: &mut impl FnMut(Sym) -> Option<Sym>) -> Option<Self> {
+    (self.value.map_names(pred)).map(|value| Self { value, range: self.range.clone() })
   }
 
   /// Visit all expressions in the tree. The search can be exited early by
   /// returning [Some]
   ///
   /// See also [crate::interpreter::nort::Expr::search_all]
-  pub fn search_all<T>(
-    &self,
-    f: &mut impl FnMut(&Self) -> Option<T>,
-  ) -> Option<T> {
+  pub fn search_all<T>(&self, f: &mut impl FnMut(&Self) -> Option<T>) -> Option<T> {
     f(self).or_else(|| self.value.search_all(f))
   }
 }
 
 /// Visit all expression sequences including this sequence itself.
-pub fn search_all_slcs<T>(
-  this: &[Expr],
-  f: &mut impl FnMut(&[Expr]) -> Option<T>,
-) -> Option<T> {
+pub fn search_all_slcs<T>(this: &[Expr], f: &mut impl FnMut(&[Expr]) -> Option<T>) -> Option<T> {
   f(this).or_else(|| this.iter().find_map(|expr| expr.value.search_all_slcs(f)))
 }
 
 impl Expr {
   /// Add the specified prefix to every Name
   #[must_use]
-  pub fn prefix(
-    &self,
-    prefix: &[Tok<String>],
-    except: &impl Fn(Tok<String>) -> bool,
-  ) -> Self {
+  pub fn prefix(&self, prefix: &[Tok<String>], except: &impl Fn(Tok<String>) -> bool) -> Self {
     Self { value: self.value.prefix(prefix, except), range: self.range.clone() }
   }
 }
 
-impl Display for Expr {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    self.value.fmt(f)
-  }
+impl fmt::Display for Expr {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.value.fmt(f) }
 }
 
 /// Various types of placeholders
@@ -103,8 +87,8 @@ pub struct Placeholder {
   pub class: PHClass,
 }
 
-impl Display for Placeholder {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Placeholder {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     let name = &self.name;
     match self.class {
       PHClass::Scalar => write!(f, "${name}"),
@@ -197,11 +181,7 @@ impl Clause {
   /// Convert with identical meaning
   #[must_use]
   pub fn from_exprv(exprv: &Rc<Vec<Expr>>) -> Option<Clause> {
-    if exprv.len() < 2 {
-      Self::from_exprs(exprv)
-    } else {
-      Some(Self::S(PType::Par, exprv.clone()))
-    }
+    if exprv.len() < 2 { Self::from_exprs(exprv) } else { Some(Self::S(PType::Par, exprv.clone())) }
   }
 
   /// Collect all names that appear in this expression.
@@ -226,10 +206,7 @@ impl Clause {
   /// Process all names with the given mapper.
   /// Return a new object if anything was processed
   #[must_use]
-  pub fn map_names(
-    &self,
-    pred: &mut impl FnMut(Sym) -> Option<Sym>,
-  ) -> Option<Self> {
+  pub fn map_names(&self, pred: &mut impl FnMut(Sym) -> Option<Sym>) -> Option<Self> {
     match self {
       Clause::Atom(_) | Clause::Placeh(_) => None,
       Clause::Name(name) => pred(name.clone()).map(Clause::Name),
@@ -261,20 +238,13 @@ impl Clause {
             val.unwrap_or_else(|| e.clone())
           })
           .collect();
-        if any_some {
-          Some(Clause::Lambda(Rc::new(new_arg), Rc::new(new_body)))
-        } else {
-          None
-        }
+        if any_some { Some(Clause::Lambda(Rc::new(new_arg), Rc::new(new_body))) } else { None }
       },
     }
   }
 
   /// Pair of [Expr::search_all]
-  pub fn search_all<T>(
-    &self,
-    f: &mut impl FnMut(&Expr) -> Option<T>,
-  ) -> Option<T> {
+  pub fn search_all<T>(&self, f: &mut impl FnMut(&Expr) -> Option<T>) -> Option<T> {
     match self {
       Clause::Lambda(arg, body) =>
         arg.iter().chain(body.iter()).find_map(|expr| expr.search_all(f)),
@@ -283,25 +253,17 @@ impl Clause {
     }
   }
 
-  /// Pair of [Expr::search_all_slcs]
-  pub fn search_all_slcs<T>(
-    &self,
-    f: &mut impl FnMut(&[Expr]) -> Option<T>,
-  ) -> Option<T> {
+  /// Visit all expression sequences. Most useful when looking for some pattern
+  pub fn search_all_slcs<T>(&self, f: &mut impl FnMut(&[Expr]) -> Option<T>) -> Option<T> {
     match self {
-      Clause::Lambda(arg, body) =>
-        search_all_slcs(arg, f).or_else(|| search_all_slcs(body, f)),
+      Clause::Lambda(arg, body) => search_all_slcs(arg, f).or_else(|| search_all_slcs(body, f)),
       Clause::Name(_) | Clause::Atom(_) | Clause::Placeh(_) => None,
       Clause::S(_, body) => search_all_slcs(body, f),
     }
   }
 
   /// Generate a parenthesized expression sequence
-  pub fn s(
-    delimiter: char,
-    body: impl IntoIterator<Item = Self>,
-    range: SourceRange,
-  ) -> Self {
+  pub fn s(delimiter: char, body: impl IntoIterator<Item = Self>, range: SourceRange) -> Self {
     let ptype = match delimiter {
       '(' => PType::Par,
       '[' => PType::Sqr,
@@ -316,17 +278,12 @@ impl Clause {
 impl Clause {
   /// Add the specified prefix to every Name
   #[must_use]
-  pub fn prefix(
-    &self,
-    prefix: &[Tok<String>],
-    except: &impl Fn(Tok<String>) -> bool,
-  ) -> Self {
+  pub fn prefix(&self, prefix: &[Tok<String>], except: &impl Fn(Tok<String>) -> bool) -> Self {
     self
       .map_names(&mut |name| match except(name[0].clone()) {
         true => None,
         false => {
-          let prefixed =
-            prefix.iter().chain(name[..].iter()).cloned().collect::<Vec<_>>();
+          let prefixed = prefix.iter().cloned().chain(name.iter()).collect::<Vec<_>>();
           Some(Sym::from_tok(name.tok().interner().i(&prefixed)).unwrap())
         },
       })
@@ -334,8 +291,8 @@ impl Clause {
   }
 }
 
-impl Display for Clause {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Clause {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Atom(a) => write!(f, "{a:?}"),
       Self::Name(name) => write!(f, "{}", name),
@@ -364,8 +321,8 @@ pub struct Rule {
   pub template: Vec<Expr>,
 }
 
-impl Display for Rule {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Rule {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(
       f,
       "rule {} ={}=> {}",
@@ -385,8 +342,8 @@ pub struct Constant {
   pub value: Expr,
 }
 
-impl Display for Constant {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Constant {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "const {} := {}", *self.name, self.value)
   }
 }
@@ -431,8 +388,8 @@ impl Import {
   }
 }
 
-impl Display for Import {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Import {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match &self.name {
       None => write!(f, "{}::*", self.path),
       Some(n) => write!(f, "{}::{}", self.path, n),
@@ -449,8 +406,8 @@ pub struct ModuleBlock {
   pub body: Vec<SourceLine>,
 }
 
-impl Display for ModuleBlock {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ModuleBlock {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     let bodys = self.body.iter().map(|e| e.to_string()).join("\n");
     write!(f, "module {} {{\n{}\n}}", self.name, bodys)
   }
@@ -469,13 +426,13 @@ pub enum MemberKind {
 }
 impl MemberKind {
   /// Convert to [SourceLine]
-  pub fn to_line(self, exported: bool, range: SourceRange) -> SourceLine {
+  pub fn into_line(self, exported: bool, range: SourceRange) -> SourceLine {
     SourceLineKind::Member(Member { exported, kind: self }).wrap(range)
   }
 }
 
-impl Display for MemberKind {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for MemberKind {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Constant(c) => c.fmt(f),
       Self::Module(m) => m.fmt(f),
@@ -494,8 +451,8 @@ pub struct Member {
   pub exported: bool,
 }
 
-impl Display for Member {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Member {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self { exported: true, kind } => write!(f, "export {kind}"),
       Self { exported: false, kind } => write!(f, "{kind}"),
@@ -518,13 +475,11 @@ pub enum SourceLineKind {
 }
 impl SourceLineKind {
   /// Wrap with no location
-  pub fn wrap(self, range: SourceRange) -> SourceLine {
-    SourceLine { kind: self, range }
-  }
+  pub fn wrap(self, range: SourceRange) -> SourceLine { SourceLine { kind: self, range } }
 }
 
-impl Display for SourceLineKind {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for SourceLineKind {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Comment(s) => write!(f, "--[{s}]--"),
       Self::Export(s) => {
@@ -547,8 +502,6 @@ pub struct SourceLine {
   pub range: SourceRange,
 }
 
-impl Display for SourceLine {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    self.kind.fmt(f)
-  }
+impl fmt::Display for SourceLine {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.kind.fmt(f) }
 }

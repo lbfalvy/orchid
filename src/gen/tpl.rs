@@ -1,8 +1,6 @@
 //! Various elemental components to build expression trees that all implement
 //! [GenClause].
 
-use std::fmt::Debug;
-
 use super::traits::{GenClause, Generable};
 use crate::foreign::atom::{Atom, AtomGenerator, Atomic};
 
@@ -44,11 +42,7 @@ impl<F: GenClause, X: GenClause> GenClause for A<F, X> {
 }
 
 /// Apply a function to two arguments
-pub fn a2(
-  f: impl GenClause,
-  x: impl GenClause,
-  y: impl GenClause,
-) -> impl GenClause {
+pub fn a2(f: impl GenClause, x: impl GenClause, y: impl GenClause) -> impl GenClause {
   A(A(f, x), y)
 }
 
@@ -65,16 +59,12 @@ impl<B: GenClause> GenClause for L<B> {
 #[derive(Debug, Clone)]
 pub struct P(pub &'static str);
 impl GenClause for P {
-  fn generate<T: Generable>(&self, ctx: T::Ctx<'_>, _: &impl Fn() -> T) -> T {
-    T::arg(ctx, self.0)
-  }
+  fn generate<T: Generable>(&self, ctx: T::Ctx<'_>, _: &impl Fn() -> T) -> T { T::arg(ctx, self.0) }
 }
 
 /// Slot for an Orchid value to be specified during execution
 #[derive(Debug, Clone)]
 pub struct Slot;
 impl GenClause for Slot {
-  fn generate<T: Generable>(&self, _: T::Ctx<'_>, pop: &impl Fn() -> T) -> T {
-    pop()
-  }
+  fn generate<T: Generable>(&self, _: T::Ctx<'_>, pop: &impl Fn() -> T) -> T { pop() }
 }

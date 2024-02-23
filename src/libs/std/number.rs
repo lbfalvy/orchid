@@ -4,7 +4,7 @@ use ordered_float::NotNan;
 
 use super::arithmetic_error::ArithmeticError;
 use crate::foreign::atom::Atomic;
-use crate::foreign::error::{AssertionError, ExternError, ExternResult};
+use crate::foreign::error::{AssertionError, RTError, RTResult};
 use crate::foreign::inert::Inert;
 use crate::foreign::to_clause::ToClause;
 use crate::foreign::try_from_expr::TryFromExpr;
@@ -34,27 +34,25 @@ impl Numeric {
   pub fn as_float(&self) -> NotNan<f64> {
     match self {
       Numeric::Float(n) => *n,
-      Numeric::Uint(i) =>
-        NotNan::new(*i as f64).expect("ints cannot cast to NaN"),
+      Numeric::Uint(i) => NotNan::new(*i as f64).expect("ints cannot cast to NaN"),
     }
   }
 
   /// Wrap a f64 in a Numeric
-  pub fn new(value: f64) -> ExternResult<Self> {
+  pub fn new(value: f64) -> RTResult<Self> {
     match value.is_finite() {
-      false => Err(ArithmeticError::Infinity.rc()),
+      false => Err(ArithmeticError::Infinity.pack()),
       true => match NotNan::new(value) {
         Ok(f) => Ok(Self::Float(f)),
-        Err(_) => Err(ArithmeticError::NaN.rc()),
+        Err(_) => Err(ArithmeticError::NaN.pack()),
       },
     }
   }
 }
 impl TryFromExpr for Numeric {
-  fn from_expr(exi: Expr) -> ExternResult<Self> {
-    (exi.clause.request()).ok_or_else(|| {
-      AssertionError::ext(exi.location(), "a numeric value", format!("{exi}"))
-    })
+  fn from_expr(exi: Expr) -> RTResult<Self> {
+    (exi.clause.request())
+      .ok_or_else(|| AssertionError::ext(exi.location(), "a numeric value", format!("{exi}")))
   }
 }
 
@@ -69,20 +67,18 @@ impl ToClause for Numeric {
 
 /// Add two numbers. If they're both uint, the output is uint. If either is
 /// number, the output is number.
-pub fn add(a: Numeric, b: Numeric) -> ExternResult<Numeric> {
+pub fn add(a: Numeric, b: Numeric) -> RTResult<Numeric> {
   match (a, b) {
-    (Numeric::Uint(a), Numeric::Uint(b)) => a
-      .checked_add(b)
-      .map(Numeric::Uint)
-      .ok_or_else(|| ArithmeticError::Overflow.rc()),
+    (Numeric::Uint(a), Numeric::Uint(b)) =>
+      a.checked_add(b).map(Numeric::Uint).ok_or_else(|| ArithmeticError::Overflow.pack()),
     (Numeric::Float(a), Numeric::Float(b)) => Numeric::new(*(a + b)),
-    (Numeric::Float(a), Numeric::Uint(b))
-    | (Numeric::Uint(b), Numeric::Float(a)) => Numeric::new(*a + b as f64),
+    (Numeric::Float(a), Numeric::Uint(b)) | (Numeric::Uint(b), Numeric::Float(a)) =>
+      Numeric::new(*a + b as f64),
   }
 }
 
 /// Subtract a number from another. Always returns Number.
-pub fn subtract(a: Numeric, b: Numeric) -> ExternResult<Numeric> {
+pub fn subtract(a: Numeric, b: Numeric) -> RTResult<Numeric> {
   match (a, b) {
     (Numeric::Uint(a), Numeric::Uint(b)) => Numeric::new(a as f64 - b as f64),
     (Numeric::Float(a), Numeric::Float(b)) => Numeric::new(*(a - b)),
@@ -93,36 +89,32 @@ pub fn subtract(a: Numeric, b: Numeric) -> ExternResult<Numeric> {
 
 /// Multiply two numbers. If they're both uint, the output is uint. If either
 /// is number, the output is number.
-pub fn multiply(a: Numeric, b: Numeric) -> ExternResult<Numeric> {
+pub fn multiply(a: Numeric, b: Numeric) -> RTResult<Numeric> {
   match (a, b) {
-    (Numeric::Uint(a), Numeric::Uint(b)) => a
-      .checked_mul(b)
-      .map(Numeric::Uint)
-      .ok_or_else(|| ArithmeticError::Overflow.rc()),
+    (Numeric::Uint(a), Numeric::Uint(b)) =>
+      a.checked_mul(b).map(Numeric::Uint).ok_or_else(|| ArithmeticError::Overflow.pack()),
     (Numeric::Float(a), Numeric::Float(b)) => Numeric::new(*(a * b)),
-    (Numeric::Uint(a), Numeric::Float(b))
-    | (Numeric::Float(b), Numeric::Uint(a)) => Numeric::new(a as f64 * *b),
+    (Numeric::Uint(a), Numeric::Float(b)) | (Numeric::Float(b), Numeric::Uint(a)) =>
+      Numeric::new(a as f64 * *b),
   }
 }
 
 /// Divide a number by another. Always returns Number.
-pub fn divide(a: Numeric, b: Numeric) -> ExternResult<Numeric> {
+pub fn divide(a: Numeric, b: Numeric) -> RTResult<Numeric> {
   let a: f64 = a.as_f64();
   let b: f64 = b.as_f64();
   if b == 0.0 {
-    return Err(ArithmeticError::DivByZero.rc());
+    return Err(ArithmeticError::DivByZero.pack());
   }
   Numeric::new(a / b)
 }
 
 /// Take the remainder of two numbers.  If they're both uint, the output is
 /// uint. If either is number, the output is number.
-pub fn remainder(a: Numeric, b: Numeric) -> ExternResult<Numeric> {
+pub fn remainder(a: Numeric, b: Numeric) -> RTResult<Numeric> {
   match (a, b) {
-    (Numeric::Uint(a), Numeric::Uint(b)) => a
-      .checked_rem(b)
-      .map(Numeric::Uint)
-      .ok_or_else(|| ArithmeticError::DivByZero.rc()),
+    (Numeric::Uint(a), Numeric::Uint(b)) =>
+      a.checked_rem(b).map(Numeric::Uint).ok_or_else(|| ArithmeticError::DivByZero.pack()),
     (Numeric::Float(a), Numeric::Float(b)) => Numeric::new(*(a % b)),
     (Numeric::Uint(a), Numeric::Float(b)) => Numeric::new(a as f64 % *b),
     (Numeric::Float(a), Numeric::Uint(b)) => Numeric::new(*a % b as f64),

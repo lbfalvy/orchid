@@ -1,8 +1,8 @@
-import super::(bool::*, functional::*, known::*, loop::*, procedural::*, string::*)
-import super::(panic, pmatch, macro, option, list, tuple, to_string, conv, pmatch::[=>])
+import super::(bool::*, fn::*, known::*, loop::*, procedural::*, string::*)
+import super::(panic, pmatch, macro, option, list, string, tuple, conv, pmatch::[=>])
 
-as_type map (
-  impl to_string := \map. "map[" ++ (
+as_type (
+  impl string::conversion := \map. "map[" ++ (
     unwrap map
       |> list::map (
         (tuple::t[k, v]) => conv::to_string k ++ " = " ++ conv::to_string v

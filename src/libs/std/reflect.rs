@@ -1,20 +1,23 @@
 //! `std::reflect` Abstraction-breaking operations for dynamically constructing
 //! [Clause::Constant] references.
 
-use std::cmp;
-use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::atomic::{self, AtomicUsize};
+use std::{cmp, fmt};
 
 use intern_all::i;
 
+use super::runtime_error::RuntimeError;
+use super::string::OrcString;
 use crate::foreign::inert::{Inert, InertPayload};
+use crate::foreign::try_from_expr::WithLoc;
 use crate::gen::tree::{xfn_ent, ConstTree};
-use crate::interpreter::nort::Clause;
+use crate::interpreter::nort::{self, Clause};
 use crate::name::Sym;
 
 impl InertPayload for Sym {
   const TYPE_STR: &'static str = "SymbolName";
+  fn strict_eq(&self, o: &Self) -> bool { self == o }
 }
 
 /// Generate a constant reference at runtime. Referencing a nonexistent constant
@@ -39,8 +42,8 @@ impl RefEqual {
   /// Return the unique identifier of this [RefEqual] and its copies
   pub fn id(&self) -> usize { self.0 }
 }
-impl Debug for RefEqual {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for RefEqual {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_tuple("RefEqual").field(&self.id()).finish()
   }
 }
@@ -65,5 +68,11 @@ impl Hash for RefEqual {
 pub(super) fn reflect_lib() -> ConstTree {
   ConstTree::ns("std::reflect", [ConstTree::tree([
     xfn_ent("ref_equal", [|l: Inert<RefEqual>, r: Inert<RefEqual>| Inert(l.0.id() == r.0.id())]),
+    xfn_ent("modname", [|WithLoc(loc, _): WithLoc<nort::Expr>| Inert(loc.module)]),
+    xfn_ent("symbol", [|s: Inert<OrcString>| {
+      Sym::parse(s.0.as_str())
+        .map(Inert)
+        .map_err(|_| RuntimeError::ext("empty string".to_string(), "converting string to Symbol"))
+    }]),
   ])])
 }

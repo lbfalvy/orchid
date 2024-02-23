@@ -5,7 +5,7 @@
 use std::any::{type_name, Any, TypeId};
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::fmt::{Debug, Display};
+use std::fmt;
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -19,7 +19,7 @@ use super::poller::{PollEvent, Poller, TimerHandle};
 use crate::facade::system::{IntoSystem, System};
 use crate::foreign::atom::Atomic;
 use crate::foreign::cps_box::CPSBox;
-use crate::foreign::error::ExternError;
+use crate::foreign::error::RTError;
 use crate::foreign::inert::{Inert, InertPayload};
 use crate::gen::tpl;
 use crate::gen::traits::Gen;
@@ -29,6 +29,7 @@ use crate::interpreter::handler::HandlerTable;
 use crate::interpreter::nort::Expr;
 use crate::libs::std::number::Numeric;
 use crate::location::{CodeGenInfo, CodeLocation};
+use crate::sym;
 use crate::utils::unwrap_or::unwrap_or;
 use crate::virt_fs::{DeclTree, EmbeddedFS, PrefixFS, VirtFS};
 
@@ -50,8 +51,8 @@ impl CancelTimer {
   }
   pub fn cancel(&self) { self.0.lock().unwrap()() }
 }
-impl Debug for CancelTimer {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for CancelTimer {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("CancelTimer").finish_non_exhaustive()
   }
 }
@@ -66,9 +67,9 @@ impl InertPayload for Yield {
 /// exited
 #[derive(Clone)]
 pub struct InfiniteBlock;
-impl ExternError for InfiniteBlock {}
-impl Display for InfiniteBlock {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl RTError for InfiniteBlock {}
+impl fmt::Display for InfiniteBlock {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     static MSG: &str = "User code yielded, but there are no timers or event \
                         producers to wake it up in the future";
     write!(f, "{}", MSG)
@@ -83,7 +84,7 @@ impl MessagePort {
   pub fn send<T: Send + 'static>(&mut self, message: T) { let _ = self.0.send(Box::new(message)); }
 }
 
-fn gen() -> CodeGenInfo { CodeGenInfo::no_details("asynch") }
+fn gen() -> CodeGenInfo { CodeGenInfo::no_details(sym!(asynch)) }
 
 #[derive(RustEmbed)]
 #[folder = "src/libs/asynch"]
@@ -92,7 +93,7 @@ struct AsynchEmbed;
 
 fn code() -> DeclTree {
   DeclTree::ns("system::async", [DeclTree::leaf(
-    PrefixFS::new(EmbeddedFS::new::<AsynchEmbed>(".orc", gen()), "", "io").rc(),
+    PrefixFS::new(EmbeddedFS::new::<AsynchEmbed>(".orc", gen()), "", "async").rc(),
   )])
 }
 
@@ -172,7 +173,7 @@ impl<'a> IntoSystem<'a> for AsynchSystem<'a> {
         let mut polly = polly.borrow_mut();
         loop {
           let next = unwrap_or!(polly.run();
-            return Err(InfiniteBlock.rc())
+            return Err(InfiniteBlock.pack())
           );
           match next {
             PollEvent::Once(expr) => return Ok(expr),
@@ -185,7 +186,7 @@ impl<'a> IntoSystem<'a> for AsynchSystem<'a> {
               if !events.is_empty() {
                 microtasks = VecDeque::from(events);
                 // trampoline
-                let loc = CodeLocation::Gen(CodeGenInfo::no_details("system::asynch"));
+                let loc = CodeLocation::new_gen(CodeGenInfo::no_details(sym!(system::asynch)));
                 return Ok(Inert(Yield).atom_expr(loc));
               }
             },

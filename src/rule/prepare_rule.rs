@@ -12,8 +12,8 @@ use crate::pipeline::project::ProjRule;
 /// changing its meaning
 #[must_use]
 fn pad(rule: ProjRule) -> ProjRule {
-  let prefix_name = i("__gen__orchid__rule__prefix");
-  let suffix_name = i("__gen__orchid__rule__suffix");
+  let prefix_name = i!(str: "__gen__orchid__rule__prefix");
+  let suffix_name = i!(str: "__gen__orchid__rule__suffix");
   let class: PHClass = PHClass::Vec { nonzero: false, prio: 0 };
   let ProjRule { comments, pattern, prio, template } = rule;
   let rule_head = pattern.first().expect("Pattern can never be empty!");
@@ -26,8 +26,7 @@ fn pad(rule: ProjRule) -> ProjRule {
     Clause::Placeh(Placeholder { name: suffix_name, class })
       .into_expr(rule_tail.range.map_range(|r| r.start..r.start))
   });
-  let pattern =
-    prefix.iter().cloned().chain(pattern).chain(suffix.clone()).collect();
+  let pattern = prefix.iter().cloned().chain(pattern).chain(suffix.clone()).collect();
   let template = prefix.into_iter().chain(template).chain(suffix).collect();
   ProjRule { comments, prio, pattern, template }
 }
@@ -95,11 +94,7 @@ fn check_rec_exprv(
       }
     }
   }
-  if let Some(e) = exprv.last() {
-    check_rec_expr(e, types, in_template)
-  } else {
-    Ok(())
-  }
+  if let Some(e) = exprv.last() { check_rec_expr(e, types, in_template) } else { Ok(()) }
 }
 
 pub fn prepare_rule(rule: ProjRule) -> Result<ProjRule, RuleError> {

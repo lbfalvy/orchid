@@ -5,7 +5,7 @@ use crate::interpreter::nort;
 use crate::interpreter::nort_builder::NortBuilder;
 
 fn expr(expr: &ir::Expr, ctx: NortBuilder<(), usize>) -> nort::Expr {
-  clause(&expr.value, ctx).to_expr(expr.location.clone())
+  clause(&expr.value, ctx).into_expr(expr.location.clone())
 }
 
 fn clause(cls: &ir::Clause, ctx: NortBuilder<(), usize>) -> nort::Clause {
@@ -21,6 +21,7 @@ fn clause(cls: &ir::Clause, ctx: NortBuilder<(), usize>) -> nort::Clause {
   }
 }
 
+/// Convert an expression.
 pub fn ir_to_nort(expr: &ir::Expr) -> nort::Expr {
   let c = NortBuilder::new(&|count| {
     let mut count: usize = *count;
@@ -32,5 +33,5 @@ pub fn ir_to_nort(expr: &ir::Expr) -> nort::Expr {
       },
     })
   });
-  nort::ClauseInst::new(clause(&expr.value, c)).to_expr(expr.location.clone())
+  nort::ClauseInst::new(clause(&expr.value, c)).into_expr(expr.location.clone())
 }

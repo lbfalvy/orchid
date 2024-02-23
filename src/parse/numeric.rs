@@ -7,9 +7,7 @@ use std::ops::Range;
 use ordered_float::NotNan;
 
 use super::context::ParseCtx;
-use super::errors::{
-  ExpectedDigit, LiteralOverflow, NaNLiteral, ParseErrorKind,
-};
+use super::errors::{ExpectedDigit, LiteralOverflow, NaNLiteral, ParseErrorKind};
 use super::lex_plugin::LexPluginReq;
 #[allow(unused)] // for doc
 use super::lex_plugin::LexerPlugin;
@@ -49,7 +47,7 @@ pub struct NumError {
 }
 
 impl NumError {
-  /// Convert into [ProjectError] trait object
+  /// Convert into [ProjectErrorObj]
   pub fn into_proj(
     self,
     len: usize,
@@ -68,13 +66,11 @@ impl NumError {
 
 /// Parse a numbre literal out of text
 pub fn parse_num(string: &str) -> Result<Numeric, NumError> {
-  let overflow_err =
-    NumError { range: 0..string.len(), kind: NumErrorKind::Overflow };
-  let (radix, noprefix, pos) =
-    (string.strip_prefix("0x").map(|s| (16u8, s, 2)))
-      .or_else(|| string.strip_prefix("0b").map(|s| (2u8, s, 2)))
-      .or_else(|| string.strip_prefix("0o").map(|s| (8u8, s, 2)))
-      .unwrap_or((10u8, string, 0));
+  let overflow_err = NumError { range: 0..string.len(), kind: NumErrorKind::Overflow };
+  let (radix, noprefix, pos) = (string.strip_prefix("0x").map(|s| (16u8, s, 2)))
+    .or_else(|| string.strip_prefix("0b").map(|s| (2u8, s, 2)))
+    .or_else(|| string.strip_prefix("0o").map(|s| (8u8, s, 2)))
+    .unwrap_or((10u8, string, 0));
   // identity
   let (base, exponent) = match noprefix.split_once('p') {
     Some((b, e)) => {
@@ -137,12 +133,10 @@ pub fn print_nat16(num: NotNan<f64>) -> String {
 }
 
 /// [LexerPlugin] for a number literal
+#[derive(Clone)]
 pub struct NumericLexer;
 impl LexerPlugin for NumericLexer {
-  fn lex<'b>(
-    &self,
-    req: &'_ dyn LexPluginReq<'b>,
-  ) -> Option<ProjectResult<LexRes<'b>>> {
+  fn lex<'b>(&self, req: &'_ dyn LexPluginReq<'b>) -> Option<ProjectResult<LexRes<'b>>> {
     req.tail().chars().next().filter(|c| numstart(*c)).map(|_| {
       let (num_str, tail) = split_filter(req.tail(), numchar);
       let ag = match parse_num(num_str) {

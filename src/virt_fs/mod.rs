@@ -11,8 +11,8 @@ mod dir;
 mod embed;
 mod prefix;
 
-pub use common::{CodeNotFound, FSResult, Loaded, VirtFS};
-pub use decl::DeclTree;
+pub use common::{CodeNotFound, FSKind, FSResult, Loaded, VirtFS};
+pub use decl::{decl_file, DeclTree};
 pub use dir::DirNode;
 pub use embed::EmbeddedFS;
 pub use prefix::PrefixFS;

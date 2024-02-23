@@ -36,13 +36,8 @@ pub trait Query: Send + 'static {
   /// runs exactly one type of task, this can appear only once in the code for
   /// a given thread pool. It is practical in a narrow set of cases, most of the
   /// time however you are better off defining an explicit reporter.
-  fn then<F: FnOnce(Self::Result) + Send + 'static>(
-    self,
-    callback: F,
-  ) -> QueryTask<Self, F>
-  where
-    Self: Sized,
-  {
+  fn then<F: FnOnce(Self::Result) + Send + 'static>(self, callback: F) -> QueryTask<Self, F>
+  where Self: Sized {
     QueryTask { query: self, callback }
   }
 }

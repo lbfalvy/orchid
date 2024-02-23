@@ -5,7 +5,7 @@ use rust_embed::RustEmbed;
 
 use super::common::CodeNotFound;
 use super::{FSResult, Loaded, VirtFS};
-use crate::error::ErrorSansLocation;
+use crate::error::ErrorSansOrigin;
 use crate::location::CodeGenInfo;
 use crate::name::PathSlice;
 use crate::tree::{ModEntry, ModMember, Module};
@@ -25,8 +25,7 @@ impl EmbeddedFS {
       let data_buf = T::get(&path).expect("path from iterator").data.to_vec();
       let data = String::from_utf8(data_buf).expect("embed must be utf8");
       let mut cur_node = &mut tree;
-      let path_no_suffix =
-        path.strip_suffix(suffix).expect("embed filtered for suffix");
+      let path_no_suffix = path.strip_suffix(suffix).expect("embed filtered for suffix");
       let mut segments = path_no_suffix.split('/').map(i);
       let mut cur_seg = segments.next().expect("Embed is a directory");
       for next_seg in segments {
@@ -56,7 +55,7 @@ impl EmbeddedFS {
 }
 
 impl VirtFS for EmbeddedFS {
-  fn get(&self, path: &[Tok<String>], full_path: PathSlice) -> FSResult {
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult {
     if path.is_empty() {
       return Ok(Loaded::collection(self.tree.keys(|_| true)));
     }

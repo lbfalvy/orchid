@@ -24,8 +24,12 @@ export const readln := \ok. (
     \_. yield
 )
 
+export const prompt := \line. \ok. (
+  print line (readln ok)
+)
+
 export module prelude (
   import super::*
 
-  export ::(print, println, readln)
+  export ::(print, println, readln, prompt)
 )

@@ -15,9 +15,9 @@ const bar := map::new[
 ]
 
 const test2 := match bar {
-  map::having ["is_alive" = true, "greeting" = foo] => foo
+  map::having ["is_alive" = true, "greeting" = hello, "name" = name] => hello
 }
 
-const tests := test2 ++ ", " ++ test1
+const tests := "${test2}, ${test1}"
 
 const main := conv::to_string bar
