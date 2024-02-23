@@ -1,6 +1,6 @@
-use std::fmt::Display;
+use std::fmt;
 
-use crate::foreign::error::ExternError;
+use crate::foreign::error::RTError;
 use crate::libs::scheduler::cancel_flag::CancelFlag;
 
 pub trait IOHandler<T> {
@@ -22,11 +22,7 @@ pub trait IOCmd: Send {
   type Result: Send;
   type Handle;
 
-  fn execute(
-    self,
-    stream: &mut Self::Stream,
-    cancel: CancelFlag,
-  ) -> Self::Result;
+  fn execute(self, stream: &mut Self::Stream, cancel: CancelFlag) -> Self::Result;
 }
 
 #[derive(Debug, Clone)]
@@ -37,9 +33,9 @@ pub struct IOCmdHandlePack<Cmd: IOCmd> {
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct NoActiveStream(usize);
-impl ExternError for NoActiveStream {}
-impl Display for NoActiveStream {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl RTError for NoActiveStream {}
+impl fmt::Display for NoActiveStream {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "The stream {} had already been closed", self.0)
   }
 }

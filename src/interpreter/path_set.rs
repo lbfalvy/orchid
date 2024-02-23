@@ -10,7 +10,7 @@ use crate::utils::join::join_maps;
 /// function. If [Some(n)], it steps to the `n`th _last_ argument.
 pub type Step = Option<usize>;
 fn print_step(step: Step) -> String {
-  if let Some(n) = step { format!("{n}>") } else { "f>".to_string() }
+  if let Some(n) = step { format!("{n}") } else { "f".to_string() }
 }
 
 /// A branching path selecting some placeholders (but at least one) in a Lambda
@@ -59,10 +59,7 @@ impl PathSet {
     };
     let short_len = short.steps.len();
     let long_len = long.steps.len();
-    let match_len = (short.steps.iter())
-      .zip(long.steps.iter())
-      .take_while(|(a, b)| a == b)
-      .count();
+    let match_len = (short.steps.iter()).zip(long.steps.iter()).take_while(|(a, b)| a == b).count();
     // fact: match_len <= short_len <= long_len
     if short_len == match_len && match_len == long_len {
       // implies match_len == short_len == long_len
@@ -71,10 +68,8 @@ impl PathSet {
         (Some(_), None) | (None, Some(_)) => {
           panic!("One of these paths is faulty")
         },
-        (Some(s), Some(l)) => Self::branch(
-          short.steps.iter().cloned(),
-          join_maps(s, l, |_, l, r| l.overlay(r)),
-        ),
+        (Some(s), Some(l)) =>
+          Self::branch(short.steps.iter().cloned(), join_maps(s, l, |_, l, r| l.overlay(r))),
       }
     } else if short_len == match_len {
       // implies match_len == short_len < long_len
@@ -102,10 +97,7 @@ impl PathSet {
       let new_short = Self { next: short.next.clone(), steps: new_short_steps };
       let new_long_steps = long.steps.split_off(match_len + 1);
       let new_long = Self { next: long.next.clone(), steps: new_long_steps };
-      Self::branch(short.steps, [
-        (short_last, new_short),
-        (long.steps[match_len], new_long),
-      ])
+      Self::branch(short.steps, [(short_last, new_short), (long.steps[match_len], new_long)])
     }
   }
 
@@ -119,22 +111,25 @@ impl PathSet {
 
 impl fmt::Display for PathSet {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    let step_s = self.steps.iter().copied().map(print_step).join("");
+    let step_s = self.steps.iter().copied().map(print_step).join(">");
     match &self.next {
       Some(conts) => {
-        let opts =
-          conts.iter().map(|(h, t)| format!("{}{t}", print_step(*h))).join("|");
-        write!(f, "{step_s}({opts})")
+        let opts = (conts.iter())
+          .sorted_unstable_by_key(|(k, _)| k.map_or(0, |n| n + 1))
+          .map(|(h, t)| format!("{}>{t}", print_step(*h)))
+          .join("|");
+        if !step_s.is_empty() {
+          write!(f, "{step_s}>")?;
+        }
+        write!(f, "({opts})")
       },
-      None => write!(f, "{step_s}x"),
+      None => write!(f, "{step_s}"),
     }
   }
 }
 
 impl fmt::Debug for PathSet {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "PathSet({self})")
-  }
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "PathSet({self})") }
 }
 
 #[cfg(test)]
@@ -146,7 +141,7 @@ mod tests {
     let ps1 = PathSet { next: None, steps: VecDeque::from([Some(2), None]) };
     let ps2 = PathSet { next: None, steps: VecDeque::from([Some(3), Some(1)]) };
     let sum = ps1.clone().overlay(ps2.clone());
-    assert_eq!(format!("{sum}"), "(2>f>x|3>1>x)");
+    assert_eq!(format!("{sum}"), "(2>f|3>1)");
   }
 
   fn extend_scaffold() -> PathSet {

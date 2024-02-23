@@ -19,9 +19,9 @@ use crate::interpreter::gen_nort::nort_gen;
 use crate::interpreter::handler::HandlerTable;
 use crate::libs::scheduler::system::{SeqScheduler, SharedHandle};
 use crate::location::CodeGenInfo;
-use crate::name::VName;
-use crate::pipeline::load_solution::Prelude;
+use crate::pipeline::load_project::Prelude;
 use crate::virt_fs::{DeclTree, EmbeddedFS, PrefixFS, VirtFS};
+use crate::{sym, vname};
 
 /// Any type that we can read controlled amounts of data from
 pub type Source = BufReader<Box<dyn Read + Send>>;
@@ -42,7 +42,7 @@ trait_set! {
   pub(super) trait StreamTable<'a> = IntoIterator<Item = (&'a str, Stream)>
 }
 
-fn gen() -> CodeGenInfo { CodeGenInfo::no_details("system::io") }
+fn gen() -> CodeGenInfo { CodeGenInfo::no_details(sym!(system::io)) }
 
 #[derive(RustEmbed)]
 #[folder = "src/libs/io"]
@@ -68,9 +68,7 @@ impl<'a, ST: IntoIterator<Item = (&'a str, Stream)>> IOService<'a, ST> {
   }
 }
 
-impl<'a, ST: IntoIterator<Item = (&'a str, Stream)>> IntoSystem<'static>
-  for IOService<'a, ST>
-{
+impl<'a, ST: IntoIterator<Item = (&'a str, Stream)>> IntoSystem<'static> for IOService<'a, ST> {
   fn into_system(self) -> System<'static> {
     let scheduler = self.scheduler.clone();
     let mut handlers = HandlerTable::new();
@@ -89,8 +87,7 @@ impl<'a, ST: IntoIterator<Item = (&'a str, Stream)>> IntoSystem<'static>
       match result {
         Ok(cancel) => tpl::A(tpl::Slot, tpl::V(CPSBox::new(1, cancel)))
           .template(nort_gen(cont.location()), [cont]),
-        Err(e) => tpl::A(tpl::Slot, tpl::V(Inert(e)))
-          .template(nort_gen(fail.location()), [fail]),
+        Err(e) => tpl::A(tpl::Slot, tpl::V(Inert(e))).template(nort_gen(fail.location()), [fail]),
       }
     });
     let scheduler = self.scheduler.clone();
@@ -109,15 +106,13 @@ impl<'a, ST: IntoIterator<Item = (&'a str, Stream)>> IntoSystem<'static>
       match result {
         Ok(cancel) => tpl::A(tpl::Slot, tpl::V(CPSBox::new(1, cancel)))
           .template(nort_gen(cont.location()), [cont]),
-        Err(e) => tpl::A(tpl::Slot, tpl::V(Inert(e)))
-          .template(nort_gen(fail.location()), [fail]),
+        Err(e) => tpl::A(tpl::Slot, tpl::V(Inert(e))).template(nort_gen(fail.location()), [fail]),
       }
     });
     let streams = self.global_streams.into_iter().map(|(n, stream)| {
       let handle = match stream {
         Stream::Sink(sink) => leaf(tpl::V(Inert(SharedHandle::wrap(sink)))),
-        Stream::Source(source) =>
-          leaf(tpl::V(Inert(SharedHandle::wrap(source)))),
+        Stream::Source(source) => leaf(tpl::V(Inert(SharedHandle::wrap(source)))),
       };
       (n, handle)
     });
@@ -127,8 +122,8 @@ impl<'a, ST: IntoIterator<Item = (&'a str, Stream)>> IntoSystem<'static>
       constants: io_bindings(streams),
       code: code(),
       prelude: vec![Prelude {
-        target: VName::literal("system::io::prelude"),
-        exclude: VName::literal("system::io"),
+        target: vname!(system::io::prelude),
+        exclude: vname!(system::io),
         owner: gen(),
       }],
       lexer_plugins: vec![],

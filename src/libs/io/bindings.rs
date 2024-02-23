@@ -2,7 +2,7 @@ use super::flow::IOCmdHandlePack;
 use super::instances::{BRead, ReadCmd, SRead, WriteCmd};
 use super::service::{Sink, Source};
 use crate::foreign::cps_box::CPSBox;
-use crate::foreign::error::ExternResult;
+use crate::foreign::error::RTResult;
 use crate::foreign::inert::Inert;
 use crate::gen::tree::{xfn_ent, ConstTree};
 use crate::libs::scheduler::system::SharedHandle;
@@ -36,7 +36,7 @@ pub fn read_bytes(Inert(handle): ReadHandle, n: Inert<usize>) -> ReadCmdPack {
 pub fn read_until(
   Inert(handle): ReadHandle,
   Inert(pattern): Inert<usize>,
-) -> ExternResult<ReadCmdPack> {
+) -> RTResult<ReadCmdPack> {
   let pattern = pattern.try_into().map_err(|_| {
     let msg = format!("{pattern} doesn't fit into a byte");
     RuntimeError::ext(msg, "converting number to byte")

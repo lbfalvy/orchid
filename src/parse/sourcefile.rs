@@ -1,3 +1,5 @@
+//! Internal states of the parser.
+
 use std::iter;
 use std::rc::Rc;
 
@@ -6,9 +8,8 @@ use itertools::Itertools;
 
 use super::context::ParseCtx;
 use super::errors::{
-  expect, expect_block, expect_name, BadTokenInRegion, ExpectedSingleName,
-  GlobExport, LeadingNS, MisalignedParen, NamespacedExport, ParseErrorKind,
-  ReservedToken, UnexpectedEOL,
+  expect, expect_block, expect_name, BadTokenInRegion, ExpectedSingleName, GlobExport, LeadingNS,
+  MisalignedParen, NamespacedExport, ParseErrorKind, ReservedToken, UnexpectedEOL,
 };
 use super::frag::Frag;
 use super::lexer::{Entry, Lexeme};
@@ -17,9 +18,10 @@ use super::parse_plugin::ParsePlugReqImpl;
 use crate::error::ProjectResult;
 use crate::name::VName;
 use crate::parse::parsed::{
-  Clause, Constant, Expr, Import, Member, MemberKind, ModuleBlock, PType, Rule,
-  SourceLine, SourceLineKind,
+  Clause, Constant, Expr, Import, Member, MemberKind, ModuleBlock, PType, Rule, SourceLine,
+  SourceLineKind,
 };
+use crate::sym;
 
 /// Split the fragment at each line break outside parentheses
 pub fn split_lines<'a>(
@@ -55,33 +57,23 @@ pub fn split_lines<'a>(
   })
   .map(Frag::trim)
   .map(|s| {
-    s.pop(ctx)
-      .and_then(|(first, inner)| {
-        let (last, inner) = inner.pop_back(ctx)?;
-        match (&first.lexeme, &last.lexeme) {
-          (Lexeme::LP(PType::Par), Lexeme::RP(PType::Par)) => Ok(inner.trim()),
-          _ => Ok(s),
-        }
-      })
-      .unwrap_or(s)
+    match s.pop(ctx).and_then(|(f, i)| i.pop_back(ctx).map(|(l, i)| (&f.lexeme, i, &l.lexeme))) {
+      Ok((Lexeme::LP(PType::Par), inner, Lexeme::RP(PType::Par))) => inner.trim(),
+      _ => s,
+    }
   })
   .filter(|l| !l.data.is_empty())
 }
 
 /// Parse linebreak-separated entries
-pub fn parse_module_body(
-  cursor: Frag<'_>,
-  ctx: &(impl ParseCtx + ?Sized),
-) -> ProjectResult<Vec<SourceLine>> {
+pub fn parse_module_body(cursor: Frag<'_>, ctx: &(impl ParseCtx + ?Sized)) -> Vec<SourceLine> {
   let mut lines = Vec::new();
   for l in split_lines(cursor, ctx) {
-    let kinds = parse_line(l, ctx)?;
+    let kinds = ctx.reporter().fallback(parse_line(l, ctx), |_| vec![]);
     let r = ctx.range_loc(&l.range());
-    lines.extend(
-      kinds.into_iter().map(|kind| SourceLine { range: r.clone(), kind }),
-    );
+    lines.extend(kinds.into_iter().map(|kind| SourceLine { range: r.clone(), kind }));
   }
-  Ok(lines)
+  lines
 }
 
 /// Parse a single, possibly exported entry
@@ -97,11 +89,10 @@ pub fn parse_line(
   }
   let head = cursor.get(0, ctx)?;
   match &head.lexeme {
-    Lexeme::Comment(cmt) =>
-      cmt.strip_prefix('|').and_then(|c| c.strip_suffix('|')).map_or_else(
-        || parse_line(cursor.step(ctx)?, ctx),
-        |cmt| Ok(vec![SourceLineKind::Comment(cmt.to_string())]),
-      ),
+    Lexeme::Comment(cmt) => cmt.strip_prefix('|').and_then(|c| c.strip_suffix('|')).map_or_else(
+      || parse_line(cursor.step(ctx)?, ctx),
+      |cmt| Ok(vec![SourceLineKind::Comment(cmt.to_string())]),
+    ),
     Lexeme::BR => parse_line(cursor.step(ctx)?, ctx),
     Lexeme::Name(n) if **n == "export" =>
       parse_export_line(cursor.step(ctx)?, ctx).map(|k| vec![k]),
@@ -116,10 +107,7 @@ pub fn parse_line(
     },
     lexeme => {
       let lexeme = lexeme.clone();
-      Err(
-        BadTokenInRegion { lexeme, region: "start of line" }
-          .pack(ctx.range_loc(&head.range)),
-      )
+      Err(BadTokenInRegion { lexeme, region: "start of line" }.pack(ctx.range_loc(&head.range)))
     },
   }
 }
@@ -135,19 +123,16 @@ fn parse_export_line(
       let (names, cont) = parse_multiname(cursor.step(ctx)?, ctx)?;
       cont.expect_empty(ctx)?;
       let names = (names.into_iter())
-        .map(|Import { name, path, range }| match (name, &path[..]) {
-          (Some(n), []) => Ok((n, range)),
-          (None, _) => Err(GlobExport.pack(range)),
-          _ => Err(NamespacedExport.pack(range)),
+        .map(|Import { name, path, range }| match name {
+          Some(n) if path.is_empty() => Ok((n, range)),
+          Some(_) => Err(NamespacedExport.pack(range)),
+          None => Err(GlobExport.pack(range)),
         })
         .collect::<Result<Vec<_>, _>>()?;
       Ok(SourceLineKind::Export(names))
     },
     Lexeme::Name(n) if ["const", "macro", "module"].contains(&n.as_str()) =>
-      Ok(SourceLineKind::Member(Member {
-        kind: parse_member(cursor, ctx)?,
-        exported: true,
-      })),
+      Ok(SourceLineKind::Member(Member { kind: parse_member(cursor, ctx)?, exported: true })),
     lexeme => {
       let lexeme = lexeme.clone();
       let err = BadTokenInRegion { lexeme, region: "exported line" };
@@ -156,10 +141,7 @@ fn parse_export_line(
   }
 }
 
-fn parse_member(
-  cursor: Frag<'_>,
-  ctx: &(impl ParseCtx + ?Sized),
-) -> ProjectResult<MemberKind> {
+fn parse_member(cursor: Frag<'_>, ctx: &(impl ParseCtx + ?Sized)) -> ProjectResult<MemberKind> {
   let (typemark, cursor) = cursor.trim().pop(ctx)?;
   match &typemark.lexeme {
     Lexeme::Name(n) if **n == "const" => {
@@ -183,31 +165,27 @@ fn parse_member(
 }
 
 /// Parse a macro rule
-pub fn parse_rule(
-  cursor: Frag<'_>,
-  ctx: &(impl ParseCtx + ?Sized),
-) -> ProjectResult<Rule> {
-  let (pattern, prio, template) =
-    cursor.find_map("arrow", ctx, |a| match a {
-      Lexeme::Arrow(p) => Some(*p),
-      _ => None,
-    })?;
+pub fn parse_rule(cursor: Frag<'_>, ctx: &(impl ParseCtx + ?Sized)) -> ProjectResult<Rule> {
+  let (pattern, prio, template) = cursor.find_map("arrow", ctx, |a| match a {
+    Lexeme::Arrow(p) => Some(*p),
+    _ => None,
+  })?;
   let (pattern, _) = parse_exprv(pattern, None, ctx)?;
   let (template, _) = parse_exprv(template, None, ctx)?;
   Ok(Rule { pattern, prio, template })
 }
 
 /// Parse a constant declaration
-pub fn parse_const(
-  cursor: Frag<'_>,
-  ctx: &(impl ParseCtx + ?Sized),
-) -> ProjectResult<Constant> {
+pub fn parse_const(cursor: Frag<'_>, ctx: &(impl ParseCtx + ?Sized)) -> ProjectResult<Constant> {
   let (name_ent, cursor) = cursor.trim().pop(ctx)?;
   let name = expect_name(name_ent, ctx)?;
   let (walrus_ent, cursor) = cursor.trim().pop(ctx)?;
   expect(Lexeme::Walrus, walrus_ent, ctx)?;
-  let (body, _) = parse_exprv(cursor, None, ctx)?;
-  Ok(Constant { name, value: vec_to_single(walrus_ent, body, ctx)? })
+  let value = ctx.reporter().fallback(
+    parse_exprv(cursor, None, ctx).and_then(|(body, _)| exprv_to_single(walrus_ent, body, ctx)),
+    |_| Clause::Name(sym!(__syntax_error__)).into_expr(ctx.range_loc(&cursor.range())),
+  );
+  Ok(Constant { name, value })
 }
 
 /// Parse a namespaced name. TODO: use this for modules
@@ -234,7 +212,7 @@ pub fn parse_module(
   let (name_ent, cursor) = cursor.trim().pop(ctx)?;
   let name = expect_name(name_ent, ctx)?;
   let body = expect_block(cursor, PType::Par, ctx)?;
-  Ok(ModuleBlock { name, body: parse_module_body(body, ctx)? })
+  Ok(ModuleBlock { name, body: parse_module_body(body, ctx) })
 }
 
 /// Parse a sequence of expressions
@@ -258,18 +236,17 @@ pub fn parse_exprv<'a>(
         cursor = cursor.step(ctx)?;
       },
       Lexeme::Placeh(ph) => {
-        output.push(Expr {
-          value: Clause::Placeh(ph.clone()),
-          range: ctx.range_loc(&current.range),
-        });
+        output
+          .push(Expr { value: Clause::Placeh(ph.clone()), range: ctx.range_loc(&current.range) });
         cursor = cursor.step(ctx)?;
       },
       Lexeme::Name(n) => {
-        let range = ctx.range_loc(&cursor.range());
+        let mut range = ctx.range_loc(&current.range);
         let mut fullname = VName::new([n.clone()]).unwrap();
-        while cursor.get(1, ctx).is_ok_and(|e| e.lexeme.strict_eq(&Lexeme::NS))
-        {
-          fullname = fullname.suffix([expect_name(cursor.get(2, ctx)?, ctx)?]);
+        while cursor.get(1, ctx).is_ok_and(|e| e.lexeme.strict_eq(&Lexeme::NS)) {
+          let next_seg = cursor.get(2, ctx)?;
+          range.range.end = next_seg.range.end;
+          fullname = fullname.suffix([expect_name(next_seg, ctx)?]);
           cursor = cursor.step(ctx)?.step(ctx)?;
         }
         let clause = Clause::Name(fullname.to_sym());
@@ -292,9 +269,9 @@ pub fn parse_exprv<'a>(
         cursor = leftover;
       },
       Lexeme::BS => {
-        let dot = i(".");
-        let (arg, body) = (cursor.step(ctx))?
-          .find("A '.'", ctx, |l| l.strict_eq(&Lexeme::Name(dot.clone())))?;
+        let dot = i!(str: ".");
+        let (arg, body) =
+          (cursor.step(ctx))?.find("A '.'", ctx, |l| l.strict_eq(&Lexeme::Name(dot.clone())))?;
         let (arg, _) = parse_exprv(arg, None, ctx)?;
         let (body, leftover) = parse_exprv(body, paren, ctx)?;
         output.push(Expr {
@@ -315,7 +292,7 @@ pub fn parse_exprv<'a>(
 }
 
 /// Wrap an expression list in parentheses if necessary
-pub fn vec_to_single(
+pub fn exprv_to_single(
   fallback: &Entry,
   v: Vec<Expr>,
   ctx: &(impl ParseCtx + ?Sized),

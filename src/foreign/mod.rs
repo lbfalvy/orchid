@@ -6,7 +6,6 @@ pub mod atom;
 pub mod cps_box;
 pub mod error;
 pub mod fn_bridge;
-pub mod implementations;
 pub mod inert;
 pub mod process;
 pub mod to_clause;

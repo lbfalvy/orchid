@@ -1,10 +1,11 @@
 use std::rc::Rc;
+use std::sync::Arc;
 
 use intern_all::Tok;
 
 use super::common::CodeNotFound;
 use super::{FSResult, Loaded, VirtFS};
-use crate::error::ErrorSansLocation;
+use crate::error::ErrorSansOrigin;
 use crate::name::PathSlice;
 use crate::tree::{ModEntry, ModMember};
 use crate::utils::combine::Combine;
@@ -14,9 +15,17 @@ pub struct ConflictingTrees;
 
 impl Combine for Rc<dyn VirtFS> {
   type Error = ConflictingTrees;
-  fn combine(self, _: Self) -> Result<Self, Self::Error> {
-    Err(ConflictingTrees)
-  }
+  fn combine(self, _: Self) -> Result<Self, Self::Error> { Err(ConflictingTrees) }
+}
+
+impl Combine for Arc<dyn VirtFS> {
+  type Error = ConflictingTrees;
+  fn combine(self, _: Self) -> Result<Self, Self::Error> { Err(ConflictingTrees) }
+}
+
+impl<'a> Combine for &'a dyn VirtFS {
+  type Error = ConflictingTrees;
+  fn combine(self, _: Self) -> Result<Self, Self::Error> { Err(ConflictingTrees) }
 }
 
 /// A declarative in-memory tree with [VirtFS] objects for leaves. Paths are
@@ -24,7 +33,7 @@ impl Combine for Rc<dyn VirtFS> {
 pub type DeclTree = ModEntry<Rc<dyn VirtFS>, (), ()>;
 
 impl VirtFS for DeclTree {
-  fn get(&self, path: &[Tok<String>], full_path: PathSlice) -> FSResult {
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult {
     match &self.member {
       ModMember::Item(it) => it.get(path, full_path),
       ModMember::Sub(module) => match path.split_first() {
@@ -44,3 +53,22 @@ impl VirtFS for DeclTree {
     }
   }
 }
+
+impl VirtFS for String {
+  fn display(&self, _: &[Tok<String>]) -> Option<String> { None }
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult {
+    (path.is_empty().then(|| Loaded::Code(Arc::new(self.as_str().to_string()))))
+      .ok_or_else(|| CodeNotFound::new(full_path.to_vpath()).pack())
+  }
+}
+
+impl<'a> VirtFS for &'a str {
+  fn display(&self, _: &[Tok<String>]) -> Option<String> { None }
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult {
+    (path.is_empty().then(|| Loaded::Code(Arc::new(self.to_string()))))
+      .ok_or_else(|| CodeNotFound::new(full_path.to_vpath()).pack())
+  }
+}
+
+/// Insert a file by cleartext contents in the [DeclTree].
+pub fn decl_file(s: &str) -> DeclTree { DeclTree::leaf(Rc::new(s.to_string())) }

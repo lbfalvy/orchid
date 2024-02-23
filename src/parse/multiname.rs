@@ -51,7 +51,7 @@ fn parse_multiname_branch<'a>(
   cursor: Frag<'a>,
   ctx: &(impl ParseCtx + ?Sized),
 ) -> ProjectResult<(BoxedIter<'a, Subresult>, Frag<'a>)> {
-  let comma = i(",");
+  let comma = i!(str: ",");
   let (subnames, cursor) = parse_multiname_rec(cursor, ctx)?;
   let (Entry { lexeme, range }, cursor) = cursor.trim().pop(ctx)?;
   match &lexeme {
@@ -72,8 +72,6 @@ fn parse_multiname_rec<'a>(
   cursor: Frag<'a>,
   ctx: &(impl ParseCtx + ?Sized),
 ) -> ProjectResult<(BoxedIter<'a, Subresult>, Frag<'a>)> {
-  let star = i("*");
-  let comma = i(",");
   let (head, mut cursor) = cursor.trim().pop(ctx)?;
   match &head.lexeme {
     Lexeme::LP(PType::Par) => parse_multiname_branch(cursor, ctx),
@@ -96,15 +94,15 @@ fn parse_multiname_rec<'a>(
         }
       }
       Ok((
-        Box::new(names.into_iter().map(|(name, location)| {
-          Subresult::new_named(name.clone(), location)
-        })),
+        Box::new(
+          names.into_iter().map(|(name, location)| Subresult::new_named(name.clone(), location)),
+        ),
         cursor,
       ))
     },
-    Lexeme::Name(n) if *n == star =>
+    Lexeme::Name(n) if *n == i!(str: "*") =>
       Ok((box_once(Subresult::new_glob(&head.range)), cursor)),
-    Lexeme::Name(n) if ![comma, star].contains(n) => {
+    Lexeme::Name(n) if ![i!(str: ","), i!(str: "*")].contains(n) => {
       let cursor = cursor.trim();
       if cursor.get(0, ctx).map_or(false, |e| e.lexeme.strict_eq(&Lexeme::NS)) {
         let cursor = cursor.step(ctx)?;
@@ -117,8 +115,7 @@ fn parse_multiname_rec<'a>(
     },
     _ => {
       let expected = vec![Lexeme::LP(PType::Par)];
-      let err =
-        Expected { expected, or_name: true, found: head.lexeme.clone() };
+      let err = Expected { expected, or_name: true, found: head.lexeme.clone() };
       Err(err.pack(ctx.range_loc(&head.range)))
     },
   }

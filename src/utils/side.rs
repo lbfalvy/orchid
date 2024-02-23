@@ -1,7 +1,7 @@
 //! Named left/right. I tried bools, I couldn't consistently remember which one
 //! is left, so I made an enum. Rust should optimize this into a bool anyway.
 
-use std::fmt::Display;
+use std::fmt;
 use std::ops::Not;
 
 use super::boxed_iter::BoxedIter;
@@ -16,8 +16,8 @@ pub enum Side {
   Right,
 }
 
-impl Display for Side {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Side {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Left => write!(f, "Left"),
       Self::Right => write!(f, "Right"),
@@ -48,12 +48,7 @@ impl Side {
   }
   /// ignore N elements from this end and M elements from the other end
   /// of a slice
-  pub fn crop_both<'a, T>(
-    &self,
-    margin: usize,
-    opposite: usize,
-    slice: &'a [T],
-  ) -> &'a [T] {
+  pub fn crop_both<'a, T>(&self, margin: usize, opposite: usize, slice: &'a [T]) -> &'a [T] {
     self.crop(margin, self.opposite().crop(opposite, slice))
   }
   /// Pick this side from a pair of things
@@ -72,10 +67,7 @@ impl Side {
   }
   /// Walk a double ended iterator (assumed to be left-to-right) in this
   /// direction
-  pub fn walk<'a, I: DoubleEndedIterator + 'a>(
-    &self,
-    iter: I,
-  ) -> BoxedIter<'a, I::Item> {
+  pub fn walk<'a, I: DoubleEndedIterator + 'a>(&self, iter: I) -> BoxedIter<'a, I::Item> {
     match self {
       Side::Right => Box::new(iter) as BoxedIter<I::Item>,
       Side::Left => Box::new(iter.rev()),
@@ -99,15 +91,7 @@ mod test {
   /// the sides are explicitly stated
   #[test]
   fn test_walk() {
-    assert_eq!(
-      Side::Right.walk(0..4).collect_vec(),
-      vec![0, 1, 2, 3],
-      "can walk a range"
-    );
-    assert_eq!(
-      Side::Left.walk(0..4).collect_vec(),
-      vec![3, 2, 1, 0],
-      "can walk a range backwards"
-    )
+    assert_eq!(Side::Right.walk(0..4).collect_vec(), vec![0, 1, 2, 3], "can walk a range");
+    assert_eq!(Side::Left.walk(0..4).collect_vec(), vec![3, 2, 1, 0], "can walk a range backwards")
   }
 }

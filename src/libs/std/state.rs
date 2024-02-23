@@ -37,9 +37,7 @@ fn new_state(default: Thunk, cont: Thunk) -> Inert<NewStateCmd> {
   Inert(NewStateCmd(default.0, cont.0))
 }
 
-fn get_state(s: Inert<State>, cont: Thunk) -> Inert<GetStateCmd> {
-  Inert(GetStateCmd(s.0, cont.0))
-}
+fn get_state(s: Inert<State>, cont: Thunk) -> Inert<GetStateCmd> { Inert(GetStateCmd(s.0, cont.0)) }
 
 fn set_state(s: Inert<State>, value: Thunk, cont: Thunk) -> Inert<SetStateCmd> {
   Inert(SetStateCmd(s.0, value.0, cont.0))

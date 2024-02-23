@@ -1,10 +1,13 @@
+//! Unified extension struct instances of which are catalogued by
+//! [super::loader::Loader]. Language extensions must implement [IntoSystem].
+
 use crate::error::{ErrorPosition, ProjectError};
 use crate::gen::tree::ConstTree;
 use crate::interpreter::handler::HandlerTable;
 use crate::name::VName;
 use crate::parse::lex_plugin::LexerPlugin;
 use crate::parse::parse_plugin::ParseLinePlugin;
-use crate::pipeline::load_solution::Prelude;
+use crate::pipeline::load_project::Prelude;
 use crate::virt_fs::DeclTree;
 
 /// A description of every point where an external library can hook into Orchid.
@@ -48,8 +51,7 @@ pub struct MissingSystemCode {
   referrer: VName,
 }
 impl ProjectError for MissingSystemCode {
-  const DESCRIPTION: &'static str =
-    "A system tried to import a path that doesn't exist";
+  const DESCRIPTION: &'static str = "A system tried to import a path that doesn't exist";
   fn message(&self) -> String {
     format!(
       "Path {} imported by {} is not defined by {} or any system before it",
@@ -61,8 +63,7 @@ impl ProjectError for MissingSystemCode {
   fn positions(&self) -> impl IntoIterator<Item = ErrorPosition> { [] }
 }
 
-/// Trait for objects that can be converted into a [System] in the presence
-/// of an [Interner].
+/// Trait for objects that can be converted into a [System].
 pub trait IntoSystem<'a> {
   /// Convert this object into a system using an interner
   fn into_system(self) -> System<'a>;

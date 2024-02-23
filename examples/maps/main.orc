@@ -1,4 +1,4 @@
-import std::to_string
+import std::conv::to_string
 
 export const main := do{
   let foo = map::new[
@@ -10,5 +10,5 @@ export const main := do{
   let num = map::get foo "bar"
     |> option::assume;
   cps println $ to_string num;
-  0
+  exit_status::success
 }

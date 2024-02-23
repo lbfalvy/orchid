@@ -1,6 +1,6 @@
 //! Datastructures used to define an Orchid project
 
-use std::fmt::Display;
+use std::fmt;
 use std::sync::Arc;
 
 use hashbrown::{HashMap, HashSet};
@@ -8,15 +8,13 @@ use intern_all::Tok;
 use itertools::Itertools;
 use never::Never;
 use ordered_float::NotNan;
-use substack::Substack;
 
-use crate::location::{CodeLocation, SourceRange};
-use crate::name::Sym;
+use crate::location::{CodeLocation, CodeOrigin, SourceRange};
+use crate::name::{Sym, VPath};
 use crate::parse::numeric::print_nat16;
 use crate::parse::parsed::{Clause, Expr};
-use crate::tree::{ModEntry, ModMember, Module, ModMemberRef};
+use crate::tree::{ModEntry, ModMember, ModMemberRef, Module, TreeTransforms};
 use crate::utils::combine::Combine;
-use crate::utils::unwrap_or::unwrap_or;
 
 /// Different elements that can appear in a module other than submodules
 #[derive(Debug, Clone)]
@@ -45,8 +43,8 @@ impl Default for ProjItem {
   fn default() -> Self { Self { kind: ItemKind::None } }
 }
 
-impl Display for ProjItem {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ProjItem {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match &self.kind {
       ItemKind::None => write!(f, "keyword"),
       ItemKind::Const(c) => write!(f, "constant {c}"),
@@ -78,15 +76,9 @@ pub struct ProjRule {
 impl ProjRule {
   /// Namespace all tokens in the rule
   #[must_use]
-  pub fn prefix(
-    self,
-    prefix: &[Tok<String>],
-    except: &impl Fn(Tok<String>) -> bool,
-  ) -> Self {
+  pub fn prefix(self, prefix: &[Tok<String>], except: &impl Fn(Tok<String>) -> bool) -> Self {
     let Self { comments, prio, mut pattern, mut template } = self;
-    (pattern.iter_mut())
-      .chain(template.iter_mut())
-      .for_each(|e| *e = e.prefix(prefix, except));
+    (pattern.iter_mut()).chain(template.iter_mut()).for_each(|e| *e = e.prefix(prefix, except));
     Self { prio, comments, pattern, template }
   }
 
@@ -98,7 +90,7 @@ impl ProjRule {
     for e in self.pattern.iter() {
       e.search_all(&mut |e| {
         if let Clause::Name(ns_name) = &e.value {
-          names.extend(ns_name[..].iter().exactly_one().ok().cloned())
+          names.extend(ns_name[..].iter().exactly_one().ok())
         }
         None::<()>
       });
@@ -107,8 +99,8 @@ impl ProjRule {
   }
 }
 
-impl Display for ProjRule {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ProjRule {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(
       f,
       "{}rule {} ={}=> {}",
@@ -158,22 +150,23 @@ pub struct ProjXEnt {
   pub locations: Vec<CodeLocation>,
 }
 impl Default for ProjXEnt {
-  fn default() -> Self {
-    Self { comments: vec![], exported: true, locations: vec![] }
-  }
+  fn default() -> Self { Self { comments: vec![], exported: true, locations: vec![] } }
 }
 impl ProjXEnt {
   /// Implied modules can be merged easily. It's difficult to detect whether
   /// a module is implied so we just assert that it doesn't have an associated
   /// source location
   pub fn is_default(&self) -> bool { self.locations.is_empty() }
+  /// Take only the syntactic locations from the recorded location list for
+  /// error reporting
+  pub fn origins(&self) -> impl Iterator<Item = CodeOrigin> + '_ {
+    self.locations.iter().map(|l| l.origin.clone())
+  }
 }
 impl Combine for ProjXEnt {
   type Error = MergingFiles;
   fn combine(self, other: Self) -> Result<Self, Self::Error> {
-    (self.is_default() && other.is_default())
-      .then_some(self)
-      .ok_or(MergingFiles)
+    (self.is_default() && other.is_default()).then_some(self).ok_or(MergingFiles)
   }
 }
 
@@ -183,8 +176,8 @@ impl Combine for ProjXEnt {
 #[derive(Debug, Clone, Copy, Default, Hash, PartialEq, Eq)]
 pub struct MergingFiles;
 
-impl Display for ProjXMod {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ProjXMod {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     let mut dbg = f.debug_struct("ProjectExt");
     match &self.src {
       None => dbg.finish_non_exhaustive(),
@@ -209,36 +202,6 @@ fn collect_rules_rec(bag: &mut Vec<ProjRule>, module: &ProjectMod) {
     }
   }
 }
-fn collect_consts_rec(
-  path: Substack<Tok<String>>,
-  bag: &mut HashMap<Sym, ConstReport>,
-  module: &ProjectMod,
-) {
-  for (key, entry) in module.entries.iter() {
-    match &entry.member {
-      ModMember::Item(it) =>
-        if let ItemKind::Const(expr) = &it.kind {
-          let name = path.push(key.clone()).iter().unreverse();
-          let name = Sym::new(name).expect("pushed above");
-          let location =
-            entry.x.locations.first().cloned().unwrap_or_else(|| {
-              panic!("{name} is a const in source, yet it has no location")
-            });
-          let range = unwrap_or!(location => CodeLocation::Source; {
-            panic!("{name} is a const in source, yet its \
-            location is generated")
-          });
-          bag.insert(name, ConstReport {
-            comments: entry.x.comments.clone(),
-            value: expr.clone(),
-            range,
-          });
-        },
-      ModMember::Sub(module) =>
-        collect_consts_rec(path.push(key.clone()), bag, module),
-    }
-  }
-}
 
 /// Module corresponding to the root of a project
 #[derive(Debug, Clone)]
@@ -256,7 +219,21 @@ impl ProjectTree {
   #[must_use]
   pub fn all_consts(&self) -> HashMap<Sym, ConstReport> {
     let mut consts = HashMap::new();
-    collect_consts_rec(Substack::Bottom, &mut consts, &self.0);
+    self.0.search_all((), |path, mem, ()| {
+      if let ModMemberRef::Mod(m) = mem {
+        for (name, ent) in m.entries.iter() {
+          if let ModMember::Item(ProjItem { kind: ItemKind::Const(c) }) = &ent.member {
+            let name = VPath::new(path.unreverse()).name_with_prefix(name.clone()).to_sym();
+            let comments = ent.x.comments.clone();
+            let range = match ent.x.locations.first() {
+              Some(CodeLocation { origin: CodeOrigin::Source(sr), .. }) => sr.clone(),
+              _ => panic!("Constants must have a location and must only have range locations"),
+            };
+            consts.insert(name.clone(), ConstReport { comments, name, range, value: c.clone() });
+          }
+        }
+      }
+    });
     consts
   }
 }
@@ -270,4 +247,6 @@ pub struct ConstReport {
   pub value: Expr,
   /// Source location this constant was parsed from
   pub range: SourceRange,
+  /// Name of the constant.
+  pub name: Sym,
 }

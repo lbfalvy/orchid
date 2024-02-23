@@ -6,10 +6,7 @@ use std::iter;
 ///
 /// Create a new vector consisting of the provided vector with the
 /// element appended. See [pushed_ref] to use it with a slice
-pub fn pushed<I: IntoIterator, C: FromIterator<I::Item>>(
-  vec: I,
-  t: I::Item,
-) -> C {
+pub fn pushed<I: IntoIterator, C: FromIterator<I::Item>>(vec: I, t: I::Item) -> C {
   vec.into_iter().chain(iter::once(t)).collect()
 }
 

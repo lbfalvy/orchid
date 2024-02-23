@@ -1,6 +1,6 @@
 import std::panic
 
-as_type result ()
+as_type ()
 
 export const ok := \v. wrap \fe. \fv. fv v
 export const err := \e. wrap \fe. \fv. fe e

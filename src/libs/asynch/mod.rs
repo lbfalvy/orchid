@@ -4,6 +4,6 @@
 //! beyond being general Rust functions.
 //! It also exposes timers.
 
+mod delete_cell;
 pub mod poller;
 pub mod system;
-mod delete_cell;

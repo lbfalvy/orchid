@@ -1,13 +1,11 @@
 //! Automated wrappers to make working with CPS commands easier.
 
-use std::fmt::Debug;
+use std::fmt;
 
 use trait_set::trait_set;
 
-use super::atom::{
-  Atomic, AtomicResult, AtomicReturn, CallData, NotAFunction, RunData,
-};
-use super::error::{ExternError, ExternResult};
+use super::atom::{Atomic, AtomicResult, AtomicReturn, CallData, NotAFunction, RunData};
+use super::error::{RTError, RTResult};
 use crate::interpreter::nort::{Clause, Expr};
 use crate::location::CodeLocation;
 use crate::utils::ddispatch::{Request, Responder};
@@ -15,9 +13,9 @@ use crate::utils::pure_seq::pushed_ref;
 
 trait_set! {
   /// A "well behaved" type that can be used as payload in a CPS box
-  pub trait CPSPayload = Clone + Debug + Send + 'static;
+  pub trait CPSPayload = Clone + fmt::Debug + Send + 'static;
   /// A function to handle a CPS box with a specific payload
-  pub trait CPSHandler<T: CPSPayload> = FnMut(&T, &Expr) -> ExternResult<Expr>;
+  pub trait CPSHandler<T: CPSPayload> = FnMut(&T, &Expr) -> RTResult<Expr>;
 }
 
 /// An Orchid Atom value encapsulating a payload and continuation points
@@ -64,9 +62,9 @@ impl<T: CPSPayload> CPSBox<T> {
     }
   }
 
-  fn assert_applicable(&self, err_loc: &CodeLocation) -> ExternResult<()> {
+  fn assert_applicable(&self, err_loc: &CodeLocation) -> RTResult<()> {
     match self.argc {
-      0 => Err(NotAFunction(self.clone().atom_expr(err_loc.clone())).rc()),
+      0 => Err(NotAFunction(self.clone().atom_expr(err_loc.clone())).pack()),
       _ => Ok(()),
     }
   }
@@ -77,18 +75,17 @@ impl<T: CPSPayload> Responder for CPSBox<T> {
 impl<T: CPSPayload> Atomic for CPSBox<T> {
   fn as_any(self: Box<Self>) -> Box<dyn std::any::Any> { self }
   fn as_any_ref(&self) -> &dyn std::any::Any { self }
-  fn parser_eq(&self, _: &dyn std::any::Any) -> bool { false }
+  fn type_name(&self) -> &'static str { std::any::type_name::<Self>() }
+  fn parser_eq(&self, _: &dyn Atomic) -> bool { false }
   fn redirect(&mut self) -> Option<&mut Expr> { None }
-  fn run(self: Box<Self>, _: RunData) -> AtomicResult {
-    AtomicReturn::inert(*self)
-  }
-  fn apply(mut self: Box<Self>, call: CallData) -> ExternResult<Clause> {
+  fn run(self: Box<Self>, _: RunData) -> AtomicResult { AtomicReturn::inert(*self) }
+  fn apply(mut self: Box<Self>, call: CallData) -> RTResult<Clause> {
     self.assert_applicable(&call.location)?;
     self.argc -= 1;
     self.continuations.push(call.arg);
     Ok(self.atom_cls())
   }
-  fn apply_ref(&self, call: CallData) -> ExternResult<Clause> {
+  fn apply_mut(&mut self, call: CallData) -> RTResult<Clause> {
     self.assert_applicable(&call.location)?;
     let new = Self {
       argc: self.argc - 1,

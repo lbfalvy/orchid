@@ -1,6 +1,6 @@
-import super::(known::*, bool::*, number::*, string::*, functional::*)
+import super::(known::*, bool::*, number::*, string::*, fn::*)
 import super::loop::recursive
-import super::(to_string, pmatch, macro, panic, conv, list, option)
+import super::(pmatch, macro, panic, conv, list, option)
 
 -- referenced in the impl table in Rust
 const to_string_impl := \t. "tuple[" ++ (

@@ -33,23 +33,17 @@ struct Timer<TOnce, TRec> {
   kind: TimerKind<TOnce, TRec>,
 }
 impl<TOnce, TRec> Clone for Timer<TOnce, TRec> {
-  fn clone(&self) -> Self {
-    Self { expires: self.expires, kind: self.kind.clone() }
-  }
+  fn clone(&self) -> Self { Self { expires: self.expires, kind: self.kind.clone() } }
 }
 impl<TOnce, TRec> Eq for Timer<TOnce, TRec> {}
 impl<TOnce, TRec> PartialEq for Timer<TOnce, TRec> {
   fn eq(&self, other: &Self) -> bool { self.expires.eq(&other.expires) }
 }
 impl<TOnce, TRec> PartialOrd for Timer<TOnce, TRec> {
-  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-    Some(other.cmp(self))
-  }
+  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(other.cmp(self)) }
 }
 impl<TOnce, TRec> Ord for Timer<TOnce, TRec> {
-  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-    other.expires.cmp(&self.expires)
-  }
+  fn cmp(&self, other: &Self) -> std::cmp::Ordering { other.expires.cmp(&self.expires) }
 }
 
 /// Representation of a scheduled timer
@@ -76,25 +70,16 @@ impl<TEv, TOnce, TRec: Clone> Poller<TEv, TOnce, TRec> {
   }
 
   /// Set a single-fire timer
-  pub fn set_timeout(
-    &mut self,
-    duration: Duration,
-    data: TOnce,
-  ) -> TimerHandle<TOnce> {
+  pub fn set_timeout(&mut self, duration: Duration, data: TOnce) -> TimerHandle<TOnce> {
     let data_cell = DeleteCell::new(data);
-    self.timers.push(Timer {
-      kind: TimerKind::Once(data_cell.clone()),
-      expires: Instant::now() + duration,
-    });
+    self
+      .timers
+      .push(Timer { kind: TimerKind::Once(data_cell.clone()), expires: Instant::now() + duration });
     TimerHandle(data_cell)
   }
 
   /// Set a recurring timer
-  pub fn set_interval(
-    &mut self,
-    period: Duration,
-    data: TRec,
-  ) -> TimerHandle<TRec> {
+  pub fn set_interval(&mut self, period: Duration, data: TRec) -> TimerHandle<TRec> {
     let data_cell = DeleteCell::new(data);
     self.timers.push(Timer {
       expires: Instant::now() + period,

@@ -28,12 +28,8 @@ pub fn vec_match<'a>(
       for lpos in direction.walk(0..=seq.len() - sep.len()) {
         let rpos = lpos + sep.len();
         let state = vec_match(left, &seq[..lpos], save_loc)
-          .and_then(|s| {
-            Some(s.combine(scalv_match(sep, &seq[lpos..rpos], save_loc)?))
-          })
-          .and_then(|s| {
-            Some(s.combine(vec_match(right, &seq[rpos..], save_loc)?))
-          });
+          .and_then(|s| Some(s.combine(scalv_match(sep, &seq[lpos..rpos], save_loc)?)))
+          .and_then(|s| Some(s.combine(vec_match(right, &seq[rpos..], save_loc)?)));
         if let Some(s) = state {
           return Some(s);
         }
@@ -49,26 +45,20 @@ pub fn vec_match<'a>(
       let lposv = seq[..seq.len() - right_sep.len()]
         .windows(left_sep.len())
         .enumerate()
-        .filter_map(|(i, window)| {
-          scalv_match(left_sep, window, save_loc).map(|s| (i, s))
-        })
+        .filter_map(|(i, window)| scalv_match(left_sep, window, save_loc).map(|s| (i, s)))
         .collect::<Vec<_>>();
       // Valid locations for the right separator
       let rposv = seq[left_sep.len()..]
         .windows(right_sep.len())
         .enumerate()
-        .filter_map(|(i, window)| {
-          scalv_match(right_sep, window, save_loc).map(|s| (i, s))
-        })
+        .filter_map(|(i, window)| scalv_match(right_sep, window, save_loc).map(|s| (i, s)))
         .collect::<Vec<_>>();
       // Valid combinations of locations for the separators
       let mut pos_pairs = lposv
         .into_iter()
         .cartesian_product(rposv)
         .filter(|((lpos, _), (rpos, _))| lpos + left_sep.len() <= *rpos)
-        .map(|((lpos, lstate), (rpos, rstate))| {
-          (lpos, rpos, lstate.combine(rstate))
-        })
+        .map(|((lpos, lstate), (rpos, rstate))| (lpos, rpos, lstate.combine(rstate)))
         .collect::<Vec<_>>();
       // In descending order of size
       pos_pairs.sort_by_key(|(l, r, _)| -((r - l) as i64));
@@ -80,24 +70,14 @@ pub fn vec_match<'a>(
             Some(
               state
                 .combine(vec_match(left, &seq[..lpos], save_loc)?)
-                .combine(vec_match(
-                  mid,
-                  &seq[lpos + left_sep.len()..rpos],
-                  save_loc,
-                )?)
-                .combine(vec_match(
-                  right,
-                  &seq[rpos + right_sep.len()..],
-                  save_loc,
-                )?),
+                .combine(vec_match(mid, &seq[lpos + left_sep.len()..rpos], save_loc)?)
+                .combine(vec_match(right, &seq[rpos + right_sep.len()..], save_loc)?),
             )
           })
           .max_by(|a, b| {
             for key in key_order {
-              let alen =
-                a.ph_len(key).expect("key_order references scalar or missing");
-              let blen =
-                b.ph_len(key).expect("key_order references scalar or missing");
+              let alen = a.ph_len(key).expect("key_order references scalar or missing");
+              let blen = b.ph_len(key).expect("key_order references scalar or missing");
               match alen.cmp(&blen) {
                 Ordering::Equal => (),
                 any => return any,

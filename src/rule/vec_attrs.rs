@@ -8,10 +8,8 @@ use crate::parse::parsed::{Clause, PHClass, Placeholder};
 #[must_use]
 pub fn vec_attrs(expr: &RuleExpr) -> Option<(Tok<String>, usize, bool)> {
   match expr.value.clone() {
-    Clause::Placeh(Placeholder {
-      class: PHClass::Vec { prio, nonzero },
-      name,
-    }) => Some((name, prio, nonzero)),
+    Clause::Placeh(Placeholder { class: PHClass::Vec { prio, nonzero }, name }) =>
+      Some((name, prio, nonzero)),
     _ => None,
   }
 }

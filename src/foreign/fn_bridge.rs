@@ -1,26 +1,27 @@
+//! Insert Rust functions in Orchid code almost seamlessly
+
 use std::any::{Any, TypeId};
-use std::fmt::{Debug, Display};
+use std::fmt;
 use std::marker::PhantomData;
 
 use intern_all::{i, Tok};
 
 use super::atom::{Atomic, AtomicResult, AtomicReturn, CallData, RunData};
-use super::error::ExternResult;
+use super::error::RTResult;
 use super::to_clause::ToClause;
 use super::try_from_expr::TryFromExpr;
 use crate::interpreter::nort::{Clause, Expr};
 use crate::utils::ddispatch::Responder;
 
 /// Return a unary lambda wrapped in this struct to take an additional argument
-/// in a function passed to Orchid through a member of the [super::xfn_1ary]
-/// family.
+/// in a function passed to Orchid through [super::fn_bridge::xfn].
 ///
 /// Container for a unary [FnOnce] that uniquely states the argument and return
 /// type. Rust functions are never overloaded, but inexplicably the [Fn] traits
 /// take the argument tuple as a generic parameter which means that it cannot
 /// be a unique dispatch target.
 ///
-/// If the function takes an instance of [Lazy], it will contain the expression
+/// If the function takes an instance of [Thunk], it will contain the expression
 /// the function was applied to without any specific normalization. If it takes
 /// any other type, the argument will be fully normalized and cast using the
 /// type's [TryFromExpr] impl.
@@ -45,11 +46,11 @@ impl<T, U, F: Clone> Clone for Param<T, U, F> {
     Self { name: self.name.clone(), data: self.data.clone(), _t: PhantomData, _u: PhantomData }
   }
 }
-impl<T, U, F> Display for Param<T, U, F> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str(&self.name) }
+impl<T, U, F> fmt::Display for Param<T, U, F> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.name) }
 }
-impl<T, U, F> Debug for Param<T, U, F> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T, U, F> fmt::Debug for Param<T, U, F> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_tuple("Param").field(&*self.name).finish()
   }
 }
@@ -60,7 +61,7 @@ impl<T, U, F> Debug for Param<T, U, F> {
 #[derive(Debug, Clone)]
 pub struct Thunk(pub Expr);
 impl TryFromExpr for Thunk {
-  fn from_expr(expr: Expr) -> ExternResult<Self> { Ok(Thunk(expr)) }
+  fn from_expr(expr: Expr) -> RTResult<Self> { Ok(Thunk(expr)) }
 }
 
 struct FnMiddleStage<T, U, F> {
@@ -71,8 +72,8 @@ struct FnMiddleStage<T, U, F> {
 impl<T, U, F: Clone> Clone for FnMiddleStage<T, U, F> {
   fn clone(&self) -> Self { Self { arg: self.arg.clone(), f: self.f.clone() } }
 }
-impl<T, U, F> Debug for FnMiddleStage<T, U, F> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T, U, F> fmt::Debug for FnMiddleStage<T, U, F> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "FnMiddleStage({} {})", self.f, self.arg)
   }
 }
@@ -85,6 +86,7 @@ impl<
 {
   fn as_any(self: Box<Self>) -> Box<dyn std::any::Any> { self }
   fn as_any_ref(&self) -> &dyn std::any::Any { self }
+  fn type_name(&self) -> &'static str { std::any::type_name::<Self>() }
   fn redirect(&mut self) -> Option<&mut Expr> {
     // this should be ctfe'd
     (TypeId::of::<T>() != TypeId::of::<Thunk>()).then_some(&mut self.arg)
@@ -93,7 +95,7 @@ impl<
     let Self { arg, f: Param { data: f, .. } } = *self;
     Ok(AtomicReturn::Change(0, f(arg.downcast()?).to_clause(r.location)))
   }
-  fn apply_ref(&self, _: CallData) -> ExternResult<Clause> { panic!("Atom should have decayed") }
+  fn apply_mut(&mut self, _: CallData) -> RTResult<Clause> { panic!("Atom should have decayed") }
 }
 
 impl<T, U, F> Responder for Param<T, U, F> {}
@@ -106,12 +108,13 @@ impl<
 {
   fn as_any(self: Box<Self>) -> Box<dyn std::any::Any> { self }
   fn as_any_ref(&self) -> &dyn std::any::Any { self }
+  fn type_name(&self) -> &'static str { std::any::type_name::<Self>() }
   fn redirect(&mut self) -> Option<&mut Expr> { None }
   fn run(self: Box<Self>, _: RunData) -> AtomicResult { AtomicReturn::inert(*self) }
-  fn apply_ref(&self, call: CallData) -> ExternResult<Clause> {
+  fn apply_mut(&mut self, call: CallData) -> RTResult<Clause> {
     Ok(FnMiddleStage { arg: call.arg, f: self.clone() }.atom_cls())
   }
-  fn apply(self: Box<Self>, call: CallData) -> ExternResult<Clause> {
+  fn apply(self: Box<Self>, call: CallData) -> RTResult<Clause> {
     Ok(FnMiddleStage { arg: call.arg, f: *self }.atom_cls())
   }
 }
@@ -134,7 +137,7 @@ pub fn xfn<const N: usize, Argv, Ret>(
 /// - the return type must implement [ToClause]
 ///
 /// Take [Thunk] to consume the argument as-is, without normalization.
-pub trait Xfn<const N: usize, Argv, Ret>: Clone + 'static {
+pub trait Xfn<const N: usize, Argv, Ret>: Clone + Send + 'static {
   /// Convert Rust type to Orchid function, given a name for logging
   fn to_atomic(self, name: Tok<String>) -> impl Atomic + Clone;
 }

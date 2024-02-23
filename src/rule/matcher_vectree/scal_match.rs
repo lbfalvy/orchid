@@ -12,24 +12,20 @@ pub fn scal_match<'a>(
   save_loc: &impl Fn(Sym) -> bool,
 ) -> Option<State<'a>> {
   match (matcher, &expr.value) {
-    (ScalMatcher::Atom(a1), Clause::Atom(a2))
-      if a1.run().0.parser_eq(&a2.run().0) =>
+    (ScalMatcher::Atom(a1), Clause::Atom(a2)) if a1.run().0.parser_eq(&*a2.run().0) =>
       Some(State::default()),
-    (ScalMatcher::Name(n1), Clause::Name(n2)) if n1 == n2 =>
-      Some(match save_loc(n1.clone()) {
-        true => State::from_name(n1.clone(), expr.range.clone()),
-        false => State::default(),
-      }),
+    (ScalMatcher::Name(n1), Clause::Name(n2)) if n1 == n2 => Some(match save_loc(n1.clone()) {
+      true => State::from_name(n1.clone(), expr.range.clone()),
+      false => State::default(),
+    }),
     (ScalMatcher::Placeh { key, name_only: true }, Clause::Name(n)) =>
       Some(State::from_ph(key.clone(), StateEntry::Name(n, &expr.range))),
     (ScalMatcher::Placeh { key, name_only: false }, _) =>
       Some(State::from_ph(key.clone(), StateEntry::Scalar(expr))),
     (ScalMatcher::S(c1, b_mat), Clause::S(c2, body)) if c1 == c2 =>
       any_match(b_mat, &body[..], save_loc),
-    (ScalMatcher::Lambda(arg_mat, b_mat), Clause::Lambda(arg, body)) => Some(
-      any_match(arg_mat, arg, save_loc)?
-        .combine(any_match(b_mat, body, save_loc)?),
-    ),
+    (ScalMatcher::Lambda(arg_mat, b_mat), Clause::Lambda(arg, body)) =>
+      Some(any_match(arg_mat, arg, save_loc)?.combine(any_match(b_mat, body, save_loc)?)),
     _ => None,
   }
 }

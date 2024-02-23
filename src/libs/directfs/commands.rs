@@ -6,7 +6,7 @@ use super::osstring::os_string_lib;
 use crate::facade::system::{IntoSystem, System};
 use crate::foreign::atom::Atomic;
 use crate::foreign::cps_box::CPSBox;
-use crate::foreign::error::ExternResult;
+use crate::foreign::error::RTResult;
 use crate::foreign::inert::{Inert, InertPayload};
 use crate::foreign::process::Unstable;
 use crate::foreign::to_clause::ToClause;
@@ -84,7 +84,7 @@ fn read_dir(sched: &SeqScheduler, cmd: &CPSBox<ReadDirCmd>) -> Expr {
           .collect::<Result<Vec<_>, Clause>>();
         match converted {
           Err(e) => {
-            let e = e.to_expr(fail.location());
+            let e = e.into_expr(fail.location());
             let tpl = tpl::A(tpl::Slot, tpl::Slot);
             vec![tpl.template(nort_gen(fail.location()), [fail, e])]
           },
@@ -141,7 +141,7 @@ fn join_paths(root: OsString, sub: OsString) -> OsString {
 fn pop_path(path: Inert<OsString>) -> Option<(Inert<OsString>, Inert<OsString>)> {
   let mut path = PathBuf::from(path.0);
   let sub = path.file_name()?.to_owned();
-  debug_assert!(path.pop(), "file_name above returned Some");
+  assert!(path.pop(), "file_name above returned Some");
   Some((Inert(path.into_os_string()), Inert(sub)))
 }
 
@@ -177,7 +177,7 @@ impl IntoSystem<'static> for DirectFS {
         xfn_ent("append_file", [open_file_append_cmd]),
         xfn_ent("join_paths", [join_paths]),
         xfn_ent("pop_path", [pop_path]),
-        atom_ent("cwd", [Unstable::new(|_| -> ExternResult<_> {
+        atom_ent("cwd", [Unstable::new(|_| -> RTResult<_> {
           let path =
             std::env::current_dir().map_err(|e| RuntimeError::ext(e.to_string(), "reading CWD"))?;
           Ok(Inert(path.into_os_string()))

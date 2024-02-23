@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 
 use crate::foreign::atom::Atomic;
-use crate::foreign::error::ExternResult;
+use crate::foreign::error::RTResult;
 use crate::foreign::inert::{Inert, InertPayload};
 use crate::foreign::to_clause::ToClause;
 use crate::foreign::try_from_expr::TryFromExpr;
@@ -12,9 +12,12 @@ use crate::location::CodeLocation;
 
 impl InertPayload for OsString {
   const TYPE_STR: &'static str = "OsString";
+  fn respond(&self, mut request: crate::utils::ddispatch::Request) {
+    request.serve_with(|| OrcString::from(self.to_string_lossy().to_string()))
+  }
 }
 impl TryFromExpr for OsString {
-  fn from_expr(exi: Expr) -> ExternResult<Self> { Ok(Inert::from_expr(exi)?.0) }
+  fn from_expr(exi: Expr) -> RTResult<Self> { Ok(Inert::from_expr(exi)?.0) }
 }
 impl ToClause for OsString {
   fn to_clause(self, _: CodeLocation) -> Clause { Inert(self).atom_cls() }

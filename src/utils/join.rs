@@ -24,7 +24,7 @@ pub fn try_join_maps<K: Eq + Hash, V, E>(
   let mut mixed = HashMap::with_capacity(left.len() + right.len());
   for (key, lval) in left {
     let val = match right.remove(&key) {
-      None => lval, 
+      None => lval,
       Some(rval) => merge(&key, lval, rval)?,
     };
     mixed.insert(key, val);

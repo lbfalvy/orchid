@@ -1,8 +1,8 @@
-import std::(panic, pmatch, to_string, conv)
-import std::(functional::*, string::*)
+import std::(panic, pmatch, string, conv)
+import std::(fn::*, string::*)
 
-as_type option (
-  impl to_string := \opt. (
+as_type (
+  impl string::conversion := \opt. (
     handle opt "none" \x. "some(" ++ conv::to_string x ++ ")"
   )
 )

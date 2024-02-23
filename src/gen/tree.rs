@@ -1,7 +1,7 @@
 //! Components to build in-memory module trees that in Orchid. These modules
 //! can only contain constants and other modules.
 
-use std::fmt::Debug;
+use std::fmt;
 
 use dyn_clone::{clone_box, DynClone};
 use intern_all::Tok;
@@ -20,8 +20,8 @@ use crate::tree::{ModEntry, ModMember, TreeConflict};
 use crate::utils::combine::Combine;
 
 trait_set! {
-  trait TreeLeaf = Gen<Expr, [Expr; 0]> + DynClone;
-  trait XfnCB = FnOnce(Substack<Tok<String>>) -> AtomGenerator + DynClone;
+  trait TreeLeaf = Gen<Expr, [Expr; 0]> + DynClone + Send;
+  trait XfnCB = FnOnce(Substack<Tok<String>>) -> AtomGenerator + DynClone + Send;
 }
 
 enum GCKind {
@@ -32,11 +32,14 @@ enum GCKind {
 /// A leaf in the [ConstTree]
 pub struct GenConst(GCKind);
 impl GenConst {
-  fn c(data: impl GenClause + Clone + 'static) -> Self { Self(GCKind::Const(Box::new(data))) }
+  fn c(data: impl GenClause + Send + Clone + 'static) -> Self {
+    Self(GCKind::Const(Box::new(data)))
+  }
   fn f<const N: usize, Argv, Ret>(f: impl Xfn<N, Argv, Ret>) -> Self {
-    Self(GCKind::Xfn(N, Box::new(move |stck| {
-      AtomGenerator::cloner(xfn(&stck.unreverse().iter().join("::"), f))
-    })))
+    Self(GCKind::Xfn(
+      N,
+      Box::new(move |stck| AtomGenerator::cloner(xfn(&stck.unreverse().iter().join("::"), f))),
+    ))
   }
   /// Instantiate as [crate::interpreter::nort]
   pub fn gen_nort(self, stck: Substack<Tok<String>>, location: CodeLocation) -> Expr {
@@ -46,8 +49,8 @@ impl GenConst {
     }
   }
 }
-impl Debug for GenConst {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for GenConst {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match &self.0 {
       GCKind::Const(c) => write!(f, "{c:?}"),
       GCKind::Xfn(n, _) => write!(f, "xfn/{n}"),
@@ -75,19 +78,30 @@ impl Combine for GenConst {
 }
 
 /// A lightweight module tree that can be built declaratively by hand to
-/// describe libraries of external functions in Rust. It implements [Add] for
-/// added convenience
+/// describe libraries of external functions in Rust. It implements [Combine]
+/// for merging libraries.
 pub type ConstTree = ModEntry<GenConst, (), ()>;
 
 /// Describe a constant
 #[must_use]
-pub fn leaf(value: impl GenClause + Clone + 'static) -> ConstTree {
+pub fn leaf(value: impl GenClause + Clone + Send + 'static) -> ConstTree {
   ModEntry::wrap(ModMember::Item(GenConst::c(value)))
+}
+
+/// Describe a constant which appears in [ConstTree::tree].
+///
+/// The unarray tricks rustfmt into keeping this call as a single line even if
+/// it chooses to break the argument into a block.
+pub fn ent<K: AsRef<str>>(
+  key: K,
+  [g]: [impl GenClause + Clone + Send + 'static; 1],
+) -> (K, ConstTree) {
+  (key, leaf(g))
 }
 
 /// Describe an [Atomic]
 #[must_use]
-pub fn atom_leaf(atom: impl Atomic + Clone + 'static) -> ConstTree { leaf(tpl::V(atom)) }
+pub fn atom_leaf(atom: impl Atomic + Clone + Send + 'static) -> ConstTree { leaf(tpl::V(atom)) }
 
 /// Describe an [Atomic] which appears as an entry in a [ConstTree::tree]
 ///

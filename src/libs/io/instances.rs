@@ -13,6 +13,7 @@ use crate::libs::scheduler::system::SharedHandle;
 use crate::libs::std::binary::Binary;
 use crate::libs::std::string::OrcString;
 use crate::location::{CodeGenInfo, CodeLocation};
+use crate::sym;
 
 /// String reading command
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -42,11 +43,7 @@ impl IOCmd for ReadCmd {
 
   // This is a buggy rule, check manually
   #[allow(clippy::read_zero_byte_vec)]
-  fn execute(
-    self,
-    stream: &mut Self::Stream,
-    _cancel: CancelFlag,
-  ) -> Self::Result {
+  fn execute(self, stream: &mut Self::Stream, _cancel: CancelFlag) -> Self::Result {
     match self {
       Self::RBytes(bread) => {
         let mut buf = Vec::new();
@@ -84,21 +81,18 @@ pub(super) enum ReadResult {
 impl ReadResult {
   pub fn dispatch(self, succ: Expr, fail: Expr) -> Vec<Expr> {
     vec![match self {
-      ReadResult::RBin(_, Err(e)) | ReadResult::RStr(_, Err(e)) =>
-        io_error_handler(e, fail),
-      ReadResult::RBin(_, Ok(bytes)) =>
-        tpl::A(tpl::Slot, tpl::V(Inert(Binary(Arc::new(bytes)))))
-          .template(nort_gen(succ.location()), [succ]),
-      ReadResult::RStr(_, Ok(text)) =>
-        tpl::A(tpl::Slot, tpl::V(Inert(OrcString::from(text))))
-          .template(nort_gen(succ.location()), [succ]),
+      ReadResult::RBin(_, Err(e)) | ReadResult::RStr(_, Err(e)) => io_error_handler(e, fail),
+      ReadResult::RBin(_, Ok(bytes)) => tpl::A(tpl::Slot, tpl::V(Inert(Binary(Arc::new(bytes)))))
+        .template(nort_gen(succ.location()), [succ]),
+      ReadResult::RStr(_, Ok(text)) => tpl::A(tpl::Slot, tpl::V(Inert(OrcString::from(text))))
+        .template(nort_gen(succ.location()), [succ]),
     }]
   }
 }
 
 /// Function to convert [io::Error] to Orchid data
 pub(crate) fn io_error_handler(_e: io::Error, handler: Expr) -> Expr {
-  let ctx = nort_gen(CodeLocation::Gen(CodeGenInfo::no_details("io_error")));
+  let ctx = nort_gen(CodeLocation::new_gen(CodeGenInfo::no_details(sym!(system::io::io_error))));
   tpl::A(tpl::Slot, tpl::V(Inert(0usize))).template(ctx, [handler])
 }
 
@@ -115,11 +109,7 @@ impl IOCmd for WriteCmd {
   type Handle = SharedHandle<Sink>;
   type Result = WriteResult;
 
-  fn execute(
-    self,
-    stream: &mut Self::Stream,
-    _cancel: CancelFlag,
-  ) -> Self::Result {
+  fn execute(self, stream: &mut Self::Stream, _cancel: CancelFlag) -> Self::Result {
     let result = match &self {
       Self::Flush => stream.flush(),
       Self::WStr(str) => write!(stream, "{}", str).map(|_| ()),

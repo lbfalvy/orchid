@@ -15,8 +15,7 @@ pub fn exprv<F: FnMut(Rc<Vec<RuleExpr>>) -> Option<Rc<Vec<RuleExpr>>>>(
   if let Some(v) = pred(input.clone()) {
     return Some(v);
   }
-  replace_first(input.as_ref(), |ex| expr(ex, pred))
-    .map(|i| Rc::new(i.collect()))
+  replace_first(input.as_ref(), |ex| expr(ex, pred)).map(|i| Rc::new(i.collect()))
 }
 
 #[must_use]
@@ -24,8 +23,7 @@ pub fn expr<F: FnMut(Rc<Vec<RuleExpr>>) -> Option<Rc<Vec<RuleExpr>>>>(
   input: &RuleExpr,
   pred: &mut F,
 ) -> Option<RuleExpr> {
-  clause(&input.value, pred)
-    .map(|value| Expr { value, range: input.range.clone() })
+  clause(&input.value, pred).map(|value| Expr { value, range: input.range.clone() })
 }
 
 #[must_use]
@@ -53,11 +51,8 @@ pub fn replace_first<T: Clone, F: FnMut(&T) -> Option<T>>(
 ) -> Option<impl Iterator<Item = T> + '_> {
   for i in 0..slice.len() {
     if let Some(new) = f(&slice[i]) {
-      let subbed_iter = slice[0..i]
-        .iter()
-        .cloned()
-        .chain(iter::once(new))
-        .chain(slice[i + 1..].iter().cloned());
+      let subbed_iter =
+        slice[0..i].iter().cloned().chain(iter::once(new)).chain(slice[i + 1..].iter().cloned());
       return Some(subbed_iter);
     }
   }

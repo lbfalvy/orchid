@@ -10,11 +10,7 @@ pub struct ProjPrintOpts {
 
 fn indent(amount: u16) -> String { "  ".repeat(amount.into()) }
 
-pub fn print_proj_mod(
-  module: &ProjectMod,
-  lvl: u16,
-  opts: ProjPrintOpts,
-) -> String {
+pub fn print_proj_mod(module: &ProjectMod, lvl: u16, opts: ProjPrintOpts) -> String {
   let mut acc = String::new();
   let tab = indent(lvl);
   for (key, ModEntry { member, x }) in &module.entries {

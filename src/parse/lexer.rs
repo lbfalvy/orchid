@@ -4,7 +4,7 @@
 //! Literals lose their syntax form here and are handled in an abstract
 //! representation hence
 
-use std::fmt::Display;
+use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -16,8 +16,6 @@ use super::context::ParseCtx;
 use super::errors::{FloatPlacehPrio, NoCommentEnd};
 use super::lex_plugin::LexerPlugin;
 use super::numeric::{numstart, parse_num, print_nat16};
-use super::string::StringLexer;
-use crate::error::ProjectResult;
 use crate::foreign::atom::AtomGenerator;
 use crate::libs::std::number::Numeric;
 use crate::parse::errors::ParseErrorKind;
@@ -36,23 +34,23 @@ pub struct Entry {
 impl Entry {
   /// Checks if the lexeme is a comment or line break
   #[must_use]
-  pub fn is_filler(&self) -> bool {
-    matches!(self.lexeme, Lexeme::Comment(_) | Lexeme::BR)
-  }
+  pub fn is_filler(&self) -> bool { matches!(self.lexeme, Lexeme::Comment(_) | Lexeme::BR) }
 
   /// Create a new entry
   #[must_use]
   pub fn new(range: Range<usize>, lexeme: Lexeme) -> Self { Self { lexeme, range } }
 }
 
-impl Display for Entry {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    self.lexeme.fmt(f)
-  }
+impl fmt::Display for Entry {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.lexeme.fmt(f) }
+}
+
+impl PartialEq<Lexeme> for Entry {
+  fn eq(&self, other: &Lexeme) -> bool { self.lexeme == *other }
 }
 
 /// A unit of syntax
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Lexeme {
   /// Atoms parsed by plugins
   Atom(AtomGenerator),
@@ -82,8 +80,8 @@ pub enum Lexeme {
   Placeh(Placeholder),
 }
 
-impl Display for Lexeme {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Lexeme {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Atom(a) => write!(f, "{a:?}"),
       Self::Name(token) => write!(f, "{}", **token),
@@ -112,8 +110,7 @@ impl Lexeme {
       (Self::BS, Self::BS) => true,
       (Self::NS, Self::NS) | (Self::Type, Self::Type) => true,
       (Self::Walrus, Self::Walrus) => true,
-      (Self::Atom(a1), Self::Atom(a2)) =>
-        a1.run().0.parser_eq(a2.run().0.as_any_ref()),
+      (Self::Atom(a1), Self::Atom(a2)) => a1.run().0.parser_eq(&*a2.run().0),
       (Self::Comment(c1), Self::Comment(c2)) => c1 == c2,
       (Self::LP(p1), Self::LP(p2)) | (Self::RP(p1), Self::RP(p2)) => p1 == p2,
       (Self::Name(n1), Self::Name(n2)) => n1 == n2,
@@ -145,10 +142,7 @@ pub fn opchar(c: char) -> bool {
 }
 
 /// Split off all characters from the beginning that match a filter
-pub fn split_filter(
-  s: &str,
-  mut pred: impl FnMut(char) -> bool,
-) -> (&str, &str) {
+pub fn split_filter(s: &str, mut pred: impl FnMut(char) -> bool) -> (&str, &str) {
   s.find(|c| !pred(c)).map_or((s, ""), |i| s.split_at(i))
 }
 
@@ -169,17 +163,17 @@ fn lit_table() -> impl IntoIterator<Item = (&'static str, Lexeme)> {
   ]
 }
 
-static BUILTIN_ATOMS: &[&dyn LexerPlugin] = &[&NumericLexer, &StringLexer];
+static BUILTIN_ATOMS: &[&dyn LexerPlugin] = &[&NumericLexer];
 
 /// Convert source code to a flat list of tokens. The bail callback will be
 /// called between lexemes. When it returns true, the remaining text is
 /// returned without processing.
-pub fn lex<'a>(
+pub fn lex<'a, E>(
   mut tokens: Vec<Entry>,
   mut data: &'a str,
   ctx: &'_ impl ParseCtx,
-  mut bail: impl FnMut(&str) -> ProjectResult<bool>,
-) -> ProjectResult<LexRes<'a>> {
+  mut bail: impl FnMut(&str) -> Result<bool, E>,
+) -> Result<LexRes<'a>, E> {
   let mut prev_len = data.len() + 1;
   'tail: loop {
     if prev_len == data.len() {
@@ -195,10 +189,12 @@ pub fn lex<'a>(
       None => return Ok(LexRes { tokens, tail: data }),
       Some(h) => h,
     };
-    let req = LexPlugReqImpl { tail: data, ctx };
     for lexer in ctx.lexers().chain(BUILTIN_ATOMS.iter().copied()) {
+      let req = LexPlugReqImpl { tail: data, ctx };
       if let Some(res) = lexer.lex(&req) {
-        let LexRes { tail, tokens: mut new_tokens } = res?;
+        let LexRes { tail, tokens: mut new_tokens } =
+          ctx.reporter().fallback(res, |_| LexRes { tail: "", tokens: vec![] });
+        // fallback: no tokens left, no additional tokens parsed
         if tail.len() == data.len() {
           panic!("lexer plugin consumed 0 characters")
         }
@@ -216,14 +212,15 @@ pub fn lex<'a>(
     }
 
     if let Some(tail) = data.strip_prefix(',') {
-      let lexeme = Lexeme::Name(i(","));
-      tokens.push(Entry::new(ctx.range(1, tail), lexeme));
+      tokens.push(Entry::new(ctx.range(1, tail), Lexeme::Name(i!(str: ","))));
       data = tail;
       continue 'tail;
     }
     if let Some(tail) = data.strip_prefix("--[") {
-      let (note, tail) = (tail.split_once("]--"))
-        .ok_or_else(|| NoCommentEnd.pack(ctx.source_range(tail.len(), "")))?;
+      let (note, tail) = tail.split_once("]--").unwrap_or_else(|| {
+        ctx.reporter().report(NoCommentEnd.pack(ctx.source_range(tail.len(), "")));
+        (tail, "") // fallback: the rest of the file is in the comment
+      });
       let lexeme = Lexeme::Comment(Arc::new(note.to_string()));
       tokens.push(Entry::new(ctx.range(note.len() + 3, tail), lexeme));
       data = tail;
@@ -236,12 +233,15 @@ pub fn lex<'a>(
       data = tail;
       continue 'tail;
     }
+    // Parse a rule arrow
     if let Some(tail) = data.strip_prefix('=') {
       if tail.chars().next().map_or(false, numstart) {
         let (num, post_num) = split_filter(tail, numchar);
         if let Some(tail) = post_num.strip_prefix("=>") {
-          let prio = parse_num(num)
-            .map_err(|e| e.into_proj(num.len(), post_num, ctx))?;
+          let prio = parse_num(num).unwrap_or_else(|e| {
+            ctx.reporter().report(e.into_proj(num.len(), post_num, ctx));
+            Numeric::Uint(0)
+          });
           let lexeme = Lexeme::Arrow(prio.as_float());
           tokens.push(Entry::new(ctx.range(num.len() + 3, tail), lexeme));
           data = tail;
@@ -249,10 +249,9 @@ pub fn lex<'a>(
         }
       }
     }
-    // todo: parse placeholders, don't forget vectorials!
+    // Parse scalar placeholder $_name or $name
     if let Some(tail) = data.strip_prefix('$') {
-      let (nameonly, tail) =
-        tail.strip_prefix('_').map_or((false, tail), |t| (true, t));
+      let (nameonly, tail) = tail.strip_prefix('_').map_or((false, tail), |t| (true, t));
       let (name, tail) = split_filter(tail, namechar);
       if !name.is_empty() {
         let class = if nameonly { PHClass::Name } else { PHClass::Scalar };
@@ -262,9 +261,10 @@ pub fn lex<'a>(
         continue 'tail;
       }
     }
+    // Parse vectorial placeholder. `..` or `...`, then `$name`, then an optional
+    // `:n` where n is a number.
     if let Some(tail) = data.strip_prefix("..") {
-      let (nonzero, tail) =
-        tail.strip_prefix('.').map_or((false, tail), |t| (true, t));
+      let (nonzero, tail) = tail.strip_prefix('.').map_or((false, tail), |t| (true, t));
       if let Some(tail) = tail.strip_prefix('$') {
         let (name, tail) = split_filter(tail, namechar);
         if !name.is_empty() {
@@ -273,17 +273,19 @@ pub fn lex<'a>(
             .map(|tail| split_filter(tail, numchar))
             .filter(|(num, _)| !num.is_empty())
             .map(|(num_str, tail)| {
-              parse_num(num_str)
-                .map_err(|e| e.into_proj(num_str.len(), tail, ctx))
-                .and_then(|num| match num {
-                  Numeric::Uint(usize) => Ok(usize),
-                  Numeric::Float(_) => Err(
-                    FloatPlacehPrio.pack(ctx.source_range(num_str.len(), tail)),
-                  ),
-                })
-                .map(|p| (p, num_str.len() + 1, tail))
+              let p = ctx.reporter().fallback(
+                parse_num(num_str).map_err(|e| e.into_proj(num_str.len(), tail, ctx)).and_then(
+                  |num| match num {
+                    Numeric::Uint(usize) => Ok(usize),
+                    Numeric::Float(_) =>
+                      Err(FloatPlacehPrio.pack(ctx.source_range(num_str.len(), tail))),
+                  },
+                ),
+                |_| 0,
+              );
+              (p, num_str.len() + 1, tail)
             })
-            .unwrap_or(Ok((0, 0, tail)))?;
+            .unwrap_or((0, 0, tail));
           let byte_len = if nonzero { 4 } else { 3 } + priolen + name.len();
           let class = PHClass::Vec { nonzero, prio };
           let lexeme = Lexeme::Placeh(Placeholder { name: i(name), class });

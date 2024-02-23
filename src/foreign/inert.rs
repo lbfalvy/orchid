@@ -1,13 +1,13 @@
+//! An [Atomic] that wraps inert data.
+
 use std::any::Any;
-use std::fmt::{Debug, Display};
+use std::fmt;
 use std::ops::{Deref, DerefMut};
 
 use ordered_float::NotNan;
 
-use super::atom::{
-  Atom, Atomic, AtomicResult, AtomicReturn, CallData, NotAFunction, RunData,
-};
-use super::error::{ExternError, ExternResult};
+use super::atom::{Atom, Atomic, AtomicResult, AtomicReturn, CallData, NotAFunction, RunData};
+use super::error::{RTError, RTResult};
 use super::try_from_expr::TryFromExpr;
 use crate::foreign::error::AssertionError;
 use crate::interpreter::nort::{Clause, Expr};
@@ -17,11 +17,10 @@ use crate::utils::ddispatch::{Request, Responder};
 
 /// A proxy trait that implements [Atomic] for blobs of data in Rust code that
 /// cannot be processed and always report inert. Since these are expected to be
-/// parameters of functions defined with [define_fn] it also automatically
-/// implements [TryFromExpr] so that a conversion doesn't have to be
-/// provided in argument lists.
-pub trait InertPayload: Debug + Clone + Send + 'static {
-  /// Typename to be shown in the error when a conversion from [ExprInst] fails
+/// parameters of Rust functions it also automatically implements [TryFromExpr]
+/// so that `Inert<MyType>` arguments can be parsed directly.
+pub trait InertPayload: fmt::Debug + Clone + Send + 'static {
+  /// Typename to be shown in the error when a conversion from [Expr] fails
   ///
   /// This will default to `type_name::<Self>()` when it becomes stable
   const TYPE_STR: &'static str;
@@ -37,7 +36,8 @@ pub trait InertPayload: Debug + Clone + Send + 'static {
   /// ```ignore
   /// fn strict_eq(&self, other: &Self) -> bool { self == other }
   /// ```
-  fn strict_eq(&self, _: &Self) -> bool { false }
+  #[allow(unused_variables)]
+  fn strict_eq(&self, other: &Self) -> bool { false }
 }
 
 /// An atom that stores a value and rejects all interpreter interactions. It is
@@ -61,42 +61,36 @@ impl<T: InertPayload> DerefMut for Inert<T> {
 
 impl<T: InertPayload> Responder for Inert<T> {
   fn respond(&self, mut request: Request) {
-    if request.can_serve::<T>() {
-      request.serve(self.0.clone())
-    } else {
-      self.0.respond(request)
-    }
+    if request.can_serve::<T>() { request.serve(self.0.clone()) } else { self.0.respond(request) }
   }
 }
 impl<T: InertPayload> Atomic for Inert<T> {
   fn as_any(self: Box<Self>) -> Box<dyn Any> { self }
   fn as_any_ref(&self) -> &dyn Any { self }
+  fn type_name(&self) -> &'static str { std::any::type_name::<Self>() }
 
   fn redirect(&mut self) -> Option<&mut Expr> { None }
-  fn run(self: Box<Self>, _: RunData) -> AtomicResult {
-    AtomicReturn::inert(*self)
+  fn run(self: Box<Self>, _: RunData) -> AtomicResult { AtomicReturn::inert(*self) }
+  fn apply_mut(&mut self, call: CallData) -> RTResult<Clause> {
+    Err(NotAFunction(self.clone().atom_expr(call.location)).pack())
   }
-  fn apply_ref(&self, call: CallData) -> ExternResult<Clause> {
-    Err(NotAFunction(self.clone().atom_expr(call.location)).rc())
-  }
-  fn parser_eq(&self, other: &dyn Any) -> bool {
-    (other.downcast_ref::<Self>())
-      .map_or(false, |other| self.0.strict_eq(&other.0))
+  fn parser_eq(&self, other: &dyn Atomic) -> bool {
+    other.as_any_ref().downcast_ref::<Self>().map_or(false, |other| self.0.strict_eq(&other.0))
   }
 }
 
 impl<T: InertPayload> TryFromExpr for Inert<T> {
-  fn from_expr(expr: Expr) -> ExternResult<Self> {
+  fn from_expr(expr: Expr) -> RTResult<Self> {
     let Expr { clause, location } = expr;
     match clause.try_unwrap() {
-      Ok(Clause::Atom(at)) => at.try_downcast::<Self>().map_err(|a| {
-        AssertionError::ext(location, T::TYPE_STR, format!("{a:?}"))
-      }),
-      Err(inst) => match &*inst.cls() {
-        Clause::Atom(at) =>
-          at.downcast_ref::<Self>().cloned().ok_or_else(|| {
-            AssertionError::ext(location, T::TYPE_STR, format!("{inst}"))
-          }),
+      Ok(Clause::Atom(at)) => at
+        .try_downcast::<Self>()
+        .map_err(|a| AssertionError::ext(location, T::TYPE_STR, format!("{a:?}"))),
+      Err(inst) => match &*inst.cls_mut() {
+        Clause::Atom(at) => at
+          .downcast_ref::<Self>()
+          .cloned()
+          .ok_or_else(|| AssertionError::ext(location, T::TYPE_STR, format!("{inst}"))),
         cls => AssertionError::fail(location, "atom", format!("{cls}")),
       },
       Ok(cls) => AssertionError::fail(location, "atom", format!("{cls}")),
@@ -104,10 +98,8 @@ impl<T: InertPayload> TryFromExpr for Inert<T> {
   }
 }
 
-impl<T: InertPayload + Display> Display for Inert<T> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{}", self.0)
-  }
+impl<T: InertPayload + fmt::Display> fmt::Display for Inert<T> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self.0) }
 }
 
 impl InertPayload for bool {

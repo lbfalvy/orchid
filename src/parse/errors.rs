@@ -8,7 +8,7 @@ use super::context::ParseCtx;
 use super::frag::Frag;
 use super::lexer::{Entry, Lexeme};
 use crate::error::{ProjectError, ProjectErrorObj, ProjectResult};
-use crate::location::{CodeLocation, SourceRange};
+use crate::location::{CodeOrigin, SourceRange};
 use crate::parse::parsed::PType;
 
 /// Parse error information without a location. Location data is added by the
@@ -20,9 +20,7 @@ pub trait ParseErrorKind: Sized + Send + Sync + 'static {
   fn message(&self) -> String { Self::DESCRIPTION.to_string() }
   /// Convert this error to a type-erased [ProjectError] to be handled together
   /// with other Orchid errors.
-  fn pack(self, range: SourceRange) -> ProjectErrorObj {
-    ParseError { kind: self, range }.pack()
-  }
+  fn pack(self, range: SourceRange) -> ProjectErrorObj { ParseError { kind: self, range }.pack() }
 }
 
 struct ParseError<T> {
@@ -31,9 +29,7 @@ struct ParseError<T> {
 }
 impl<T: ParseErrorKind> ProjectError for ParseError<T> {
   const DESCRIPTION: &'static str = T::DESCRIPTION;
-  fn one_position(&self) -> CodeLocation {
-    CodeLocation::Source(self.range.clone())
-  }
+  fn one_position(&self) -> CodeOrigin { self.range.origin() }
   fn message(&self) -> String { self.kind.message() }
 }
 
@@ -41,9 +37,7 @@ impl<T: ParseErrorKind> ProjectError for ParseError<T> {
 pub(super) struct LineNeedsPrefix(pub Lexeme);
 impl ParseErrorKind for LineNeedsPrefix {
   const DESCRIPTION: &'static str = "This linetype requires a prefix";
-  fn message(&self) -> String {
-    format!("{} cannot appear at the beginning of a line", self.0)
-  }
+  fn message(&self) -> String { format!("{} cannot appear at the beginning of a line", self.0) }
 }
 
 /// The line ends abruptly. Raised on the last token
@@ -51,8 +45,7 @@ pub(super) struct UnexpectedEOL(pub Lexeme);
 impl ParseErrorKind for UnexpectedEOL {
   const DESCRIPTION: &'static str = "The line ended abruptly";
   fn message(&self) -> String {
-    "In Orchid, all line breaks outside parentheses start a new declaration"
-      .to_string()
+    "In Orchid, all line breaks outside parentheses start a new declaration".to_string()
   }
 }
 
@@ -105,11 +98,7 @@ impl ParseErrorKind for Expected {
   }
 }
 /// Assert that the entry contains exactly the specified lexeme
-pub(super) fn expect(
-  l: Lexeme,
-  e: &Entry,
-  ctx: &(impl ParseCtx + ?Sized),
-) -> ProjectResult<()> {
+pub(super) fn expect(l: Lexeme, e: &Entry, ctx: &(impl ParseCtx + ?Sized)) -> ProjectResult<()> {
   if e.lexeme.strict_eq(&l) {
     return Ok(());
   }
@@ -134,9 +123,7 @@ pub(super) struct BadTokenInRegion {
 }
 impl ParseErrorKind for BadTokenInRegion {
   const DESCRIPTION: &'static str = "An unexpected token was found";
-  fn message(&self) -> String {
-    format!("{} cannot appear in {}", self.lexeme, self.region)
-  }
+  fn message(&self) -> String { format!("{} cannot appear in {}", self.lexeme, self.region) }
 }
 
 /// Some construct was searched but not found.
@@ -171,12 +158,6 @@ impl ParseErrorKind for GlobExport {
   const DESCRIPTION: &'static str = "Globstars are not allowed in exports";
 }
 
-/// String literal never ends
-pub(super) struct NoStringEnd;
-impl ParseErrorKind for NoStringEnd {
-  const DESCRIPTION: &'static str = "A string literal was not closed with `\"`";
-}
-
 /// Comment never ends
 pub(super) struct NoCommentEnd;
 impl ParseErrorKind for NoCommentEnd {
@@ -199,33 +180,13 @@ impl ParseErrorKind for NaNLiteral {
 /// A sequence of digits in a number literal overflows [usize].
 pub(super) struct LiteralOverflow;
 impl ParseErrorKind for LiteralOverflow {
-  const DESCRIPTION: &'static str =
-    "number literal described number greater than usize::MAX";
+  const DESCRIPTION: &'static str = "number literal described number greater than usize::MAX";
 }
 
 /// A digit was expected but something else was found
 pub(super) struct ExpectedDigit;
 impl ParseErrorKind for ExpectedDigit {
   const DESCRIPTION: &'static str = "expected a digit";
-}
-
-/// A unicode escape sequence contains something other than a hex digit
-pub(super) struct NotHex;
-impl ParseErrorKind for NotHex {
-  const DESCRIPTION: &'static str = "Expected a hex digit";
-}
-
-/// A unicode escape sequence contains a number that isn't a unicode code point.
-pub(super) struct BadCodePoint;
-impl ParseErrorKind for BadCodePoint {
-  const DESCRIPTION: &'static str =
-    "\\uXXXX escape sequence does not describe valid code point";
-}
-
-/// An unrecognized escape sequence occurred in a string.
-pub(super) struct BadEscapeSequence;
-impl ParseErrorKind for BadEscapeSequence {
-  const DESCRIPTION: &'static str = "Unrecognized escape sequence";
 }
 
 /// Expected a parenthesized block at the end of the line
@@ -250,6 +211,5 @@ pub(super) fn expect_block<'a>(
 /// was found.
 pub(super) struct ExpectedSingleName;
 impl ParseErrorKind for ExpectedSingleName {
-  const DESCRIPTION: &'static str =
-    "expected a single name, no wildcards, no branches";
+  const DESCRIPTION: &'static str = "expected a single name, no wildcards, no branches";
 }

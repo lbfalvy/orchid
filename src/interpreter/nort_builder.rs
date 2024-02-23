@@ -1,3 +1,5 @@
+//! Helper for generating the interpreter's internal representation
+
 use std::cell::RefCell;
 use std::mem;
 
@@ -34,8 +36,7 @@ impl ArgCollector {
 /// the callback it returns is called on every lambda ancestor's associated
 /// data from closest to outermost ancestor. The first lambda where this
 /// callback returns true is considered to own the argument.
-pub type LambdaPicker<'a, T, U> =
-  &'a dyn for<'b> Fn(&'b U) -> Box<dyn FnMut(&T) -> bool + 'b>;
+pub type LambdaPicker<'a, T, U> = &'a dyn for<'b> Fn(&'b U) -> Box<dyn FnMut(&T) -> bool + 'b>;
 
 /// Bundle of information passed down through recursive fnuctions to instantiate
 /// runtime [Expr], [super::nort::ClauseInst] or [Clause].
@@ -83,7 +84,7 @@ impl<'a, T: ?Sized, U: ?Sized> NortBuilder<'a, T, U> {
         IntGenData::Apply(_) => panic!("This is removed after handling"),
         IntGenData::Lambda(n, rc) => match lambda_chk(n) {
           false => Ok(path),
-          true => Err((path, *rc))
+          true => Err((path, *rc)),
         },
         IntGenData::AppArg(n) => Ok(pushed(path, Some(*n))),
         IntGenData::AppF => Ok(pushed(path, None)),
@@ -100,11 +101,7 @@ impl<'a, T: ?Sized, U: ?Sized> NortBuilder<'a, T, U> {
   /// Push a stackframe corresponding to a lambda expression, build the body,
   /// then record the path set collected by [NortBuilder::arg_logic] calls
   /// within the body.
-  pub fn lambda_logic(
-    self,
-    name: &T,
-    body: impl FnOnce(NortBuilder<T, U>) -> Expr,
-  ) -> Clause {
+  pub fn lambda_logic(self, name: &T, body: impl FnOnce(NortBuilder<T, U>) -> Expr) -> Clause {
     let coll = ArgCollector::new();
     let frame = IntGenData::Lambda(name, &coll.0);
     let body = self.non_app_step(|ctx| body(ctx.push(frame)));

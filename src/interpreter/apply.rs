@@ -1,10 +1,10 @@
 use never::Never;
 
-use super::context::RunContext;
-use super::error::RunError;
+use super::context::{RunEnv, RunParams};
 use super::nort::{Clause, ClauseInst, Expr};
 use super::path_set::{PathSet, Step};
 use crate::foreign::atom::CallData;
+use crate::foreign::error::RTResult;
 
 /// Process the clause at the end of the provided path. Note that paths always
 /// point to at least one target. Note also that this is not cached as a
@@ -16,12 +16,12 @@ fn map_at<E>(
 ) -> Result<Clause, E> {
   // Pass through some unambiguous wrapper clauses
   match source {
-    Clause::Identity(alt) => return map_at(path, &alt.cls(), mapper),
+    Clause::Identity(alt) => return map_at(path, &alt.cls_mut(), mapper),
     Clause::Lambda { args, body: Expr { location: b_loc, clause } } =>
       return Ok(Clause::Lambda {
         args: args.clone(),
         body: Expr {
-          clause: map_at(path, &clause.cls(), mapper)?.to_inst(),
+          clause: map_at(path, &clause.cls_mut(), mapper)?.into_inst(),
           location: b_loc.clone(),
         },
       }),
@@ -33,7 +33,7 @@ fn map_at<E>(
     (val, None) => mapper(val)?,
     // If it's an Apply, execute the next step in the path
     (Clause::Apply { f, x }, Some(head)) => {
-      let proc = |x: &Expr| Ok(map_at(path, &x.cls(), mapper)?.to_expr(x.location()));
+      let proc = |x: &Expr| Ok(map_at(path, &x.cls_mut(), mapper)?.into_expr(x.location()));
       match head {
         None => Clause::Apply { f: proc(f)?, x: x.clone() },
         Some(n) => {
@@ -68,12 +68,12 @@ pub fn substitute(
         let mut argv = x.clone();
         let f = match conts.get(&None) {
           None => f.clone(),
-          Some(sp) => substitute(sp, value.clone(), &f.cls(), on_sub).to_expr(f.location()),
+          Some(sp) => substitute(sp, value.clone(), &f.cls_mut(), on_sub).into_expr(f.location()),
         };
         for (i, old) in argv.iter_mut().rev().enumerate() {
           if let Some(sp) = conts.get(&Some(i)) {
-            let tmp = substitute(sp, value.clone(), &old.cls(), on_sub);
-            *old = tmp.to_expr(old.location());
+            let tmp = substitute(sp, value.clone(), &old.cls_mut(), on_sub);
+            *old = tmp.into_expr(old.location());
           }
         }
         Ok(Clause::Apply { f, x: argv })
@@ -89,15 +89,20 @@ pub fn substitute(
   .unwrap_or_else(|e| match e {})
 }
 
-pub(super) fn apply_as_atom(f: Expr, arg: Expr, ctx: RunContext) -> Result<Clause, RunError> {
-  let call = CallData { location: f.location(), arg, ctx };
+pub(super) fn apply_as_atom(
+  f: Expr,
+  arg: Expr,
+  env: &RunEnv,
+  params: &mut RunParams,
+) -> RTResult<Clause> {
+  let call = CallData { location: f.location(), arg, env, params };
   match f.clause.try_unwrap() {
     Ok(clause) => match clause {
       Clause::Atom(atom) => Ok(atom.apply(call)?),
       _ => panic!("Not an atom"),
     },
-    Err(clsi) => match &*clsi.cls() {
-      Clause::Atom(atom) => Ok(atom.apply_ref(call)?),
+    Err(clsi) => match &mut *clsi.cls_mut() {
+      Clause::Atom(atom) => Ok(atom.apply_mut(call)?),
       _ => panic!("Not an atom"),
     },
   }

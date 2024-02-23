@@ -10,4 +10,3 @@ pub mod numeric;
 pub mod parse_plugin;
 pub mod parsed;
 mod sourcefile;
-pub mod string;

@@ -8,14 +8,14 @@
 //! and [crate::libs::std] for `std::panic`.
 //!
 //! ```
+//! use std::io::BufReader;
+//!
+//! use orchidlang::facade::loader::Loader;
 //! use orchidlang::libs::asynch::system::AsynchSystem;
+//! use orchidlang::libs::io::{IOService, Stream};
 //! use orchidlang::libs::scheduler::system::SeqScheduler;
 //! use orchidlang::libs::std::std_system::StdConfig;
-//! use orchidlang::libs::io::{IOService, Stream};
-//! use orchidlang::facade::loader::Loader;
-//! use std::io::BufReader;
-//! 
-//! 
+//!
 //! let mut asynch = AsynchSystem::new();
 //! let scheduler = SeqScheduler::new(&mut asynch);
 //! let std_streams = [
