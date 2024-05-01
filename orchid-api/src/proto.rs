@@ -26,7 +26,7 @@ use std::io::{Read, Write};
 
 use derive_more::{From, TryInto};
 use orchid_api_derive::{Coding, Hierarchy};
-use orchid_api_traits::{read_exact, write_exact, Decode, Encode, MsgSet, Request};
+use orchid_api_traits::{read_exact, write_exact, Channel, Decode, Encode, MsgSet, Request};
 
 use crate::{atom, expr, intern, parser, system, tree};
 
@@ -77,10 +77,16 @@ pub enum ExtHostReq {
 }
 
 /// Notifications sent from the extension to the host
-#[derive(Coding, From, TryInto)]
+#[derive(Debug, Clone, Coding, From, TryInto)]
 #[allow(clippy::enum_variant_names)]
 pub enum ExtHostNotif {
   Expr(expr::ExprNotif),
+}
+
+pub struct ExtHostChannel;
+impl Channel for ExtHostChannel {
+  type Notif = ExtHostNotif;
+  type Req = ExtHostReq;
 }
 
 /// Requests running from the host to the extension
@@ -101,25 +107,28 @@ pub enum HostExtReq {
 pub enum HostExtNotif {
   SystemDrop(system::SystemDrop),
   AtomDrop(atom::AtomDrop),
+  LexerDrop(parser::LexerDrop),
   /// The host can assume that after this notif is sent, a correctly written
   /// extension will eventually exit.
   Exit,
 }
 
+pub struct HostExtChannel;
+impl Channel for HostExtChannel {
+  type Notif = HostExtNotif;
+  type Req = HostExtReq;
+}
+
 /// Message set viewed from the extension's perspective
 pub struct ExtMsgSet;
 impl MsgSet for ExtMsgSet {
-  type InNot = HostExtNotif;
-  type InReq = HostExtReq;
-  type OutNot = ExtHostNotif;
-  type OutReq = ExtHostReq;
+  type In = HostExtChannel;
+  type Out = ExtHostChannel;
 }
 
 /// Message Set viewed from the host's perspective
 pub struct HostMsgSet;
 impl MsgSet for HostMsgSet {
-  type InNot = ExtHostNotif;
-  type InReq = ExtHostReq;
-  type OutNot = HostExtNotif;
-  type OutReq = HostExtReq;
+  type In = ExtHostChannel;
+  type Out = HostExtChannel;
 }

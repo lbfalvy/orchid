@@ -9,4 +9,4 @@ pub use hierarchy::{
   Base, Extends, HierarchyRole, InHierarchy, Subtype, TLBool, TLFalse, TLTrue, UnderRoot,
   UnderRootImpl,
 };
-pub use relations::{MsgSet, Request};
+pub use relations::{Channel, MsgSet, Request};

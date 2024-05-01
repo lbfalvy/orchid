@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt;
 
-use crate::host::AtomHand;
+use orchid_api::atom::Atom;
 
 /// Representations of the Orchid expression tree that can describe basic
 /// language elements.
@@ -13,7 +13,7 @@ pub trait Generable: Sized + 'static {
   /// Context information defined by parents. Generators just forward this.
   type Ctx<'a>: Sized;
   /// Wrap external data.
-  fn atom(ctx: Self::Ctx<'_>, a: AtomHand) -> Self;
+  fn atom(ctx: Self::Ctx<'_>, a: Atom) -> Self;
   /// Generate a reference to a constant
   fn constant<'a>(ctx: Self::Ctx<'_>, name: impl IntoIterator<Item = &'a str>) -> Self;
   /// Generate a function call given the function and its argument

@@ -2,10 +2,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
 use hashbrown::HashMap;
+use lazy_static::lazy_static;
 use orchid_api::expr::ExprTicket;
 
-use crate::host::AtomHand;
-use lazy_static::lazy_static;
+use crate::extension::AtomHand;
 
 #[derive(Clone, Debug)]
 pub struct RtExpr {
@@ -36,6 +36,6 @@ impl Drop for RtExpr {
   }
 }
 
-lazy_static!{
+lazy_static! {
   static ref KNOWN_EXPRS: RwLock<HashMap<ExprTicket, RtExpr>> = RwLock::default();
 }

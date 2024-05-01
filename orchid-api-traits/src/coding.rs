@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::io::{Read, Write};
 use std::iter;
-use std::ops::Range;
+use std::ops::{Range, RangeInclusive};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -24,8 +24,8 @@ pub trait Encode {
     vec
   }
 }
-pub trait Coding: Encode + Decode {}
-impl<T: Encode + Decode> Coding for T {}
+pub trait Coding: Encode + Decode + Clone {}
+impl<T: Encode + Decode + Clone> Coding for T {}
 
 macro_rules! num_impl {
   ($number:ty, $size:expr) => {
@@ -81,7 +81,7 @@ nonzero_impl!(std::num::NonZeroI32);
 nonzero_impl!(std::num::NonZeroI64);
 nonzero_impl!(std::num::NonZeroI128);
 
-impl<'a, T: Encode> Encode for &'a T {
+impl<'a, T: Encode + 'a> Encode for &'a T {
   fn encode<W: Write>(&self, write: &mut W) { (**self).encode(write) }
 }
 impl<T: Decode + FloatCore> Decode for NotNan<T> {
@@ -233,15 +233,24 @@ impl<T: Decode, const N: usize> Decode for [T; N] {
 impl<T: Encode, const N: usize> Encode for [T; N] {
   fn encode<W: Write>(&self, write: &mut W) { self.iter().for_each(|t| t.encode(write)) }
 }
-impl<T: Decode> Decode for Range<T> {
-  fn decode<R: Read>(read: &mut R) -> Self { T::decode(read)..T::decode(read) }
-}
-impl<T: Encode> Encode for Range<T> {
-  fn encode<W: Write>(&self, write: &mut W) {
-    self.start.encode(write);
-    self.end.encode(write);
+
+macro_rules! two_end_range {
+  ($this:ident, $name:tt, $op:tt, $start:expr, $end:expr) => {
+    impl<T: Decode> Decode for $name<T> {
+      fn decode<R: Read>(read: &mut R) -> Self { T::decode(read) $op T::decode(read) }
+    }
+    impl<T: Encode> Encode for $name<T> {
+      fn encode<W: Write>(&self, write: &mut W) {
+        let $this = self;
+        ($start).encode(write);
+        ($end).encode(write);
+      }
+    }
   }
 }
+
+two_end_range!(x, Range, .., x.start, x.end);
+two_end_range!(x, RangeInclusive, ..=, x.start(), x.end());
 
 macro_rules! smart_ptr {
   ($name:tt) => {

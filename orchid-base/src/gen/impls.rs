@@ -5,8 +5,6 @@ use orchid_api::expr::{Clause, Expr};
 use orchid_api::location::Location;
 
 use super::traits::{GenClause, Generable};
-use crate::expr::RtExpr;
-use crate::host::AtomHand;
 use crate::intern::{deintern, intern};
 
 fn safely_reinterpret<In: 'static, Out: 'static>(x: In) -> Result<Out, In> {
@@ -24,7 +22,7 @@ impl GenClause for Expr {
   fn generate<T: super::traits::Generable>(&self, ctx: T::Ctx<'_>, pop: &impl Fn() -> T) -> T {
     match &self.clause {
       Clause::Arg(arg) => T::arg(ctx, deintern(*arg).as_str()),
-      Clause::Atom(atom) => T::atom(ctx, AtomHand::from_api(atom.clone())),
+      Clause::Atom(atom) => T::atom(ctx, atom.clone()),
       Clause::Call(f, x) => T::apply(ctx, |c| f.generate(c, pop), |c| x.generate(c, pop)),
       Clause::Lambda(arg, b) => T::lambda(ctx, deintern(*arg).as_str(), |ctx| b.generate(ctx, pop)),
       Clause::Seq(n1, n2) => T::seq(ctx, |c| n1.generate(c, pop), |c| n2.generate(c, pop)),

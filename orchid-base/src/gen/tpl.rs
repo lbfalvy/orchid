@@ -1,12 +1,13 @@
 //! Various elemental components to build expression trees that all implement
 //! [GenClause].
 
+use orchid_api::atom::Atom;
+
 use super::traits::{GenClause, Generable};
-use crate::host::AtomHand;
 
 /// A trivial atom
 #[derive(Clone, Debug)]
-pub struct SysAtom(pub AtomHand);
+pub struct SysAtom(pub Atom);
 impl GenClause for SysAtom {
   fn generate<T: Generable>(&self, ctx: T::Ctx<'_>, _: &impl Fn() -> T) -> T {
     T::atom(ctx, self.0.clone())

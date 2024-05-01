@@ -11,7 +11,7 @@ pub type SysDeclId = u16;
 pub type SysId = u16;
 
 /// Details about a system provided by this library
-#[derive(Coding)]
+#[derive(Debug, Clone, Coding)]
 pub struct SystemDecl {
   /// ID of the system, unique within the library
   pub id: SysDeclId,

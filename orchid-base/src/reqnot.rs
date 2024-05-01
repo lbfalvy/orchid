@@ -6,13 +6,13 @@ use std::sync::{Arc, Mutex};
 
 use dyn_clone::{clone_box, DynClone};
 use hashbrown::HashMap;
-use orchid_api_traits::{Coding, Decode, Encode, MsgSet, Request};
+use orchid_api_traits::{Channel, Coding, Decode, Encode, MsgSet, Request};
 use trait_set::trait_set;
 
 trait_set! {
   pub trait SendFn<T: MsgSet> = for<'a> FnMut(&'a [u8], ReqNot<T>) + DynClone + Send + 'static;
   pub trait ReqFn<T: MsgSet> = FnMut(RequestHandle<T>) + Send + 'static;
-  pub trait NotifFn<T: MsgSet> = for<'a> FnMut(T::InNot, ReqNot<T>) + Send + Sync + 'static;
+  pub trait NotifFn<T: MsgSet> = for<'a> FnMut(<T::In as Channel>::Notif, ReqNot<T>) + Send + Sync + 'static;
 }
 
 fn get_id(message: &[u8]) -> (u64, &[u8]) {
@@ -21,14 +21,14 @@ fn get_id(message: &[u8]) -> (u64, &[u8]) {
 
 pub struct RequestHandle<T: MsgSet> {
   id: u64,
-  message: T::InReq,
+  message: <T::In as Channel>::Req,
   send: Box<dyn SendFn<T>>,
   parent: ReqNot<T>,
   fulfilled: AtomicBool,
 }
 impl<MS: MsgSet> RequestHandle<MS> {
   pub fn reqnot(&self) -> ReqNot<MS> { self.parent.clone() }
-  pub fn req(&self) -> &MS::InReq { &self.message }
+  pub fn req(&self) -> &<MS::In as Channel>::Req { &self.message }
   fn respond(&self, response: &impl Encode) {
     assert!(!self.fulfilled.swap(true, Ordering::Relaxed), "Already responded");
     let mut buf = (!self.id).to_be_bytes().to_vec();
@@ -78,21 +78,21 @@ impl<T: MsgSet> ReqNot<T> {
     let mut g = self.0.lock().unwrap();
     let (id, payload) = get_id(&message[..]);
     if id == 0 {
-      (g.notif)(T::InNot::decode(&mut &payload[..]), self.clone())
+      (g.notif)(<T::In as Channel>::Notif::decode(&mut &payload[..]), self.clone())
     } else if 0 < id.bitand(1 << 63) {
       let sender = g.responses.remove(&!id).expect("Received response for invalid message");
       sender.send(message).unwrap();
     } else {
       let send = clone_box(&*g.send);
-      let message = T::InReq::decode(&mut &payload[..]);
+      let message = <T::In as Channel>::Req::decode(&mut &payload[..]);
       (g.req)(RequestHandle { id, message, send, fulfilled: false.into(), parent: self.clone() })
     }
   }
 
-  pub fn notify<N: Coding + Into<T::OutNot>>(&self, notif: N) {
+  pub fn notify<N: Coding + Into<<T::Out as Channel>::Notif>>(&self, notif: N) {
     let mut send = clone_box(&*self.0.lock().unwrap().send);
     let mut buf = vec![0; 8];
-    let msg: T::OutNot = notif.into();
+    let msg: <T::Out as Channel>::Notif = notif.into();
     msg.encode(&mut buf);
     send(&buf, self.clone())
   }
@@ -112,7 +112,7 @@ impl<'a, T> DynRequester for MappedRequester<'a, T> {
 }
 
 impl<T: MsgSet> DynRequester for ReqNot<T> {
-  type Transfer = T::OutReq;
+  type Transfer = <T::Out as Channel>::Req;
   fn raw_request(&self, req: Self::Transfer) -> RawReply {
     let mut g = self.0.lock().unwrap();
     let id = g.id;
@@ -156,23 +156,27 @@ mod test {
   use std::sync::{Arc, Mutex};
 
   use orchid_api_derive::Coding;
-  use orchid_api_traits::Request;
+  use orchid_api_traits::{Channel, Request};
 
   use super::{MsgSet, ReqNot};
   use crate::{clone, reqnot::Requester as _};
 
-  #[derive(Coding, Debug, PartialEq)]
+  #[derive(Clone, Debug, Coding, PartialEq)]
   pub struct TestReq(u8);
   impl Request for TestReq {
     type Response = u8;
   }
 
+  pub struct TestChan;
+  impl Channel for TestChan {
+    type Notif = u8;
+    type Req = TestReq;
+  }
+
   pub struct TestMsgSet;
   impl MsgSet for TestMsgSet {
-    type InNot = u8;
-    type InReq = TestReq;
-    type OutNot = u8;
-    type OutReq = TestReq;
+    type In = TestChan;
+    type Out = TestChan;
   }
 
   #[test]

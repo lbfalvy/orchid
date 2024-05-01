@@ -1,3 +1,5 @@
+use std::ops::RangeInclusive;
+
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
@@ -16,11 +18,18 @@ pub enum ParserReq {
 
 pub type LexerId = u16;
 
+#[derive(Clone, Debug, Coding)]
+pub struct Lexer {
+  id: LexerId,
+  drop: bool,
+  notify_chars: Option<Vec<RangeInclusive<char>>>,
+}
+
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(ParserReq, HostExtReq)]
 pub struct MkLexer(pub SysId, pub TStr);
 impl Request for MkLexer {
-  type Response = LexerId;
+  type Response = Lexer;
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
@@ -50,6 +59,7 @@ impl Request for SubLex {
   type Response = SubLex;
 }
 
-pub struct ParseLine {
+#[derive(Clone, Debug, Coding)]
+pub struct LexerDrop;
 
-}
+pub struct ParseLine {}

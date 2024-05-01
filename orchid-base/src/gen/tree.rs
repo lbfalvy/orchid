@@ -4,13 +4,13 @@
 use std::fmt;
 
 use dyn_clone::{clone_box, DynClone};
+use orchid_api::atom::Atom;
 use orchid_api::expr::Expr;
 use trait_set::trait_set;
 
 use super::tpl;
 use super::traits::{Gen, GenClause};
 use crate::combine::Combine;
-use crate::host::AtomHand;
 use crate::tree::{ModEntry, ModMember, TreeConflict};
 
 trait_set! {
@@ -64,14 +64,14 @@ pub fn ent<K: AsRef<str>>(
 
 /// Describe an [Atomic]
 #[must_use]
-pub fn atom_leaf(atom: AtomHand) -> ConstTree { leaf(tpl::SysAtom(atom)) }
+pub fn atom_leaf(atom: Atom) -> ConstTree { leaf(tpl::SysAtom(atom)) }
 
 /// Describe an [Atomic] which appears as an entry in a [ConstTree::tree]
 ///
 /// The unarray is used to trick rustfmt into breaking the atom into a block
 /// without breaking this call into a block
 #[must_use]
-pub fn atom_ent<K: AsRef<str>>(key: K, [atom]: [AtomHand; 1]) -> (K, ConstTree) {
+pub fn atom_ent<K: AsRef<str>>(key: K, [atom]: [Atom; 1]) -> (K, ConstTree) {
   (key, atom_leaf(atom))
 }
 

@@ -5,9 +5,12 @@ pub trait Request: Coding + Sized + Send + 'static {
   fn respond(&self, rep: Self::Response) -> Vec<u8> { rep.enc_vec() }
 }
 
+pub trait Channel: 'static {
+  type Req: Coding + Sized + Send + 'static;
+  type Notif: Coding + Sized + Send + 'static;
+}
+
 pub trait MsgSet {
-  type InReq: Coding + Sized + Send + 'static;
-  type InNot: Coding + Sized + Send + 'static;
-  type OutReq: Coding + Sized + Send + 'static;
-  type OutNot: Coding + Sized + Send + 'static;
+  type In: Channel;
+  type Out: Channel;
 }
