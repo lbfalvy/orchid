@@ -1,6 +1,6 @@
 use std::env::{self, args};
-use std::io::{stdin, BufRead, BufReader, Read, Write};
-use std::process::{self, Child};
+use std::io::{stdin, BufRead, BufReader, Write};
+use std::process;
 use std::time::SystemTime;
 
 fn main() {
@@ -11,7 +11,7 @@ fn main() {
       stdin().read_line(&mut input).unwrap();
       if input == "ping\n" {
         println!("pong");
-      } else if input.is_empty() {
+      } else if input == "\n" {
         process::exit(0);
       } else {
         panic!("Unrecognized input {input:?}");
@@ -29,14 +29,15 @@ fn main() {
     let mut child_stdin = child.stdin.take().unwrap();
     let time = SystemTime::now();
     for _ in 0..steps {
-      writeln!(child_stdin, "ping");
+      writeln!(child_stdin, "ping").unwrap();
       let mut buf = String::new();
       bufr.read_line(&mut buf).unwrap();
       if buf != "pong\n" {
         panic!("Unrecognized output {buf:?}")
       }
     }
-    child.kill();
+    writeln!(child_stdin).unwrap();
+    child.wait().unwrap();
     let elapsed = time.elapsed().unwrap();
     let avg = elapsed / steps;
     println!("A roundtrip takes {avg:?}, {}ms on average", (avg.as_nanos() as f64) / 1_000_000f64);
