@@ -9,8 +9,12 @@ use orchid_base::clone;
 use orchid_base::intern::{init_replica, sweep_replica};
 use orchid_base::reqnot::{ReqNot, Requester};
 
-use crate::data::ExtensionData;
 use crate::msg::{recv_parent_msg, send_parent_msg};
+use crate::system_ctor::DynSystemCtor;
+
+pub struct ExtensionData {
+  pub systems: Vec<Box<dyn DynSystemCtor>>,
+}
 
 pub fn main(data: ExtensionData) {
   HostHeader::decode(&mut &recv_parent_msg().unwrap()[..]);

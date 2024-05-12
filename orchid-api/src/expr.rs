@@ -4,7 +4,7 @@ use orchid_api_traits::Request;
 use crate::atom::Atom;
 use crate::intern::{TStr, TStrv};
 use crate::location::Location;
-use crate::proto::ExtHostReq;
+use crate::proto::{ExtHostNotif, ExtHostReq};
 use crate::system::SysId;
 
 /// An arbitrary ID associated with an expression on the host side. Incoming
@@ -25,7 +25,8 @@ pub type ExprTicket = u64;
 ///
 /// This can be called with a foreign system to signal that an owned reference
 /// is being passed, though [Relocate] may be a better fit.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
+#[extends(ExprNotif, ExtHostNotif)]
 pub struct Acquire(pub SysId, pub ExprTicket);
 
 /// Release a reference either previously acquired through either [Acquire]
@@ -33,13 +34,15 @@ pub struct Acquire(pub SysId, pub ExprTicket);
 /// acquired an expression is counted, and it is the system's responsibility to
 /// ensure that acquires and releases pair up. Behaviour in case of excessive
 /// freeing is not defined.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
+#[extends(ExprNotif, ExtHostNotif)]
 pub struct Release(pub SysId, pub ExprTicket);
 
 /// Decrement the reference count for one system and increment it for another,
 /// to indicate passing an owned reference. Equivalent to [Acquire] followed by
 /// [Release].
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
+#[extends(ExprNotif, ExtHostNotif)]
 pub struct Relocate {
   pub dec: SysId,
   pub inc: SysId,
@@ -91,7 +94,9 @@ pub enum ExprReq {
   Inspect(Inspect),
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
+#[extends(ExtHostNotif)]
+#[extendable]
 pub enum ExprNotif {
   Acquire(Acquire),
   Release(Release),

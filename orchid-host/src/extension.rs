@@ -120,24 +120,20 @@ impl Extension {
           g.stdin.as_mut().unwrap().write_all(sfn).unwrap();
         }),
         |notif, _| match notif {
-          ExtHostNotif::Expr(expr) => match expr {
-            ExprNotif::Acquire(Acquire(sys, extk)) => acq_expr(sys, extk),
-            ExprNotif::Release(Release(sys, extk)) => rel_expr(sys, extk),
-            ExprNotif::Relocate(Relocate { inc, dec, expr }) => {
-              acq_expr(inc, expr);
-              rel_expr(dec, expr);
-            },
+          ExtHostNotif::ExprNotif(ExprNotif::Acquire(Acquire(sys, extk))) => acq_expr(sys, extk),
+          ExtHostNotif::ExprNotif(ExprNotif::Release(Release(sys, extk))) => rel_expr(sys, extk),
+          ExtHostNotif::ExprNotif(ExprNotif::Relocate(Relocate { dec, inc, expr })) => {
+            acq_expr(inc, expr);
+            rel_expr(dec, expr);
           },
         },
         |req| match req.req() {
           ExtHostReq::Ping(ping) => req.handle(ping, &()),
-          ExtHostReq::IntReq(intreq) => match intreq {
-            IntReq::InternStr(s) => req.handle(s, &intern(&**s.0).marker()),
-            IntReq::InternStrv(v) => req.handle(v, &intern(&*v.0).marker()),
-            IntReq::ExternStr(si) => req.handle(si, &deintern(si.0).arc()),
-            IntReq::ExternStrv(vi) =>
-              req.handle(vi, &Arc::new(deintern(vi.0).iter().map(|t| t.marker()).collect_vec())),
-          },
+          ExtHostReq::IntReq(IntReq::InternStr(s)) => req.handle(s, &intern(&**s.0).marker()),
+          ExtHostReq::IntReq(IntReq::InternStrv(v)) => req.handle(v, &intern(&*v.0).marker()),
+          ExtHostReq::IntReq(IntReq::ExternStr(si)) => req.handle(si, &deintern(si.0).arc()),
+          ExtHostReq::IntReq(IntReq::ExternStrv(vi)) =>
+            req.handle(vi, &Arc::new(deintern(vi.0).iter().map(|t| t.marker()).collect_vec())),
           ExtHostReq::Fwd(fw @ Fwd(atom, _body)) => {
             let sys = System::resolve(atom.owner).unwrap();
             thread::spawn(clone!(fw; move || {

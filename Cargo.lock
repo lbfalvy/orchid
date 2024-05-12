@@ -286,6 +286,7 @@ name = "orchid-extension"
 version = "0.1.0"
 dependencies = [
  "ahash",
+ "derive_destructure",
  "hashbrown",
  "itertools",
  "orchid-api",

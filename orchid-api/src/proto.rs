@@ -24,7 +24,6 @@
 
 use std::io::{Read, Write};
 
-use derive_more::{From, TryInto};
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::{read_exact, write_exact, Channel, Decode, Encode, MsgSet, Request};
 
@@ -77,10 +76,11 @@ pub enum ExtHostReq {
 }
 
 /// Notifications sent from the extension to the host
-#[derive(Debug, Clone, Coding, From, TryInto)]
+#[derive(Debug, Clone, Coding, Hierarchy)]
 #[allow(clippy::enum_variant_names)]
+#[extendable]
 pub enum ExtHostNotif {
-  Expr(expr::ExprNotif),
+  ExprNotif(expr::ExprNotif),
 }
 
 pub struct ExtHostChannel;

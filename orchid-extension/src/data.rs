@@ -1,14 +1,13 @@
-use std::any::TypeId;
-use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
+use std::ops::Deref;
 
-use itertools::Itertools;
-use orchid_api::expr::Expr;
+use derive_destructure::destructure;
+use orchid_api::atom::{Atom, Fwd};
+use orchid_api::expr::{ExprTicket, Release};
 use orchid_api::proto::ExtMsgSet;
-use orchid_api::system::{NewSystem, SysId, SystemDecl};
-use orchid_api_traits::Coding;
-use orchid_base::reqnot::ReqNot;
-use ordered_float::NotNan;
+use orchid_api::system::SysId;
+use orchid_api_traits::{Coding, Decode, Request};
+use orchid_base::reqnot::{ReqNot, Requester};
 
 pub struct SystemHandle<T: SystemDepCard> {
   _t: PhantomData<T>,
@@ -16,122 +15,69 @@ pub struct SystemHandle<T: SystemDepCard> {
   reqnot: ReqNot<ExtMsgSet>,
 }
 impl<T: SystemDepCard> SystemHandle<T> {
-  fn new(id: SysId, reqnot: ReqNot<ExtMsgSet>) -> Self { Self { _t: PhantomData, id, reqnot } }
+  pub(crate) fn new(id: SysId, reqnot: ReqNot<ExtMsgSet>) -> Self {
+    Self { _t: PhantomData, id, reqnot }
+  }
+  pub fn id(&self) -> SysId { self.id }
+  pub fn wrap_atom<A: Atomic<Owner = T>>(
+    &self,
+    api: Atom,
+    ticket: ExprTicket,
+  ) -> Result<OwnedAtom<A>, Atom> {
+    if api.owner == self.id {
+      Ok(OwnedAtom { ticket, sys: self.clone(), value: T::decode_atom(&api), api })
+    } else {
+      Err(api)
+    }
+  }
+}
+impl<T: SystemDepCard> Clone for SystemHandle<T> {
+  fn clone(&self) -> Self { Self { reqnot: self.reqnot.clone(), _t: PhantomData, id: self.id } }
 }
 
-pub trait System: Send {
-  fn consts(&self) -> Expr;
+pub trait Atomic: 'static {
+  type Owner: SystemDepCard;
+  type Req: Coding;
+  const HAS_DROP: bool;
 }
 
-pub struct SystemParams<Ctor: SystemCtor + ?Sized> {
-  pub deps: <Ctor::Deps as DepSet>::Sat,
-  pub id: SysId,
-  pub reqnot: ReqNot<ExtMsgSet>,
-}
-
-pub trait SystemDepCard {
-  type IngressReq: Coding;
-  type IngressNotif: Coding;
+pub trait SystemDepCard: 'static {
   const NAME: &'static str;
+  /// Decode an atom from binary representation.
+  ///
+  /// This is held in the dep card because there is no global type tag on the
+  /// atom, so by the logic of the binary coding algorithm the value has to be a
+  /// concrete type, probably an enum of the viable types.
+  fn decode_atom<A: Atomic<Owner = Self>>(api: &Atom) -> A;
 }
 
-pub trait DepSet {
-  type Sat;
-  fn report(names: &mut impl FnMut(&'static str));
-  fn create(take: &mut impl FnMut() -> SysId, reqnot: ReqNot<ExtMsgSet>) -> Self::Sat;
+#[derive(destructure)]
+pub struct OwnedAtom<A: Atomic> {
+  sys: SystemHandle<A::Owner>,
+  ticket: ExprTicket,
+  api: Atom,
+  value: A,
 }
-
-impl<T: SystemDepCard> DepSet for T {
-  type Sat = SystemHandle<Self>;
-  fn report(names: &mut impl FnMut(&'static str)) { names(T::NAME) }
-  fn create(take: &mut impl FnMut() -> SysId, reqnot: ReqNot<ExtMsgSet>) -> Self::Sat {
-    SystemHandle::new(take(), reqnot)
+impl<A: Atomic> OwnedAtom<A> {
+  /// Unpack the object, returning the held atom and expr ticket. This is in
+  /// contrast to dropping the atom which releases the expr ticket.
+  pub fn unpack(self) -> (A, ExprTicket, Atom) {
+    let (_, ticket, api, value) = self.destructure();
+    (value, ticket, api)
+  }
+  pub fn ticket(&self) -> ExprTicket { self.ticket }
+  pub fn request<R: Coding + Into<A::Req> + Request>(&self, req: R) -> R::Response {
+    R::Response::decode(&mut &self.sys.reqnot.request(Fwd(self.api.clone(), req.enc_vec()))[..])
   }
 }
-
-pub trait SystemCtor: Send {
-  type Deps: DepSet;
-  const NAME: &'static str;
-  const VERSION: f64;
-  #[allow(clippy::new_ret_no_self)]
-  fn new(params: SystemParams<Self>) -> Box<dyn System>;
+impl<A: Atomic> Deref for OwnedAtom<A> {
+  type Target = A;
+  fn deref(&self) -> &Self::Target { &self.value }
 }
-
-pub trait DynSystemCtor: Send {
-  fn decl(&self) -> SystemDecl;
-  fn new_system(&self, new: &NewSystem, reqnot: ReqNot<ExtMsgSet>) -> Box<dyn System>;
-}
-
-impl<T: SystemCtor + 'static> DynSystemCtor for T {
-  fn decl(&self) -> SystemDecl {
-    // Version is equivalent to priority for all practical purposes
-    let priority = NotNan::new(T::VERSION).unwrap();
-    // aggregate depends names
-    let mut depends = Vec::new();
-    T::Deps::report(&mut |n| depends.push(n.to_string()));
-    // generate definitely unique id
-    let mut ahash = ahash::AHasher::default();
-    TypeId::of::<T>().hash(&mut ahash);
-    let id = (ahash.finish().to_be_bytes().into_iter().tuples())
-      .map(|(l, b)| u16::from_be_bytes([l, b]))
-      .fold(0, |a, b| a ^ b);
-    SystemDecl { name: T::NAME.to_string(), depends, id, priority }
+impl<A: Atomic> Drop for OwnedAtom<A> {
+  fn drop(&mut self) {
+    if A::HAS_DROP {
+      self.sys.reqnot.notify(Release(self.sys.id(), self.ticket))
+    }
   }
-  fn new_system(&self, new: &NewSystem, reqnot: ReqNot<ExtMsgSet>) -> Box<dyn System> {
-    let mut ids = new.depends.iter().copied();
-    T::new(SystemParams {
-      deps: T::Deps::create(&mut || ids.next().unwrap(), reqnot.clone()),
-      id: new.id,
-      reqnot,
-    })
-  }
-}
-
-pub struct ExtensionData {
-  pub systems: Vec<Box<dyn DynSystemCtor>>,
-}
-
-mod dep_set_tuple_impls {
-  use orchid_api::proto::ExtMsgSet;
-  use orchid_api::system::SysId;
-  use orchid_base::reqnot::ReqNot;
-
-  use super::DepSet;
-
-  macro_rules! dep_set_tuple_impl {
-    ($($name:ident),*) => {
-      impl<$( $name :DepSet ),*> DepSet for ( $( $name , )* ) {
-        type Sat = ( $( $name ::Sat , )* );
-        fn report(names: &mut impl FnMut(&'static str)) {
-          $(
-            $name ::report(names);
-          )*
-        }
-        fn create(take: &mut impl FnMut() -> SysId, reqnot: ReqNot<ExtMsgSet>) -> Self::Sat {
-          (
-            $(
-              $name ::create(take, reqnot.clone()),
-            )*
-          )
-        }
-      }
-    };
-  }
-
-  dep_set_tuple_impl!(A);
-  dep_set_tuple_impl!(A, B); // 2
-  dep_set_tuple_impl!(A, B, C);
-  dep_set_tuple_impl!(A, B, C, D); // 4
-  dep_set_tuple_impl!(A, B, C, D, E);
-  dep_set_tuple_impl!(A, B, C, D, E, F);
-  dep_set_tuple_impl!(A, B, C, D, E, F, G);
-  dep_set_tuple_impl!(A, B, C, D, E, F, G, H); // 8
-  dep_set_tuple_impl!(A, B, C, D, E, F, G, H, I);
-  dep_set_tuple_impl!(A, B, C, D, E, F, G, H, I, J);
-  dep_set_tuple_impl!(A, B, C, D, E, F, G, H, I, J, K);
-  dep_set_tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L); // 12
-  dep_set_tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M);
-  dep_set_tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N);
-  dep_set_tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
-  dep_set_tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P); // 16
 }
