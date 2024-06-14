@@ -1,4 +1,3 @@
-use std::any::TypeId;
 use std::hash::{Hash as _, Hasher as _};
 
 use itertools::Itertools as _;
@@ -6,9 +5,10 @@ use orchid_api::proto::ExtMsgSet;
 use orchid_api::system::{NewSystem, SysId, SystemDecl};
 use orchid_base::reqnot::ReqNot;
 use ordered_float::NotNan;
+use typeid::ConstTypeId;
 
-use crate::data::{SystemDepCard, SystemHandle};
-use crate::system::System;
+use crate::other_system::SystemHandle;
+use crate::system::{DynSystem, System, SystemCard};
 
 pub struct SystemParams<Ctor: SystemCtor + ?Sized> {
   pub deps: <Ctor::Deps as DepSet>::Sat,
@@ -22,7 +22,7 @@ pub trait DepSet {
   fn create(take: &mut impl FnMut() -> SysId, reqnot: ReqNot<ExtMsgSet>) -> Self::Sat;
 }
 
-impl<T: SystemDepCard> DepSet for T {
+impl<T: SystemCard> DepSet for T {
   type Sat = SystemHandle<Self>;
   fn report(names: &mut impl FnMut(&'static str)) { names(T::NAME) }
   fn create(take: &mut impl FnMut() -> SysId, reqnot: ReqNot<ExtMsgSet>) -> Self::Sat {
@@ -32,15 +32,16 @@ impl<T: SystemDepCard> DepSet for T {
 
 pub trait SystemCtor: Send + 'static {
   type Deps: DepSet;
+  type Instance: System;
   const NAME: &'static str;
   const VERSION: f64;
   #[allow(clippy::new_ret_no_self)]
-  fn new(params: SystemParams<Self>) -> Box<dyn System>;
+  fn new(params: SystemParams<Self>) -> Self::Instance;
 }
 
 pub trait DynSystemCtor: Send + 'static {
   fn decl(&self) -> SystemDecl;
-  fn new_system(&self, new: &NewSystem, reqnot: ReqNot<ExtMsgSet>) -> Box<dyn System>;
+  fn new_system(&self, new: &NewSystem, reqnot: ReqNot<ExtMsgSet>) -> Box<dyn DynSystem>;
 }
 
 impl<T: SystemCtor> DynSystemCtor for T {
@@ -52,19 +53,19 @@ impl<T: SystemCtor> DynSystemCtor for T {
     T::Deps::report(&mut |n| depends.push(n.to_string()));
     // generate definitely unique id
     let mut ahash = ahash::AHasher::default();
-    TypeId::of::<T>().hash(&mut ahash);
+    ConstTypeId::of::<T>().hash(&mut ahash);
     let id = (ahash.finish().to_be_bytes().into_iter().tuples())
       .map(|(l, b)| u16::from_be_bytes([l, b]))
       .fold(0, |a, b| a ^ b);
     SystemDecl { name: T::NAME.to_string(), depends, id, priority }
   }
-  fn new_system(&self, new: &NewSystem, reqnot: ReqNot<ExtMsgSet>) -> Box<dyn System> {
+  fn new_system(&self, new: &NewSystem, reqnot: ReqNot<ExtMsgSet>) -> Box<dyn DynSystem> {
     let mut ids = new.depends.iter().copied();
-    T::new(SystemParams {
+    Box::new(T::new(SystemParams {
       deps: T::Deps::create(&mut || ids.next().unwrap(), reqnot.clone()),
       id: new.id,
       reqnot,
-    })
+    }))
   }
 }
 

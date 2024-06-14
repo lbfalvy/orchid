@@ -3,11 +3,11 @@ use std::sync::Arc;
 
 use super::common::CodeNotFound;
 use super::{FSResult, Loaded, VirtFS};
-use crate::intern::Token;
-use crate::proj_error::ErrorSansOrigin;
-use crate::name::PathSlice;
-use crate::tree::{ModEntry, ModMember};
 use crate::combine::Combine;
+use crate::intern::Token;
+use crate::name::PathSlice;
+use crate::proj_error::ErrorSansOrigin;
+use crate::tree::{ModEntry, ModMember};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConflictingTrees;

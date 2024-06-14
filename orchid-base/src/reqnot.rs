@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::mem;
 use std::ops::{BitAnd, Deref};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,7 +13,8 @@ use trait_set::trait_set;
 trait_set! {
   pub trait SendFn<T: MsgSet> = for<'a> FnMut(&'a [u8], ReqNot<T>) + DynClone + Send + 'static;
   pub trait ReqFn<T: MsgSet> = FnMut(RequestHandle<T>) + Send + 'static;
-  pub trait NotifFn<T: MsgSet> = for<'a> FnMut(<T::In as Channel>::Notif, ReqNot<T>) + Send + Sync + 'static;
+  pub trait NotifFn<T: MsgSet> =
+    for<'a> FnMut(<T::In as Channel>::Notif, ReqNot<T>) + Send + Sync + 'static;
 }
 
 fn get_id(message: &[u8]) -> (u64, &[u8]) {
@@ -22,26 +24,32 @@ fn get_id(message: &[u8]) -> (u64, &[u8]) {
 pub struct RequestHandle<T: MsgSet> {
   id: u64,
   message: <T::In as Channel>::Req,
-  send: Box<dyn SendFn<T>>,
   parent: ReqNot<T>,
   fulfilled: AtomicBool,
 }
-impl<MS: MsgSet> RequestHandle<MS> {
+impl<MS: MsgSet + 'static> RequestHandle<MS> {
   pub fn reqnot(&self) -> ReqNot<MS> { self.parent.clone() }
   pub fn req(&self) -> &<MS::In as Channel>::Req { &self.message }
   fn respond(&self, response: &impl Encode) {
     assert!(!self.fulfilled.swap(true, Ordering::Relaxed), "Already responded");
     let mut buf = (!self.id).to_be_bytes().to_vec();
     response.encode(&mut buf);
-    clone_box(&*self.send)(&buf, self.parent.clone());
+    let mut send = clone_box(&*self.reqnot().0.lock().unwrap().send);
+    (send)(&buf, self.parent.clone());
   }
   pub fn handle<T: Request>(&self, _: &T, rep: &T::Response) { self.respond(rep) }
+  pub fn will_handle_as<T: Request>(&self, _: &T) -> ReqTypToken<T> { ReqTypToken(PhantomData) }
+  pub fn handle_as<T: Request>(&self, token: ReqTypToken<T>, rep: &T::Response) {
+    self.respond(rep)
+  }
 }
 impl<MS: MsgSet> Drop for RequestHandle<MS> {
   fn drop(&mut self) {
     debug_assert!(self.fulfilled.load(Ordering::Relaxed), "Request dropped without response")
   }
 }
+
+pub struct ReqTypToken<T>(PhantomData<T>);
 
 pub fn respond_with<R: Request>(r: &R, f: impl FnOnce(&R) -> R::Response) -> Vec<u8> {
   r.respond(f(r))
@@ -83,9 +91,8 @@ impl<T: MsgSet> ReqNot<T> {
       let sender = g.responses.remove(&!id).expect("Received response for invalid message");
       sender.send(message).unwrap();
     } else {
-      let send = clone_box(&*g.send);
       let message = <T::In as Channel>::Req::decode(&mut &payload[..]);
-      (g.req)(RequestHandle { id, message, send, fulfilled: false.into(), parent: self.clone() })
+      (g.req)(RequestHandle { id, message, fulfilled: false.into(), parent: self.clone() })
     }
   }
 
@@ -159,7 +166,8 @@ mod test {
   use orchid_api_traits::{Channel, Request};
 
   use super::{MsgSet, ReqNot};
-  use crate::{clone, reqnot::Requester as _};
+  use crate::clone;
+  use crate::reqnot::Requester as _;
 
   #[derive(Clone, Debug, Coding, PartialEq)]
   pub struct TestReq(u8);

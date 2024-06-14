@@ -6,9 +6,9 @@ use rust_embed::RustEmbed;
 use super::common::CodeNotFound;
 use super::{FSResult, Loaded, VirtFS};
 use crate::intern::{intern, Token};
-use crate::proj_error::ErrorSansOrigin;
 use crate::location::CodeGenInfo;
 use crate::name::PathSlice;
+use crate::proj_error::ErrorSansOrigin;
 use crate::tree::{ModEntry, ModMember, Module};
 
 /// An in-memory FS tree for libraries managed internally by the interpreter

@@ -27,18 +27,18 @@ use std::io::{Read, Write};
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::{read_exact, write_exact, Channel, Decode, Encode, MsgSet, Request};
 
-use crate::{atom, expr, intern, parser, system, tree};
+use crate::{atom, expr, intern, parser, system, tree, vfs};
 
 static HOST_INTRO: &[u8] = b"Orchid host, binary API v0\n";
 pub struct HostHeader;
 impl Decode for HostHeader {
-  fn decode<R: Read>(read: &mut R) -> Self {
+  fn decode<R: Read + ?Sized>(read: &mut R) -> Self {
     read_exact(read, HOST_INTRO);
     Self
   }
 }
 impl Encode for HostHeader {
-  fn encode<W: Write>(&self, write: &mut W) { write_exact(write, HOST_INTRO) }
+  fn encode<W: Write + ?Sized>(&self, write: &mut W) { write_exact(write, HOST_INTRO) }
 }
 
 static EXT_INTRO: &[u8] = b"Orchid extension, binary API v0\n";
@@ -46,13 +46,13 @@ pub struct ExtensionHeader {
   pub systems: Vec<system::SystemDecl>,
 }
 impl Decode for ExtensionHeader {
-  fn decode<R: Read>(read: &mut R) -> Self {
+  fn decode<R: Read + ?Sized>(read: &mut R) -> Self {
     read_exact(read, EXT_INTRO);
     Self { systems: Vec::decode(read) }
   }
 }
 impl Encode for ExtensionHeader {
-  fn encode<W: Write>(&self, write: &mut W) {
+  fn encode<W: Write + ?Sized>(&self, write: &mut W) {
     write_exact(write, EXT_INTRO);
     self.systems.encode(write)
   }
@@ -76,8 +76,8 @@ pub enum ExtHostReq {
 }
 
 /// Notifications sent from the extension to the host
-#[derive(Debug, Clone, Coding, Hierarchy)]
 #[allow(clippy::enum_variant_names)]
+#[derive(Debug, Clone, Coding, Hierarchy)]
 #[extendable]
 pub enum ExtHostNotif {
   ExprNotif(expr::ExprNotif),
@@ -99,6 +99,7 @@ pub enum HostExtReq {
   AtomReq(atom::AtomReq),
   ParserReq(parser::ParserReq),
   GetConstTree(tree::GetConstTree),
+  VfsReq(vfs::VfsReq),
 }
 
 /// Notifications sent from the host to the extension
@@ -107,7 +108,6 @@ pub enum HostExtReq {
 pub enum HostExtNotif {
   SystemDrop(system::SystemDrop),
   AtomDrop(atom::AtomDrop),
-  LexerDrop(parser::LexerDrop),
   /// The host can assume that after this notif is sent, a correctly written
   /// extension will eventually exit.
   Exit,

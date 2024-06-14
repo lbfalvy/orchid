@@ -7,6 +7,14 @@ use crate::system::SysId;
 
 pub type AtomData = Vec<u8>;
 
+/// An atom owned by an implied system. Usually used in responses from a system.
+/// This has the same semantics as [Atom] except in that the owner is implied.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Coding)]
+pub struct LocalAtom {
+  pub drop: bool,
+  pub data: AtomData,
+}
+
 /// An atom representation that can be serialized and sent around. Atoms
 /// represent the smallest increment of work.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding)]

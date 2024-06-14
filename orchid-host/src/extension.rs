@@ -10,12 +10,14 @@ use lazy_static::lazy_static;
 use orchid_api::atom::{Atom, AtomDrop, AtomSame, CallRef, FinalCall, Fwd, Fwded};
 use orchid_api::expr::{Acquire, Expr, ExprNotif, ExprTicket, Release, Relocate};
 use orchid_api::intern::IntReq;
+use orchid_api::parser::CharFilter;
 use orchid_api::proto::{
   ExtHostNotif, ExtHostReq, ExtensionHeader, HostExtNotif, HostHeader, HostMsgSet,
 };
 use orchid_api::system::{NewSystem, SysDeclId, SysId, SystemDecl, SystemDrop};
 use orchid_api::tree::{GetConstTree, TreeModule};
 use orchid_api_traits::{Decode, Encode};
+use orchid_base::char_filter::char_filter_match;
 use orchid_base::clone;
 use orchid_base::intern::{deintern, intern};
 use orchid_base::reqnot::{ReqNot, Requester as _};
@@ -166,11 +168,12 @@ impl SystemCtor {
     let ext = self.ext.upgrade().expect("SystemCtor should be freed before Extension");
     static NEXT_ID: AtomicU16 = AtomicU16::new(0);
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    let () = ext.reqnot.request(NewSystem { depends, id, system: self.decl.id });
+    let sys_inst = ext.reqnot.request(NewSystem { depends, id, system: self.decl.id });
     let data = System(Arc::new(SystemInstData {
       decl_id: self.decl.id,
       ext: Extension(ext),
       exprs: RwLock::default(),
+      lex_filter: sys_inst.lex_filter,
       id,
     }));
     inst_g.insert(id, data.clone());
@@ -187,6 +190,7 @@ pub struct SystemInstData {
   exprs: RwLock<HashMap<ExprTicket, (AtomicU32, RtExpr)>>,
   ext: Extension,
   decl_id: SysDeclId,
+  lex_filter: CharFilter,
   id: u16,
 }
 impl Drop for SystemInstData {
@@ -211,8 +215,9 @@ impl System {
       .or_insert((AtomicU32::new(1), get_expr()));
     ticket
   }
-
   pub fn const_tree(&self) -> TreeModule { self.0.ext.0.reqnot.request(GetConstTree(self.0.id)) }
+  pub fn has_lexer(&self) -> bool { !self.0.lex_filter.0.is_empty() }
+  pub fn can_lex(&self, c: char) -> bool { char_filter_match(&self.0.lex_filter, c) }
 }
 impl fmt::Debug for System {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -1,9 +1,9 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::proj_error::{ErrorSansOrigin, ErrorSansOriginObj};
 use crate::intern::Token;
 use crate::name::{PathSlice, VPath};
+use crate::proj_error::{ErrorSansOrigin, ErrorSansOriginObj};
 
 /// Represents the result of loading code from a string-tree form such
 /// as the file system. Cheap to clone.

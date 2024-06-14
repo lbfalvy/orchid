@@ -9,8 +9,8 @@ use std::{fmt, process};
 use dyn_clone::{clone_box, DynClone};
 use itertools::Itertools;
 
-use crate::location::CodeOrigin;
 use crate::boxed_iter::{box_once, BoxedIter};
+use crate::location::CodeOrigin;
 #[allow(unused)] // for doc
 use crate::virt_fs::CodeNotFound;
 
@@ -220,7 +220,15 @@ impl Reporter {
   /// will always return true in the future.
   pub fn failing(&self) -> bool { !self.0.borrow().is_empty() }
   /// Report a fatal error
-  pub fn report(&self, error: ProjectErrorObj) { self.0.borrow_mut().push(error) }
+  pub fn report(&self, error: ProjectErrorObj) {
+    match error.as_any_ref().downcast_ref::<MultiError>() {
+      None => self.0.borrow_mut().push(error),
+      Some(me) =>
+        for err in me.0.iter() {
+          self.report(err.clone())
+        },
+    }
+  }
   /// Catch a fatal error, report it, and substitute the value
   pub fn fallback<T>(&self, res: ProjectResult<T>, cb: impl FnOnce(ProjectErrorObj) -> T) -> T {
     res.inspect_err(|e| self.report(e.clone())).unwrap_or_else(cb)
@@ -277,7 +285,11 @@ impl ProjectError for MultiError {
     self.0.iter().flat_map(|e| {
       e.positions().map(|pos| {
         let emsg = e.message();
-        let msg = if let Some(pmsg) = pos.message { format!("{emsg}: {pmsg}") } else { emsg };
+        let msg = match pos.message {
+          None => emsg,
+          Some(s) if s.is_empty() => emsg,
+          Some(pmsg) => format!("{emsg}: {pmsg}"),
+        };
         ErrorPosition { origin: pos.origin, message: Some(msg) }
       })
     })

@@ -60,7 +60,7 @@ fn gen_casts(ancestry: &[pm2::TokenStream], this: &pm2::TokenStream) -> pm2::Tok
               _ => false
             }
           }
-        }
+        },
       }
     }
     let chk = gen_chk(inter, this);
@@ -75,7 +75,7 @@ fn gen_casts(ancestry: &[pm2::TokenStream], this: &pm2::TokenStream) -> pm2::Tok
               _ => unreachable!("Checked above!"),
             }
           }
-        }
+        },
       }
     }
     let unpk = gen_unpk(inter, this);
@@ -104,8 +104,8 @@ fn get_ancestry(input: &DeriveInput) -> Option<Vec<pm2::TokenStream>> {
     match &attr.meta {
       syn::Meta::List(list) => (list.tokens.clone().into_iter())
         .batching(|it| {
-          let grp: pm2::TokenStream = it
-            .take_while(|t| {
+          let grp: pm2::TokenStream =
+            it.take_while(|t| {
               if let TokenTree::Punct(punct) = t { punct.as_char() != ',' } else { true }
             })
             .collect();
@@ -122,6 +122,4 @@ fn is_extendable(input: &DeriveInput) -> bool {
 }
 
 #[test]
-fn test_wtf() {
-  eprintln!("{}", gen_casts(&[quote!(ExtHostReq)], &quote!(BogusReq)))
-}
+fn test_wtf() { eprintln!("{}", gen_casts(&[quote!(ExtHostReq)], &quote!(BogusReq))) }

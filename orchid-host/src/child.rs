@@ -1,6 +1,5 @@
-use std::io;
 use std::sync::Mutex;
-use std::{mem, process};
+use std::{io, mem, process};
 
 use orchid_base::msg::{recv_msg, send_msg};
 

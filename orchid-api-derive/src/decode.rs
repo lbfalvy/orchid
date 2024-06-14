@@ -12,7 +12,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
   let decode = decode_body(&input.data);
   let expanded = quote! {
     impl #impl_generics orchid_api_traits::Decode for #name #ty_generics #where_clause {
-      fn decode<R: std::io::Read>(read: &mut R) -> Self { #decode }
+      fn decode<R: std::io::Read + ?Sized>(read: &mut R) -> Self { #decode }
     }
   };
   TokenStream::from(expanded)

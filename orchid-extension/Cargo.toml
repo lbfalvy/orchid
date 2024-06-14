@@ -10,7 +10,11 @@ ahash = "0.8.11"
 derive_destructure = "1.0.0"
 hashbrown = "0.14.5"
 itertools = "0.12.1"
+never = "0.1.0"
 orchid-api = { version = "0.1.0", path = "../orchid-api" }
 orchid-api-traits = { version = "0.1.0", path = "../orchid-api-traits" }
 orchid-base = { version = "0.1.0", path = "../orchid-base" }
 ordered-float = "4.2.0"
+substack = "1.1.0"
+trait-set = "0.3.0"
+typeid = "1.0.0"

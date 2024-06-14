@@ -1,2 +1,4 @@
 {
+    "rust-analyzer.check.command": "check",
+    "rust-analyzer.rustfmt.extraArgs": ["+nightly"]
 }

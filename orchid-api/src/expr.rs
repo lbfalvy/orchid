@@ -1,7 +1,7 @@
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
-use crate::atom::Atom;
+use crate::atom::LocalAtom;
 use crate::intern::{TStr, TStrv};
 use crate::location::Location;
 use crate::proto::{ExtHostNotif, ExtHostReq};
@@ -67,9 +67,13 @@ pub enum Clause {
   /// The lhs must be fully processed before the rhs can be processed.
   /// Equivalent to Haskell's function of the same name
   Seq(Box<Expr>, Box<Expr>),
-  /// Insert an atom in the tree. When the clause is used in the const tree, the
-  /// atom must be trivial.
-  Atom(Atom),
+  /// Insert a new atom in the tree. When the clause is used in the const tree,
+  /// the atom must be trivial. This is always a newly constructed atom, if you
+  /// want to reference an existing atom, use the corresponding [ExprTicket].
+  /// Because the atom is newly constructed, it also must belong to this system.
+  /// For convenience, [SysId::MAX] is also accepted as referring to this
+  /// system.
+  Atom(LocalAtom),
   /// A reference to a constant
   Const(TStrv),
 }
@@ -77,7 +81,7 @@ pub enum Clause {
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding)]
 pub struct Expr {
   pub clause: Clause,
-  pub location: Location
+  pub location: Location,
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]

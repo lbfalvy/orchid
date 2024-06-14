@@ -2,6 +2,7 @@ use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 use ordered_float::NotNan;
 
+use crate::parser::CharFilter;
 use crate::proto::{HostExtNotif, HostExtReq};
 
 /// ID of a system type
@@ -46,7 +47,15 @@ pub struct NewSystem {
   pub depends: Vec<SysId>,
 }
 impl Request for NewSystem {
-  type Response = ();
+  type Response = SystemInst;
+}
+
+#[derive(Clone, Debug, Coding)]
+pub struct SystemInst {
+  /// The set of possible starting characters of tokens the lexer of this system
+  /// can process. The lexer will notify this system if it encounters one of
+  /// these characters.9
+  pub lex_filter: CharFilter,
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]

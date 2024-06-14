@@ -3,63 +3,50 @@ use std::ops::RangeInclusive;
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
+use crate::error::ProjResult;
 use crate::intern::TStr;
 use crate::proto::{ExtHostReq, HostExtReq};
 use crate::system::SysId;
 use crate::tree::TokenTree;
 
+/// - All ranges contain at least one character
+/// - All ranges are in increasing characeter order
+/// - There are excluded characters between each pair of neighboring ranges
+#[derive(Clone, Debug, Coding)]
+pub struct CharFilter(pub Vec<RangeInclusive<char>>);
+
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(HostExtReq)]
 #[extendable]
 pub enum ParserReq {
-  MkLexer(MkLexer),
   Lex(Lex),
-}
-
-pub type LexerId = u16;
-
-#[derive(Clone, Debug, Coding)]
-pub struct Lexer {
-  id: LexerId,
-  drop: bool,
-  notify_chars: Option<Vec<RangeInclusive<char>>>,
-}
-
-#[derive(Clone, Debug, Coding, Hierarchy)]
-#[extends(ParserReq, HostExtReq)]
-pub struct MkLexer(pub SysId, pub TStr);
-impl Request for MkLexer {
-  type Response = Lexer;
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(ParserReq, HostExtReq)]
 pub struct Lex {
-  pub parser: LexerId,
-  pub next: char,
+  pub sys: SysId,
+  pub text: TStr,
   pub pos: u32,
 }
 impl Request for Lex {
-  type Response = Option<LexResult>;
+  type Response = Option<ProjResult<Lexed>>;
 }
 
 #[derive(Clone, Debug, Coding)]
-pub struct LexResult {
-  pub consumed: u32,
+pub struct Lexed {
+  pub pos: u32,
   pub data: TokenTree,
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(ExtHostReq)]
 pub struct SubLex {
-  pub lexer: LexerId,
+  pub text: TStr,
   pub pos: u32,
 }
 impl Request for SubLex {
-  type Response = SubLex;
+  type Response = ProjResult<Lexed>;
 }
-
-#[derive(Clone, Debug, Coding)]
-pub struct LexerDrop;
 
 pub struct ParseLine {}

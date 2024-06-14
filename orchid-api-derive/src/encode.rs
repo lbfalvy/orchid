@@ -1,4 +1,3 @@
-
 use proc_macro::TokenStream;
 use proc_macro2 as pm2;
 use quote::ToTokens;
@@ -15,7 +14,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
   let encode = encode_body(&input.data);
   let expanded = quote! {
     impl #e_impl_generics orchid_api_traits::Encode for #name #e_ty_generics #e_where_clause {
-      fn encode<W: std::io::Write>(&self, write: &mut W) { #encode }
+      fn encode<W: std::io::Write + ?Sized>(&self, write: &mut W) { #encode }
     }
   };
   TokenStream::from(expanded)
@@ -65,4 +64,3 @@ fn encode_items(fields: &syn::Fields) -> Option<pm2::TokenStream> {
       Some(encode_names((0..fields.len()).map(|i| pos_field_name(i, un.span())))),
   }
 }
-

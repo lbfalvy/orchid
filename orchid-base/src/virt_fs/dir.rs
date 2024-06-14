@@ -10,8 +10,8 @@ use hashbrown::HashMap;
 use super::common::CodeNotFound;
 use super::{FSResult, Loaded, VirtFS};
 use crate::intern::{intern, Token};
-use crate::proj_error::{ErrorSansOrigin, ErrorSansOriginObj};
 use crate::name::PathSlice;
+use crate::proj_error::{ErrorSansOrigin, ErrorSansOriginObj};
 
 #[derive(Clone)]
 struct OpenError {

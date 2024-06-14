@@ -2,11 +2,14 @@ use std::ops::Range;
 
 use orchid_api_derive::Coding;
 
-use crate::intern::TStrv;
+use crate::intern::{TStr, TStrv};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding)]
 pub enum Location {
   None,
+  /// Used in functions to denote the generated code that carries on the
+  /// location of the call. Not allowed in the const tree.
+  Inherit,
   Gen(CodeGenInfo),
   Range(SourceRange),
 }
@@ -19,6 +22,6 @@ pub struct SourceRange {
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding)]
 pub struct CodeGenInfo {
-  pub generator: String,
-  pub details: String,
+  pub generator: TStr,
+  pub details: TStr,
 }

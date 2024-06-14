@@ -259,6 +259,7 @@ dependencies = [
 name = "orchid-api-traits"
 version = "0.1.0"
 dependencies = [
+ "never",
  "ordered-float",
 ]
 
@@ -289,10 +290,14 @@ dependencies = [
  "derive_destructure",
  "hashbrown",
  "itertools",
+ "never",
  "orchid-api",
  "orchid-api-traits",
  "orchid-base",
  "ordered-float",
+ "substack",
+ "trait-set",
+ "typeid",
 ]
 
 [[package]]
@@ -490,6 +495,12 @@ dependencies = [
  "quote 1.0.35",
  "syn 1.0.109",
 ]
+
+[[package]]
+name = "typeid"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "059d83cc991e7a42fc37bd50941885db0888e34209f8cfd9aab07ddec03bc9cf"
 
 [[package]]
 name = "typenum"
