@@ -8,7 +8,7 @@ use crate::common::{add_trait_bounds, destructure, pos_field_name};
 pub fn derive(input: TokenStream) -> TokenStream {
   // Parse the input tokens into a syntax tree
   let input = parse_macro_input!(input as syn::DeriveInput);
-  let e_generics = add_trait_bounds(input.generics, parse_quote!(orchid_api_traits::Decode));
+  let e_generics = add_trait_bounds(input.generics, parse_quote!(orchid_api_traits::Encode));
   let (e_impl_generics, e_ty_generics, e_where_clause) = e_generics.split_for_impl();
   let name = input.ident;
   let encode = encode_body(&input.data);

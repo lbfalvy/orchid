@@ -1,15 +1,18 @@
+use std::num::NonZeroU16;
+
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 use ordered_float::NotNan;
 
 use crate::parser::CharFilter;
 use crate::proto::{HostExtNotif, HostExtReq};
+use crate::tree::TreeId;
 
 /// ID of a system type
-pub type SysDeclId = u16;
+pub type SysDeclId = NonZeroU16;
 
 /// ID of a system instance
-pub type SysId = u16;
+pub type SysId = NonZeroU16;
 
 /// Details about a system provided by this library
 #[derive(Debug, Clone, Coding)]
@@ -56,6 +59,7 @@ pub struct SystemInst {
   /// can process. The lexer will notify this system if it encounters one of
   /// these characters.9
   pub lex_filter: CharFilter,
+  pub const_root_id: TreeId,
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]

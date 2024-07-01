@@ -21,18 +21,18 @@ impl<'a> PrefixFS<'a> {
       add: VPath::parse(add.as_ref()),
     }
   }
-  fn proc_path(&self, path: &[Token<String>]) -> Option<Vec<Token<String>>> {
+  fn proc_path(&self, path: &[Tok<String>]) -> Option<Vec<Tok<String>>> {
     let path = path.strip_prefix(self.remove.as_slice())?;
     Some(self.add.0.iter().chain(path).cloned().collect_vec())
   }
 }
 impl<'a> VirtFS for PrefixFS<'a> {
-  fn get(&self, path: &[Token<String>], full_path: &PathSlice) -> super::FSResult {
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> super::FSResult {
     let path =
       self.proc_path(path).ok_or_else(|| CodeNotFound::new(full_path.to_vpath()).pack())?;
     self.wrapped.get(&path, full_path)
   }
-  fn display(&self, path: &[Token<String>]) -> Option<String> {
+  fn display(&self, path: &[Tok<String>]) -> Option<String> {
     self.wrapped.display(&self.proc_path(path)?)
   }
 }

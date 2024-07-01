@@ -20,7 +20,7 @@ impl<'a, T: 'a> Sequence<'a, T> {
     Self(Rc::new(move || Box::new(f().into_iter())))
   }
   /// Get an iterator from the function
-  pub fn iter(&self) -> impl Iterator<Item = T> + '_ { (self.0)() }
+  pub fn iter(&self) -> BoxedIter<'_, T> { (self.0)() }
 }
 impl<'a, T: 'a> Clone for Sequence<'a, T> {
   fn clone(&self) -> Self { Self(self.0.clone()) }

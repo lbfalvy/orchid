@@ -4,18 +4,15 @@
 use std::fmt;
 
 use hashbrown::HashMap;
-use itertools::Itertools as _;
 use never::Never;
 use substack::Substack;
 use trait_set::trait_set;
 
 use crate::boxed_iter::BoxedIter;
 use crate::combine::Combine;
-use crate::intern::{intern, Token};
+use crate::interner::{intern, Tok};
 use crate::join::try_join_maps;
-use crate::location::CodeOrigin;
 use crate::name::{VName, VPath};
-use crate::proj_error::{ProjectError, ProjectErrorObj};
 use crate::sequence::Sequence;
 
 /// An umbrella trait for operations you can carry out on any part of the tree
@@ -34,18 +31,18 @@ pub trait TreeTransforms: Sized {
   /// Implementation for [TreeTransforms::map_data]
   fn map_data_rec<T, U, V>(
     self,
-    item: &mut impl FnMut(Substack<Token<String>>, Self::Item) -> T,
-    module: &mut impl FnMut(Substack<Token<String>>, Self::XMod) -> U,
-    entry: &mut impl FnMut(Substack<Token<String>>, Self::XEnt) -> V,
-    path: Substack<Token<String>>,
+    item: &mut impl FnMut(Substack<Tok<String>>, Self::Item) -> T,
+    module: &mut impl FnMut(Substack<Tok<String>>, Self::XMod) -> U,
+    entry: &mut impl FnMut(Substack<Tok<String>>, Self::XEnt) -> V,
+    path: Substack<Tok<String>>,
   ) -> Self::SelfType<T, U, V>;
 
   /// Transform all the data in the tree without changing its structure
   fn map_data<T, U, V>(
     self,
-    mut item: impl FnMut(Substack<Token<String>>, Self::Item) -> T,
-    mut module: impl FnMut(Substack<Token<String>>, Self::XMod) -> U,
-    mut entry: impl FnMut(Substack<Token<String>>, Self::XEnt) -> V,
+    mut item: impl FnMut(Substack<Tok<String>>, Self::Item) -> T,
+    mut module: impl FnMut(Substack<Tok<String>>, Self::XMod) -> U,
+    mut entry: impl FnMut(Substack<Tok<String>>, Self::XEnt) -> V,
   ) -> Self::SelfType<T, U, V> {
     self.map_data_rec(&mut item, &mut module, &mut entry, Substack::Bottom)
   }
@@ -55,14 +52,14 @@ pub trait TreeTransforms: Sized {
   ///
   /// * init - can be used for reduce, otherwise pass `()`
   /// * callback - a callback applied on every module.
-  ///   * [`Substack<Token<String>>`] - the walked path
+  ///   * [`Substack<Tok<String>>`] - the walked path
   ///   * [Module] - the current module
   ///   * `T` - data for reduce.
   fn search_all<'a, T>(
     &'a self,
     init: T,
     mut callback: impl FnMut(
-      Substack<Token<String>>,
+      Substack<Tok<String>>,
       ModMemberRef<'a, Self::Item, Self::XMod, Self::XEnt>,
       T,
     ) -> T,
@@ -77,14 +74,14 @@ pub trait TreeTransforms: Sized {
   /// * init - can be used for reduce, otherwise pass `()`
   /// * callback - a callback applied on every module. Can return [Err] to
   ///   short-circuit the walk
-  ///   * [`Substack<Token<String>>`] - the walked path
+  ///   * [`Substack<Tok<String>>`] - the walked path
   ///   * [Module] - the current module
   ///   * `T` - data for reduce.
   fn search<'a, T, E>(
     &'a self,
     init: T,
     mut callback: impl FnMut(
-      Substack<Token<String>>,
+      Substack<Tok<String>>,
       ModMemberRef<'a, Self::Item, Self::XMod, Self::XEnt>,
       T,
     ) -> Result<T, E>,
@@ -96,9 +93,9 @@ pub trait TreeTransforms: Sized {
   fn search_rec<'a, T, E>(
     &'a self,
     state: T,
-    stack: Substack<Token<String>>,
+    stack: Substack<Tok<String>>,
     callback: &mut impl FnMut(
-      Substack<Token<String>>,
+      Substack<Tok<String>>,
       ModMemberRef<'a, Self::Item, Self::XMod, Self::XEnt>,
       T,
     ) -> Result<T, E>,
@@ -122,10 +119,10 @@ impl<Item, XMod, XEnt> TreeTransforms for ModMember<Item, XMod, XEnt> {
 
   fn map_data_rec<T, U, V>(
     self,
-    item: &mut impl FnMut(Substack<Token<String>>, Item) -> T,
-    module: &mut impl FnMut(Substack<Token<String>>, XMod) -> U,
-    entry: &mut impl FnMut(Substack<Token<String>>, XEnt) -> V,
-    path: Substack<Token<String>>,
+    item: &mut impl FnMut(Substack<Tok<String>>, Item) -> T,
+    module: &mut impl FnMut(Substack<Tok<String>>, XMod) -> U,
+    entry: &mut impl FnMut(Substack<Tok<String>>, XEnt) -> V,
+    path: Substack<Tok<String>>,
   ) -> Self::SelfType<T, U, V> {
     match self {
       Self::Item(it) => ModMember::Item(item(path, it)),
@@ -136,9 +133,9 @@ impl<Item, XMod, XEnt> TreeTransforms for ModMember<Item, XMod, XEnt> {
   fn search_rec<'a, T, E>(
     &'a self,
     state: T,
-    stack: Substack<Token<String>>,
+    stack: Substack<Tok<String>>,
     callback: &mut impl FnMut(
-      Substack<Token<String>>,
+      Substack<Tok<String>>,
       ModMemberRef<'a, Item, XMod, XEnt>,
       T,
     ) -> Result<T, E>,
@@ -209,7 +206,7 @@ pub struct TreeConflict<Item: Combine, XMod: Combine, XEnt: Combine> {
 impl<Item: Combine, XMod: Combine, XEnt: Combine> TreeConflict<Item, XMod, XEnt> {
   fn new(kind: ConflictKind<Item, XMod, XEnt>) -> Self { Self { path: VPath::new([]), kind } }
 
-  fn push(self, seg: Token<String>) -> Self {
+  fn push(self, seg: Tok<String>) -> Self {
     Self { path: self.path.prefix([seg]), kind: self.kind }
   }
 }
@@ -280,10 +277,10 @@ impl<Item, XMod, XEnt> TreeTransforms for ModEntry<Item, XMod, XEnt> {
 
   fn map_data_rec<T, U, V>(
     self,
-    item: &mut impl FnMut(Substack<Token<String>>, Item) -> T,
-    module: &mut impl FnMut(Substack<Token<String>>, XMod) -> U,
-    entry: &mut impl FnMut(Substack<Token<String>>, XEnt) -> V,
-    path: Substack<Token<String>>,
+    item: &mut impl FnMut(Substack<Tok<String>>, Item) -> T,
+    module: &mut impl FnMut(Substack<Tok<String>>, XMod) -> U,
+    entry: &mut impl FnMut(Substack<Tok<String>>, XEnt) -> V,
+    path: Substack<Tok<String>>,
   ) -> Self::SelfType<T, U, V> {
     ModEntry {
       member: self.member.map_data_rec(item, module, entry, path.clone()),
@@ -294,9 +291,9 @@ impl<Item, XMod, XEnt> TreeTransforms for ModEntry<Item, XMod, XEnt> {
   fn search_rec<'a, T, E>(
     &'a self,
     state: T,
-    stack: Substack<Token<String>>,
+    stack: Substack<Tok<String>>,
     callback: &mut impl FnMut(
-      Substack<Token<String>>,
+      Substack<Tok<String>>,
       ModMemberRef<'a, Item, XMod, XEnt>,
       T,
     ) -> Result<T, E>,
@@ -357,7 +354,7 @@ impl<Item, XMod: Default, XEnt: Default> ModEntry<Item, XMod, XEnt> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Module<Item, XMod, XEnt> {
   /// Submodules and items by name
-  pub entries: HashMap<Token<String>, ModEntry<Item, XMod, XEnt>>,
+  pub entries: HashMap<Tok<String>, ModEntry<Item, XMod, XEnt>>,
   /// Additional fields
   pub x: XMod,
 }
@@ -369,7 +366,7 @@ trait_set! {
 }
 
 /// A line in a [Module]
-pub type Record<Item, XMod, XEnt> = (Token<String>, ModEntry<Item, XMod, XEnt>);
+pub type Record<Item, XMod, XEnt> = (Tok<String>, ModEntry<Item, XMod, XEnt>);
 
 impl<Item, XMod, XEnt> Module<Item, XMod, XEnt> {
   /// Returns child names for which the value matches a filter
@@ -377,15 +374,15 @@ impl<Item, XMod, XEnt> Module<Item, XMod, XEnt> {
   pub fn keys<'a>(
     &'a self,
     filter: impl for<'b> Fn(&'b ModEntry<Item, XMod, XEnt>) -> bool + 'a,
-  ) -> BoxedIter<Token<String>> {
+  ) -> BoxedIter<Tok<String>> {
     Box::new((self.entries.iter()).filter(move |(_, v)| filter(v)).map(|(k, _)| k.clone()))
   }
 
   /// Return the module at the end of the given path
   pub fn walk_ref<'a: 'b, 'b>(
     &'a self,
-    prefix: &'b [Token<String>],
-    path: &'b [Token<String>],
+    prefix: &'b [Tok<String>],
+    path: &'b [Tok<String>],
     filter: impl Filter<'b, Item, XMod, XEnt>,
   ) -> Result<&'a Self, WalkError<'b>> {
     let mut module = self;
@@ -412,8 +409,8 @@ impl<Item, XMod, XEnt> Module<Item, XMod, XEnt> {
   /// if path is empty, since the reference cannot be forwarded that way
   pub fn walk1_ref<'a: 'b, 'b>(
     &'a self,
-    prefix: &'b [Token<String>],
-    path: &'b [Token<String>],
+    prefix: &'b [Tok<String>],
+    path: &'b [Tok<String>],
     filter: impl Filter<'b, Item, XMod, XEnt>,
   ) -> Result<(&'a ModEntry<Item, XMod, XEnt>, &'a Self), WalkError<'b>> {
     let (last, parent) = path.split_last().expect("Path cannot be empty");
@@ -436,8 +433,8 @@ impl<Item, XMod, XEnt> Module<Item, XMod, XEnt> {
   /// If the target is the root node
   pub fn inner_walk<'a: 'b, 'b>(
     &'a self,
-    origin: &[Token<String>],
-    target: &'b [Token<String>],
+    origin: &[Tok<String>],
+    target: &'b [Tok<String>],
     is_exported: impl for<'c> Fn(&'c ModEntry<Item, XMod, XEnt>) -> bool + Clone + 'b,
   ) -> Result<(&'a ModEntry<Item, XMod, XEnt>, &'a Self), WalkError<'b>> {
     let ignore_vis_len = 1 + origin.iter().zip(target).take_while(|(a, b)| a == b).count();
@@ -464,10 +461,10 @@ impl<Item, XMod, XEnt> TreeTransforms for Module<Item, XMod, XEnt> {
 
   fn map_data_rec<T, U, V>(
     self,
-    item: &mut impl FnMut(Substack<Token<String>>, Item) -> T,
-    module: &mut impl FnMut(Substack<Token<String>>, XMod) -> U,
-    entry: &mut impl FnMut(Substack<Token<String>>, XEnt) -> V,
-    path: Substack<Token<String>>,
+    item: &mut impl FnMut(Substack<Tok<String>>, Item) -> T,
+    module: &mut impl FnMut(Substack<Tok<String>>, XMod) -> U,
+    entry: &mut impl FnMut(Substack<Tok<String>>, XEnt) -> V,
+    path: Substack<Tok<String>>,
   ) -> Self::SelfType<T, U, V> {
     Module {
       x: module(path.clone(), self.x),
@@ -480,9 +477,9 @@ impl<Item, XMod, XEnt> TreeTransforms for Module<Item, XMod, XEnt> {
   fn search_rec<'a, T, E>(
     &'a self,
     mut state: T,
-    stack: Substack<Token<String>>,
+    stack: Substack<Tok<String>>,
     callback: &mut impl FnMut(
-      Substack<Token<String>>,
+      Substack<Tok<String>>,
       ModMemberRef<'a, Item, XMod, XEnt>,
       T,
     ) -> Result<T, E>,
@@ -538,6 +535,15 @@ pub enum ErrKind {
   /// The path leads into a leaf node
   NotModule,
 }
+impl ErrKind {
+  pub const fn msg(&self) -> &'static str {
+    match self {
+      Self::Filtered => "The path leads into a private module",
+      Self::Missing => "Nonexistent path",
+      Self::NotModule => "The path leads into a leaf",
+    }
+  }
+}
 
 #[derive(Clone)]
 /// All details about a failed tree-walk
@@ -545,42 +551,31 @@ pub struct WalkError<'a> {
   /// Failure mode
   kind: ErrKind,
   /// Path to the module where the walk started
-  prefix: &'a [Token<String>],
+  prefix: &'a [Tok<String>],
   /// Planned walk path
-  path: &'a [Token<String>],
+  path: &'a [Tok<String>],
   /// Index into walked path where the error occurred
   pos: usize,
   /// Alternatives to the failed steps
-  options: Sequence<'a, Token<String>>,
+  options: Sequence<'a, Tok<String>>,
 }
 impl<'a> WalkError<'a> {
   /// Total length of the path represented by this error
   #[must_use]
   pub fn depth(&self) -> usize { self.prefix.len() + self.pos + 1 }
 
-  /// Attach a location to the error and convert into trait object for reporting
-  #[must_use]
-  pub fn at(self, origin: &CodeOrigin) -> ProjectErrorObj {
-    let details = WalkErrorDetails {
-      origin: origin.clone(),
-      path: VName::new((self.prefix.iter()).chain(self.path.iter().take(self.pos + 1)).cloned())
-        .expect("empty paths don't cause an error"),
-      options: self.options.iter().collect(),
-    };
-    match self.kind {
-      ErrKind::Filtered => FilteredError(details).pack(),
-      ErrKind::Missing => MissingError(details).pack(),
-      ErrKind::NotModule => NotModuleError(details).pack(),
-    }
+  pub fn alternatives(&self) -> BoxedIter<Tok<String>> { self.options.iter() }
+
+  /// Get the total path including the step that caused the error
+  pub fn full_path(&self) -> VName {
+    VName::new((self.prefix.iter()).chain(self.path.iter().take(self.pos + 1)).cloned())
+      .expect("empty paths don't cause an error")
   }
+
   /// Construct an error for the very last item in a slice. This is often done
   /// outside [super::tree] so it gets a function rather than exposing the
   /// fields of [WalkError]
-  pub fn last(
-    path: &'a [Token<String>],
-    kind: ErrKind,
-    options: Sequence<'a, Token<String>>,
-  ) -> Self {
+  pub fn last(path: &'a [Tok<String>], kind: ErrKind, options: Sequence<'a, Tok<String>>) -> Self {
     WalkError { kind, path, options, pos: path.len() - 1, prefix: &[] }
   }
 }
@@ -592,39 +587,5 @@ impl<'a> fmt::Debug for WalkError<'a> {
       .field("path", &self.path)
       .field("pos", &self.pos)
       .finish_non_exhaustive()
-  }
-}
-
-struct WalkErrorDetails {
-  path: VName,
-  options: Vec<Token<String>>,
-  origin: CodeOrigin,
-}
-impl WalkErrorDetails {
-  fn print_options(&self) -> String { format!("options are {}", self.options.iter().join(", ")) }
-}
-
-struct FilteredError(WalkErrorDetails);
-impl ProjectError for FilteredError {
-  const DESCRIPTION: &'static str = "The path leads into a private module";
-  fn one_position(&self) -> CodeOrigin { self.0.origin.clone() }
-  fn message(&self) -> String { format!("{} is private, {}", self.0.path, self.0.print_options()) }
-}
-
-struct MissingError(WalkErrorDetails);
-impl ProjectError for MissingError {
-  const DESCRIPTION: &'static str = "Nonexistent path";
-  fn one_position(&self) -> CodeOrigin { self.0.origin.clone() }
-  fn message(&self) -> String {
-    format!("{} does not exist, {}", self.0.path, self.0.print_options())
-  }
-}
-
-struct NotModuleError(WalkErrorDetails);
-impl ProjectError for NotModuleError {
-  const DESCRIPTION: &'static str = "The path leads into a leaf";
-  fn one_position(&self) -> CodeOrigin { self.0.origin.clone() }
-  fn message(&self) -> String {
-    format!("{} is not a module, {}", self.0.path, self.0.print_options())
   }
 }

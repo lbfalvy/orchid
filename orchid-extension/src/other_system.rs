@@ -1,37 +1,37 @@
 use std::marker::PhantomData;
+use std::mem::size_of;
 
-use orchid_api::atom::Atom;
-use orchid_api::expr::ExprTicket;
-use orchid_api::proto::ExtMsgSet;
 use orchid_api::system::SysId;
-use orchid_base::reqnot::ReqNot;
 
-use crate::atom::{decode_atom, AtomCard, ForeignAtom};
-use crate::system::SystemCard;
+use crate::system::{DynSystemCard, SystemCard};
 
 pub struct SystemHandle<C: SystemCard> {
   pub(crate) _card: PhantomData<C>,
   pub(crate) id: SysId,
-  pub(crate) reqnot: ReqNot<ExtMsgSet>,
 }
-impl<T: SystemCard> SystemHandle<T> {
-  pub(crate) fn new(id: SysId, reqnot: ReqNot<ExtMsgSet>) -> Self {
-    Self { _card: PhantomData, id, reqnot }
-  }
+impl<C: SystemCard> SystemHandle<C> {
+  pub(crate) fn new(id: SysId) -> Self { Self { _card: PhantomData, id } }
   pub fn id(&self) -> SysId { self.id }
-  pub fn wrap_atom<A: AtomCard<Owner = T>>(
-    &self,
-    api: Atom,
-    ticket: ExprTicket,
-  ) -> Result<ForeignAtom<A>, Atom> {
-    if api.owner == self.id {
-      if let Some(value) = decode_atom::<A>(&T::default(), &api) {
-        return Ok(ForeignAtom { ticket, sys: self.clone(), value, api });
-      }
-    }
-    Err(api)
-  }
 }
-impl<T: SystemCard> Clone for SystemHandle<T> {
-  fn clone(&self) -> Self { Self { reqnot: self.reqnot.clone(), _card: PhantomData, id: self.id } }
+impl<C: SystemCard> Clone for SystemHandle<C> {
+  fn clone(&self) -> Self { Self::new(self.id) }
+}
+
+pub trait DynSystemHandle {
+  fn id(&self) -> SysId;
+  fn get_card(&self) -> &dyn DynSystemCard;
+}
+
+pub fn leak_card<T: Default>() -> &'static T {
+  const {
+    if 0 != size_of::<T>() {
+      panic!("Attempted to leak positively sized Card. Card types must always be zero-sized");
+    }
+  }
+  Box::leak(Box::default())
+}
+
+impl<C: SystemCard> DynSystemHandle for SystemHandle<C> {
+  fn id(&self) -> SysId { self.id }
+  fn get_card(&self) -> &'static dyn DynSystemCard { leak_card::<C>() }
 }

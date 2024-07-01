@@ -1,94 +1,136 @@
-use std::hash::{Hash as _, Hasher as _};
+use std::any::Any;
+use std::num::NonZeroU16;
+use std::sync::Arc;
 
-use itertools::Itertools as _;
-use orchid_api::proto::ExtMsgSet;
 use orchid_api::system::{NewSystem, SysId, SystemDecl};
-use orchid_base::reqnot::ReqNot;
+use orchid_base::boxed_iter::{box_empty, box_once, BoxedIter};
 use ordered_float::NotNan;
-use typeid::ConstTypeId;
 
-use crate::other_system::SystemHandle;
+use crate::other_system::{DynSystemHandle, SystemHandle};
 use crate::system::{DynSystem, System, SystemCard};
 
-pub struct SystemParams<Ctor: SystemCtor + ?Sized> {
-  pub deps: <Ctor::Deps as DepSet>::Sat,
-  pub id: SysId,
-  pub reqnot: ReqNot<ExtMsgSet>,
+pub struct Cted<Ctor: SystemCtor + ?Sized> {
+  pub deps: <Ctor::Deps as DepDef>::Sat,
+  pub inst: Arc<Ctor::Instance>,
+}
+impl<C: SystemCtor + ?Sized> Clone for Cted<C> {
+  fn clone(&self) -> Self { Self { deps: self.deps.clone(), inst: self.inst.clone() } }
+}
+pub trait DynCted: Send + Sync + 'static {
+  fn as_any(&self) -> &dyn Any;
+  fn deps<'a>(&'a self) -> BoxedIter<'a, &'a (dyn DynSystemHandle + 'a)>;
+  fn inst(&self) -> Arc<dyn DynSystem>;
+}
+impl<C: SystemCtor + ?Sized> DynCted for Cted<C> {
+  fn as_any(&self) -> &dyn Any { self }
+  fn deps<'a>(&'a self) -> BoxedIter<'a, &'a (dyn DynSystemHandle + 'a)> { self.deps.iter() }
+  fn inst(&self) -> Arc<dyn DynSystem> { self.inst.clone() }
+}
+pub type CtedObj = Arc<dyn DynCted>;
+
+pub trait DepSat: Clone + Send + Sync + 'static {
+  fn iter<'a>(&'a self) -> BoxedIter<'a, &'a (dyn DynSystemHandle + 'a)>;
 }
 
-pub trait DepSet {
-  type Sat;
+pub trait DepDef {
+  type Sat: DepSat;
   fn report(names: &mut impl FnMut(&'static str));
-  fn create(take: &mut impl FnMut() -> SysId, reqnot: ReqNot<ExtMsgSet>) -> Self::Sat;
+  fn create(take: &mut impl FnMut() -> SysId) -> Self::Sat;
 }
 
-impl<T: SystemCard> DepSet for T {
+impl<T: SystemCard> DepSat for SystemHandle<T> {
+  fn iter<'a>(&'a self) -> BoxedIter<'a, &'a (dyn DynSystemHandle + 'a)> { box_once(self) }
+}
+
+impl<T: SystemCard> DepDef for T {
   type Sat = SystemHandle<Self>;
-  fn report(names: &mut impl FnMut(&'static str)) { names(T::NAME) }
-  fn create(take: &mut impl FnMut() -> SysId, reqnot: ReqNot<ExtMsgSet>) -> Self::Sat {
-    SystemHandle::new(take(), reqnot)
-  }
+  fn report(names: &mut impl FnMut(&'static str)) { names(T::Ctor::NAME) }
+  fn create(take: &mut impl FnMut() -> SysId) -> Self::Sat { SystemHandle::new(take()) }
 }
 
-pub trait SystemCtor: Send + 'static {
-  type Deps: DepSet;
+impl DepSat for () {
+  fn iter<'a>(&'a self) -> BoxedIter<'a, &'a (dyn DynSystemHandle + 'a)> { box_empty() }
+}
+
+impl DepDef for () {
+  type Sat = ();
+  fn create(_: &mut impl FnMut() -> SysId) -> Self::Sat {}
+  fn report(_: &mut impl FnMut(&'static str)) {}
+}
+
+pub trait SystemCtor: Send + Sync + 'static {
+  type Deps: DepDef;
   type Instance: System;
   const NAME: &'static str;
   const VERSION: f64;
-  #[allow(clippy::new_ret_no_self)]
-  fn new(params: SystemParams<Self>) -> Self::Instance;
+  fn inst() -> Option<Self::Instance>;
 }
 
-pub trait DynSystemCtor: Send + 'static {
-  fn decl(&self) -> SystemDecl;
-  fn new_system(&self, new: &NewSystem, reqnot: ReqNot<ExtMsgSet>) -> Box<dyn DynSystem>;
+pub trait DynSystemCtor: Send + Sync + 'static {
+  fn decl(&self, id: NonZeroU16) -> SystemDecl;
+  fn new_system(&self, new: &NewSystem) -> CtedObj;
 }
 
 impl<T: SystemCtor> DynSystemCtor for T {
-  fn decl(&self) -> SystemDecl {
+  fn decl(&self, id: NonZeroU16) -> SystemDecl {
     // Version is equivalent to priority for all practical purposes
     let priority = NotNan::new(T::VERSION).unwrap();
     // aggregate depends names
     let mut depends = Vec::new();
     T::Deps::report(&mut |n| depends.push(n.to_string()));
-    // generate definitely unique id
-    let mut ahash = ahash::AHasher::default();
-    ConstTypeId::of::<T>().hash(&mut ahash);
-    let id = (ahash.finish().to_be_bytes().into_iter().tuples())
-      .map(|(l, b)| u16::from_be_bytes([l, b]))
-      .fold(0, |a, b| a ^ b);
     SystemDecl { name: T::NAME.to_string(), depends, id, priority }
   }
-  fn new_system(&self, new: &NewSystem, reqnot: ReqNot<ExtMsgSet>) -> Box<dyn DynSystem> {
-    let mut ids = new.depends.iter().copied();
-    Box::new(T::new(SystemParams {
-      deps: T::Deps::create(&mut || ids.next().unwrap(), reqnot.clone()),
-      id: new.id,
-      reqnot,
-    }))
+  fn new_system(&self, NewSystem { system: _, id: _, depends }: &NewSystem) -> CtedObj {
+    let mut ids = depends.iter().copied();
+    let inst = Arc::new(T::inst().expect("Constructor did not create system"));
+    let deps = T::Deps::create(&mut || ids.next().unwrap());
+    Arc::new(Cted::<T> { deps, inst })
   }
 }
 
 mod dep_set_tuple_impls {
-  use orchid_api::proto::ExtMsgSet;
   use orchid_api::system::SysId;
-  use orchid_base::reqnot::ReqNot;
+  use orchid_base::box_chain;
+  use orchid_base::boxed_iter::BoxedIter;
+  use paste::paste;
 
-  use super::DepSet;
+  use super::{DepDef, DepSat};
+  use crate::system_ctor::DynSystemHandle;
 
   macro_rules! dep_set_tuple_impl {
     ($($name:ident),*) => {
-      impl<$( $name :DepSet ),*> DepSet for ( $( $name , )* ) {
+      impl<$( $name :DepSat ),*> DepSat for ( $( $name , )* ) {
+        fn iter<'a>(&'a self) -> BoxedIter<'a, &'a (dyn DynSystemHandle + 'a)> {
+          // we're using the Paste crate to convert the names to lowercase,
+          // so `dep_set_tuple_impl!(A, B, C)` generates `let (a, b, c,) = self;`
+          // This step isn't really required for correctness, but Rust warns about uppercase
+          // variable names.
+          paste!{
+            let (
+              $(
+                [< $name :lower >] ,
+              )*
+            ) = self;
+            box_chain! (
+              $(
+                [< $name :lower >] .iter()
+              ),*
+            )
+          }
+        }
+      }
+
+      impl<$( $name :DepDef ),*> DepDef for ( $( $name , )* ) {
         type Sat = ( $( $name ::Sat , )* );
         fn report(names: &mut impl FnMut(&'static str)) {
           $(
             $name ::report(names);
           )*
         }
-        fn create(take: &mut impl FnMut() -> SysId, reqnot: ReqNot<ExtMsgSet>) -> Self::Sat {
+        fn create(take: &mut impl FnMut() -> SysId) -> Self::Sat {
           (
             $(
-              $name ::create(take, reqnot.clone()),
+              $name ::create(take),
             )*
           )
         }

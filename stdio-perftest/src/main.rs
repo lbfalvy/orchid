@@ -18,7 +18,7 @@ fn main() {
       }
     }
   } else {
-    let steps = 10_000;
+    let steps = 1_000_000;
     let mut child = process::Command::new(args().next().unwrap())
       .arg("child")
       .stdin(process::Stdio::piped())

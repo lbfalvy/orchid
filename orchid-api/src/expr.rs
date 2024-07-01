@@ -1,18 +1,20 @@
+use std::num::NonZeroU64;
+
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
-use crate::atom::LocalAtom;
-use crate::intern::{TStr, TStrv};
+use crate::atom::{Atom, LocalAtom};
+use crate::interner::TStrv;
 use crate::location::Location;
 use crate::proto::{ExtHostNotif, ExtHostReq};
 use crate::system::SysId;
 
 /// An arbitrary ID associated with an expression on the host side. Incoming
 /// tickets always come with some lifetime guarantee, which can be extended with
-/// [AcquireExpr].
+/// [Acquire].
 ///
 /// The ID is globally unique within its lifetime, but may be reused.
-pub type ExprTicket = u64;
+pub type ExprTicket = NonZeroU64;
 
 /// Acquire a strong reference to an expression. This keeps it alive until a
 /// corresponding [Release] is emitted. The number of times a system has
@@ -52,15 +54,15 @@ pub struct Relocate {
 /// A description of a new expression. It is used as the return value of
 /// [crate::atom::Call] or [crate::atom::CallRef], or a constant in the
 /// [crate::tree::Tree].
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Coding)]
+#[derive(Clone, Debug, Coding)]
 pub enum Clause {
   /// Apply the lhs as a function to the rhs
   Call(Box<Expr>, Box<Expr>),
   /// Lambda function. The number operates as an argument name
-  Lambda(TStr, Box<Expr>),
+  Lambda(u64, Box<Expr>),
   /// Binds the argument passed to the lambda with the same ID in the same
   /// template
-  Arg(TStr),
+  Arg(u64),
   /// Insert the specified host-expression in the template here. When the clause
   /// is used in the const tree, this variant is forbidden.
   Slot(ExprTicket),
@@ -73,22 +75,34 @@ pub enum Clause {
   /// Because the atom is newly constructed, it also must belong to this system.
   /// For convenience, [SysId::MAX] is also accepted as referring to this
   /// system.
-  Atom(LocalAtom),
+  NewAtom(LocalAtom),
+  /// An atom, specifically an atom that already exists. This form is only ever
+  /// returned from [Inspect], and it's borrowed from the expression being
+  /// inspected.
+  Atom(ExprTicket, Atom),
   /// A reference to a constant
   Const(TStrv),
+  /// A static runtime error.
+  Bottom(String),
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Coding)]
+#[derive(Clone, Debug, Coding)]
 pub struct Expr {
   pub clause: Clause,
   pub location: Location,
+}
+
+#[derive(Clone, Debug, Coding)]
+pub struct Details {
+  pub expr: Expr,
+  pub refcount: u32,
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
 #[extends(ExprReq, ExtHostReq)]
 pub struct Inspect(pub ExprTicket);
 impl Request for Inspect {
-  type Response = Clause;
+  type Response = Details;
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]

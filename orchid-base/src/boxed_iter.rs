@@ -11,13 +11,12 @@ pub fn box_once<'a, T: 'a>(t: T) -> BoxedIter<'a, T> { Box::new(iter::once(t)) }
 pub fn box_empty<'a, T: 'a>() -> BoxedIter<'a, T> { Box::new(iter::empty()) }
 
 /// Chain various iterators into a [BoxedIter]
+#[macro_export]
 macro_rules! box_chain {
   ($curr:expr) => {
-    Box::new($curr) as BoxedIter<_>
+    Box::new($curr) as $crate::boxed_iter::BoxedIter<_>
   };
   ($curr:expr, $($rest:expr),*) => {
-    Box::new($curr$(.chain($rest))*) as $crate::utils::boxed_iter::BoxedIter<_>
+    Box::new($curr$(.chain($rest))*) as $crate::boxed_iter::BoxedIter<_>
   };
 }
-
-pub(crate) use box_chain;

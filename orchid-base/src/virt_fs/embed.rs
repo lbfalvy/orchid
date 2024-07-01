@@ -56,7 +56,7 @@ impl EmbeddedFS {
 }
 
 impl VirtFS for EmbeddedFS {
-  fn get(&self, path: &[Token<String>], full_path: &PathSlice) -> FSResult {
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult {
     if path.is_empty() {
       return Ok(Loaded::collection(self.tree.keys(|_| true)));
     }
@@ -67,7 +67,7 @@ impl VirtFS for EmbeddedFS {
       ModMember::Sub(sub) => Loaded::collection(sub.keys(|_| true)),
     })
   }
-  fn display(&self, path: &[Token<String>]) -> Option<String> {
+  fn display(&self, path: &[Tok<String>]) -> Option<String> {
     let Self { gen, suffix, .. } = self;
     Some(format!("{}{suffix} in {gen}", path.iter().join("/")))
   }

@@ -32,7 +32,7 @@ impl<'a> Combine for &'a dyn VirtFS {
 pub type DeclTree = ModEntry<Rc<dyn VirtFS>, (), ()>;
 
 impl VirtFS for DeclTree {
-  fn get(&self, path: &[Token<String>], full_path: &PathSlice) -> FSResult {
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult {
     match &self.member {
       ModMember::Item(it) => it.get(path, full_path),
       ModMember::Sub(module) => match path.split_first() {
@@ -44,7 +44,7 @@ impl VirtFS for DeclTree {
     }
   }
 
-  fn display(&self, path: &[Token<String>]) -> Option<String> {
+  fn display(&self, path: &[Tok<String>]) -> Option<String> {
     let (head, tail) = path.split_first()?;
     match &self.member {
       ModMember::Item(it) => it.display(path),
@@ -54,16 +54,16 @@ impl VirtFS for DeclTree {
 }
 
 impl VirtFS for String {
-  fn display(&self, _: &[Token<String>]) -> Option<String> { None }
-  fn get(&self, path: &[Token<String>], full_path: &PathSlice) -> FSResult {
+  fn display(&self, _: &[Tok<String>]) -> Option<String> { None }
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult {
     (path.is_empty().then(|| Loaded::Code(Arc::new(self.as_str().to_string()))))
       .ok_or_else(|| CodeNotFound::new(full_path.to_vpath()).pack())
   }
 }
 
 impl<'a> VirtFS for &'a str {
-  fn display(&self, _: &[Token<String>]) -> Option<String> { None }
-  fn get(&self, path: &[Token<String>], full_path: &PathSlice) -> FSResult {
+  fn display(&self, _: &[Tok<String>]) -> Option<String> { None }
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult {
     (path.is_empty().then(|| Loaded::Code(Arc::new(self.to_string()))))
       .ok_or_else(|| CodeNotFound::new(full_path.to_vpath()).pack())
   }

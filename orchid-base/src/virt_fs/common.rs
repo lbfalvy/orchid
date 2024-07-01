@@ -13,13 +13,13 @@ pub enum Loaded {
   Code(Arc<String>),
   /// Conceptually equivalent to the list of *.orc files in a folder, without
   /// the extension
-  Collection(Arc<Vec<Token<String>>>),
+  Collection(Arc<Vec<Tok<String>>>),
 }
 impl Loaded {
   /// Is the loaded item source code (not a collection)?
   pub fn is_code(&self) -> bool { matches!(self, Loaded::Code(_)) }
   /// Collect the elements in a collection rreport
-  pub fn collection(items: impl IntoIterator<Item = Token<String>>) -> Self {
+  pub fn collection(items: impl IntoIterator<Item = Tok<String>>) -> Self {
     Self::Collection(Arc::new(items.into_iter().collect()))
   }
 }
@@ -55,7 +55,7 @@ impl ErrorSansOrigin for CodeNotFound {
 /// formats and other sources for libraries and dependencies.
 pub trait VirtFS {
   /// Implementation of [VirtFS::read]
-  fn get(&self, path: &[Token<String>], full_path: &PathSlice) -> FSResult;
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult;
   /// Discover information about a path without reading it.
   ///
   /// Implement this if your vfs backend can do expensive operations
@@ -68,7 +68,7 @@ pub trait VirtFS {
   }
   /// Convert a path into a human-readable string that is meaningful in the
   /// target context.
-  fn display(&self, path: &[Token<String>]) -> Option<String>;
+  fn display(&self, path: &[Tok<String>]) -> Option<String>;
   /// Convert the FS handler into a type-erased version of itself for packing in
   /// a tree.
   fn rc(self) -> Rc<dyn VirtFS>
@@ -81,15 +81,15 @@ pub trait VirtFS {
 }
 
 impl VirtFS for &dyn VirtFS {
-  fn get(&self, path: &[Token<String>], full_path: &PathSlice) -> FSResult {
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult {
     (*self).get(path, full_path)
   }
-  fn display(&self, path: &[Token<String>]) -> Option<String> { (*self).display(path) }
+  fn display(&self, path: &[Tok<String>]) -> Option<String> { (*self).display(path) }
 }
 
 impl<T: VirtFS + ?Sized> VirtFS for Rc<T> {
-  fn get(&self, path: &[Token<String>], full_path: &PathSlice) -> FSResult {
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult {
     (**self).get(path, full_path)
   }
-  fn display(&self, path: &[Token<String>]) -> Option<String> { (**self).display(path) }
+  fn display(&self, path: &[Tok<String>]) -> Option<String> { (**self).display(path) }
 }

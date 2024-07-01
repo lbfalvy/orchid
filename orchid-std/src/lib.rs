@@ -1,12 +1,6 @@
-pub fn add(left: usize, right: usize) -> usize { left + right }
+mod std;
+mod string;
 
-#[cfg(test)]
-mod tests {
-  use super::*;
+pub use std::StdSystem;
 
-  #[test]
-  fn it_works() {
-    let result = add(2, 2);
-    assert_eq!(result, 4);
-  }
-}
+pub use string::str_atom::OrcString;

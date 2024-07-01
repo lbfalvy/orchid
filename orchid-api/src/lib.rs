@@ -1,7 +1,7 @@
 pub mod atom;
 pub mod error;
 pub mod expr;
-pub mod intern;
+pub mod interner;
 pub mod location;
 pub mod parser;
 pub mod proto;

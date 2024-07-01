@@ -12,9 +12,9 @@ use trait_set::trait_set;
 
 trait_set! {
   pub trait SendFn<T: MsgSet> = for<'a> FnMut(&'a [u8], ReqNot<T>) + DynClone + Send + 'static;
-  pub trait ReqFn<T: MsgSet> = FnMut(RequestHandle<T>) + Send + 'static;
+  pub trait ReqFn<T: MsgSet> = FnMut(RequestHandle<T>) + DynClone + Send + 'static;
   pub trait NotifFn<T: MsgSet> =
-    for<'a> FnMut(<T::In as Channel>::Notif, ReqNot<T>) + Send + Sync + 'static;
+    for<'a> FnMut(<T::In as Channel>::Notif, ReqNot<T>) + DynClone + Send + Sync + 'static;
 }
 
 fn get_id(message: &[u8]) -> (u64, &[u8]) {
@@ -39,7 +39,7 @@ impl<MS: MsgSet + 'static> RequestHandle<MS> {
   }
   pub fn handle<T: Request>(&self, _: &T, rep: &T::Response) { self.respond(rep) }
   pub fn will_handle_as<T: Request>(&self, _: &T) -> ReqTypToken<T> { ReqTypToken(PhantomData) }
-  pub fn handle_as<T: Request>(&self, token: ReqTypToken<T>, rep: &T::Response) {
+  pub fn handle_as<T: Request>(&self, _token: ReqTypToken<T>, rep: &T::Response) {
     self.respond(rep)
   }
 }
@@ -86,13 +86,17 @@ impl<T: MsgSet> ReqNot<T> {
     let mut g = self.0.lock().unwrap();
     let (id, payload) = get_id(&message[..]);
     if id == 0 {
-      (g.notif)(<T::In as Channel>::Notif::decode(&mut &payload[..]), self.clone())
+      let mut notif = clone_box(&*g.notif);
+      mem::drop(g);
+      notif(<T::In as Channel>::Notif::decode(&mut &payload[..]), self.clone())
     } else if 0 < id.bitand(1 << 63) {
       let sender = g.responses.remove(&!id).expect("Received response for invalid message");
       sender.send(message).unwrap();
     } else {
       let message = <T::In as Channel>::Req::decode(&mut &payload[..]);
-      (g.req)(RequestHandle { id, message, fulfilled: false.into(), parent: self.clone() })
+      let mut req = clone_box(&*g.req);
+      mem::drop(g);
+      req(RequestHandle { id, message, fulfilled: false.into(), parent: self.clone() })
     }
   }
 

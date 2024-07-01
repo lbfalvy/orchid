@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::io::{Read, Write};
@@ -281,6 +282,15 @@ macro_rules! smart_ptr {
 smart_ptr!(Arc);
 smart_ptr!(Rc);
 smart_ptr!(Box);
+
+impl<'a, T: ?Sized + ToOwned> Decode for Cow<'a, T>
+where T::Owned: Decode
+{
+  fn decode<R: Read + ?Sized>(read: &mut R) -> Self { Cow::Owned(T::Owned::decode(read)) }
+}
+impl<'a, T: ?Sized + Encode + ToOwned> Encode for Cow<'a, T> {
+  fn encode<W: Write + ?Sized>(&self, write: &mut W) { (**self).encode(write) }
+}
 
 impl Decode for char {
   fn decode<R: Read + ?Sized>(read: &mut R) -> Self { char::from_u32(u32::decode(read)).unwrap() }

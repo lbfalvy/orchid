@@ -1,9 +1,13 @@
 pub mod atom;
 pub mod entrypoint;
+pub mod error;
 pub mod expr;
 pub mod fs;
+pub mod fun;
 pub mod lexer;
 pub mod msg;
 pub mod other_system;
 pub mod system;
 pub mod system_ctor;
+pub mod tree;
+pub mod try_from_expr;

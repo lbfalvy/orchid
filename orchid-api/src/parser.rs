@@ -1,13 +1,16 @@
+use std::num::NonZeroU64;
 use std::ops::RangeInclusive;
 
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
 use crate::error::ProjResult;
-use crate::intern::TStr;
+use crate::interner::TStr;
 use crate::proto::{ExtHostReq, HostExtReq};
 use crate::system::SysId;
-use crate::tree::TokenTree;
+use crate::tree::{TokenTree, TreeTicket};
+
+pub type LexId = NonZeroU64;
 
 /// - All ranges contain at least one character
 /// - All ranges are in increasing characeter order
@@ -26,6 +29,7 @@ pub enum ParserReq {
 #[extends(ParserReq, HostExtReq)]
 pub struct Lex {
   pub sys: SysId,
+  pub id: LexId,
   pub text: TStr,
   pub pos: u32,
 }
@@ -42,11 +46,17 @@ pub struct Lexed {
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(ExtHostReq)]
 pub struct SubLex {
-  pub text: TStr,
+  pub id: LexId,
   pub pos: u32,
 }
 impl Request for SubLex {
-  type Response = ProjResult<Lexed>;
+  type Response = ProjResult<SubLexed>;
+}
+
+#[derive(Clone, Debug, Coding)]
+pub struct SubLexed {
+  pub pos: u32,
+  pub ticket: TreeTicket,
 }
 
 pub struct ParseLine {}

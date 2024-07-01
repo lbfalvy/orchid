@@ -27,7 +27,7 @@ use std::io::{Read, Write};
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::{read_exact, write_exact, Channel, Decode, Encode, MsgSet, Request};
 
-use crate::{atom, expr, intern, parser, system, tree, vfs};
+use crate::{atom, error, expr, interner, parser, system, tree, vfs};
 
 static HOST_INTRO: &[u8] = b"Orchid host, binary API v0\n";
 pub struct HostHeader;
@@ -69,10 +69,11 @@ impl Request for Ping {
 #[extendable]
 pub enum ExtHostReq {
   Ping(Ping),
-  IntReq(intern::IntReq),
+  IntReq(interner::IntReq),
   Fwd(atom::Fwd),
   ExprReq(expr::ExprReq),
   SubLex(parser::SubLex),
+  ProjErrReq(error::ProjErrReq),
 }
 
 /// Notifications sent from the extension to the host
@@ -81,6 +82,7 @@ pub enum ExtHostReq {
 #[extendable]
 pub enum ExtHostNotif {
   ExprNotif(expr::ExprNotif),
+  ErrNotif(error::ErrNotif),
 }
 
 pub struct ExtHostChannel;
@@ -95,7 +97,7 @@ impl Channel for ExtHostChannel {
 pub enum HostExtReq {
   Ping(Ping),
   NewSystem(system::NewSystem),
-  Sweep(intern::Sweep),
+  Sweep(interner::Sweep),
   AtomReq(atom::AtomReq),
   ParserReq(parser::ParserReq),
   GetConstTree(tree::GetConstTree),

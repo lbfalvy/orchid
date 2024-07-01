@@ -8,7 +8,7 @@ use crate::proto::{ExtHostReq, HostExtReq};
 
 /// Intern requests sent by the replica to the master. These requests are
 /// repeatable.
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
+#[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(ExtHostReq)]
 #[extendable]
 pub enum IntReq {
@@ -18,9 +18,7 @@ pub enum IntReq {
   ExternStrv(ExternStrv),
 }
 
-/// replica -> master to intern a string on the master.
-///
-/// Repeatable.
+/// replica -> master to intern a string on the master. Repeatable.
 ///
 /// See [IntReq]
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
@@ -35,7 +33,7 @@ impl Request for InternStr {
 /// Repeatable.
 ///
 /// See [IntReq]
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
+#[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(IntReq, ExtHostReq)]
 pub struct ExternStr(pub TStr);
 impl Request for ExternStr {
@@ -46,7 +44,7 @@ impl Request for ExternStr {
 /// Repeatable.
 ///
 /// See [IntReq]
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
+#[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(IntReq, ExtHostReq)]
 pub struct InternStrv(pub Arc<Vec<TStr>>);
 impl Request for InternStrv {
@@ -58,7 +56,7 @@ impl Request for InternStrv {
 /// Repeatable.
 ///
 /// See [IntReq]
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
+#[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(IntReq, ExtHostReq)]
 pub struct ExternStrv(pub TStrv);
 impl Request for ExternStrv {
@@ -75,7 +73,7 @@ pub struct TStrv(pub NonZeroU64);
 
 /// A request to sweep the replica. The master will not be sweeped until all
 /// replicas respond, as it must retain everything the replicas retained
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
+#[derive(Clone, Copy, Debug, Coding, Hierarchy)]
 #[extends(HostExtReq)]
 pub struct Sweep;
 impl Request for Sweep {

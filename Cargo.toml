@@ -2,8 +2,13 @@
 resolver = "2"
 
 members = [
-  # "orchidlang",
   "orcx",
+  "orchid-std",
+  "orchid-host",
+  "orchid-extension",
+  "orchid-base",
   "orchid-api",
-  "orchid-std", "orchid-base", "orchid-api-derive", "orchid-api-traits", "stdio-perftest", "orchid-extension", "orchid-host",
+  "orchid-api-derive",
+  "orchid-api-traits",
+  "stdio-perftest",
 ]

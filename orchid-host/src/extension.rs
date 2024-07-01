@@ -1,5 +1,6 @@
 use std::io::Write as _;
 use std::sync::atomic::{AtomicU16, AtomicU32, Ordering};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::{fmt, io, process, thread};
 
@@ -8,18 +9,19 @@ use hashbrown::HashMap;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use orchid_api::atom::{Atom, AtomDrop, AtomSame, CallRef, FinalCall, Fwd, Fwded};
+use orchid_api::error::{ErrNotif, ProjErr, ProjErrOrRef, ProjResult, ReportError};
 use orchid_api::expr::{Acquire, Expr, ExprNotif, ExprTicket, Release, Relocate};
-use orchid_api::intern::IntReq;
+use orchid_api::interner::IntReq;
 use orchid_api::parser::CharFilter;
 use orchid_api::proto::{
-  ExtHostNotif, ExtHostReq, ExtensionHeader, HostExtNotif, HostHeader, HostMsgSet,
+  ExtHostNotif, ExtHostReq, ExtensionHeader, HostExtNotif, HostExtReq, HostHeader, HostMsgSet
 };
 use orchid_api::system::{NewSystem, SysDeclId, SysId, SystemDecl, SystemDrop};
-use orchid_api::tree::{GetConstTree, TreeModule};
-use orchid_api_traits::{Decode, Encode};
+use orchid_api::tree::{GetConstTree, Tree, TreeId};
+use orchid_api_traits::{Coding, Decode, Encode, Request};
 use orchid_base::char_filter::char_filter_match;
 use orchid_base::clone;
-use orchid_base::intern::{deintern, intern};
+use orchid_base::interner::{deintern, intern};
 use orchid_base::reqnot::{ReqNot, Requester as _};
 use ordered_float::NotNan;
 
@@ -128,6 +130,9 @@ impl Extension {
             acq_expr(inc, expr);
             rel_expr(dec, expr);
           },
+          ExtHostNotif::ErrNotif(ErrNotif::ReportError(ReportError(sys, err))) => {
+            System::resolve(sys).unwrap().0.err_send.send(err).unwrap();
+          },
         },
         |req| match req.req() {
           ExtHostReq::Ping(ping) => req.handle(ping, &()),
@@ -166,14 +171,18 @@ impl SystemCtor {
     let depends = depends.into_iter().map(|si| si.0.id).collect_vec();
     debug_assert_eq!(depends.len(), self.decl.depends.len(), "Wrong number of deps provided");
     let ext = self.ext.upgrade().expect("SystemCtor should be freed before Extension");
-    static NEXT_ID: AtomicU16 = AtomicU16::new(0);
-    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    static NEXT_ID: AtomicU16 = AtomicU16::new(1);
+    let id = SysId::new(NEXT_ID.fetch_add(1, Ordering::Relaxed)).expect("next_id wrapped");
     let sys_inst = ext.reqnot.request(NewSystem { depends, id, system: self.decl.id });
+    let (err_send, err_rec) = channel();
     let data = System(Arc::new(SystemInstData {
       decl_id: self.decl.id,
       ext: Extension(ext),
       exprs: RwLock::default(),
       lex_filter: sys_inst.lex_filter,
+      const_root_id: sys_inst.const_root_id,
+      err_send,
+      err_rec: Mutex::new(err_rec),
       id,
     }));
     inst_g.insert(id, data.clone());
@@ -182,7 +191,7 @@ impl SystemCtor {
 }
 
 lazy_static! {
-  static ref SYSTEM_INSTS: RwLock<HashMap<u16, System>> = RwLock::default();
+  static ref SYSTEM_INSTS: RwLock<HashMap<SysId, System>> = RwLock::default();
 }
 
 #[derive(destructure)]
@@ -191,7 +200,10 @@ pub struct SystemInstData {
   ext: Extension,
   decl_id: SysDeclId,
   lex_filter: CharFilter,
-  id: u16,
+  id: SysId,
+  const_root_id: TreeId,
+  err_rec: Mutex<Receiver<ProjErrOrRef>>,
+  err_send: Sender<ProjErrOrRef>,
 }
 impl Drop for SystemInstData {
   fn drop(&mut self) {
@@ -204,7 +216,7 @@ impl Drop for SystemInstData {
 #[derive(Clone)]
 pub struct System(Arc<SystemInstData>);
 impl System {
-  fn resolve(id: u16) -> Option<System> { SYSTEM_INSTS.read().unwrap().get(&id).cloned() }
+  fn resolve(id: SysId) -> Option<System> { SYSTEM_INSTS.read().unwrap().get(&id).cloned() }
   fn give_expr(&self, ticket: ExprTicket, get_expr: impl FnOnce() -> RtExpr) -> ExprTicket {
     let mut exprs = self.0.exprs.write().unwrap();
     exprs
@@ -215,7 +227,25 @@ impl System {
       .or_insert((AtomicU32::new(1), get_expr()));
     ticket
   }
-  pub fn const_tree(&self) -> TreeModule { self.0.ext.0.reqnot.request(GetConstTree(self.0.id)) }
+  pub fn const_tree(&self) -> Tree {
+    self.0.ext.0.reqnot.request(GetConstTree(self.0.id, self.0.const_root_id))
+  }
+  pub fn request<R: Coding>(&self, req: impl Request<Response = ProjResult<R>> + Into<HostExtReq>) -> ProjResult<R> {
+    let mut errors = Vec::new();
+    if let Ok(err) = self.0.err_rec.lock().unwrap().try_recv() {
+      eprintln!("Errors left in queue");
+      errors.push(err);
+    }
+    let value = self.0.ext.0.reqnot.request(req).inspect_err(|e| errors.extend(e.iter().cloned()));
+    while let Ok(err) = self.0.err_rec.lock().unwrap().try_recv() {
+      errors.push(err);
+    }
+    if !errors.is_empty() {
+      Err(errors)
+    } else {
+      value
+    }
+  }
   pub fn has_lexer(&self) -> bool { !self.0.lex_filter.0.is_empty() }
   pub fn can_lex(&self, c: char) -> bool { char_filter_match(&self.0.lex_filter, c) }
 }

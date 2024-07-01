@@ -1,6 +1,7 @@
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
+use crate::error::ProjResult;
 use crate::expr::{Expr, ExprTicket};
 use crate::proto::{ExtHostReq, HostExtNotif, HostExtReq};
 use crate::system::SysId;
@@ -81,6 +82,18 @@ impl Request for Fwd {
   type Response = Vec<u8>;
 }
 
+#[derive(Clone, Debug, Coding)]
+pub enum NextStep {
+  Continue(Expr),
+  Halt,
+}
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
+#[extends(AtomReq, HostExtReq)]
+pub struct Command(pub Atom);
+impl Request for Command {
+  type Response = ProjResult<NextStep>;
+}
+
 /// Notification that an atom is being dropped because its associated expression
 /// isn't referenced anywhere. This should have no effect if the atom's `drop`
 /// flag is false.
@@ -96,4 +109,5 @@ pub enum AtomReq {
   FinalCall(FinalCall),
   AtomSame(AtomSame),
   Fwded(Fwded),
+  Command(Command),
 }

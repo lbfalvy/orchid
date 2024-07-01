@@ -10,4 +10,5 @@
 *.gz
 *.html
 *.png
+/.VSCodeCounter
 !notes/papers/report/template/Figures/**

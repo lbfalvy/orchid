@@ -1,3 +1,4 @@
+use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
@@ -15,7 +16,10 @@ pub struct RtExpr {
 impl RtExpr {
   pub fn as_atom(&self) -> Option<AtomHand> { todo!() }
   pub fn strong_count(&self) -> usize { todo!() }
-  pub fn id(&self) -> u64 { self.data.as_ref() as *const () as usize as u64 }
+  pub fn id(&self) -> ExprTicket {
+    NonZeroU64::new(self.data.as_ref() as *const () as usize as u64)
+      .expect("this is a ref, it cannot be null")
+  }
   pub fn canonicalize(&self) -> ExprTicket {
     if !self.is_canonical.swap(true, Ordering::Relaxed) {
       KNOWN_EXPRS.write().unwrap().entry(self.id()).or_insert_with(|| self.clone());

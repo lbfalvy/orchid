@@ -61,3 +61,7 @@ impl<T, U> Event<T, U> {
     }
   }
 }
+
+impl<T, U> Default for Event<T, U> {
+  fn default() -> Self { Self::new() }
+}

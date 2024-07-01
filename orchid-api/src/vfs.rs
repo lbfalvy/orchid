@@ -1,14 +1,15 @@
 use std::collections::HashMap;
+use std::num::NonZeroU16;
 
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
 use crate::error::ProjResult;
-use crate::intern::TStr;
+use crate::interner::TStr;
 use crate::proto::HostExtReq;
 use crate::system::SysId;
 
-pub type VfsId = u16;
+pub type VfsId = NonZeroU16;
 
 #[derive(Clone, Debug, Coding)]
 pub enum Loaded {

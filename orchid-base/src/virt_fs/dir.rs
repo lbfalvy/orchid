@@ -99,14 +99,14 @@ impl DirNode {
     }
   }
 
-  fn mk_pathbuf(&self, path: &[Token<String>]) -> PathBuf {
+  fn mk_pathbuf(&self, path: &[Tok<String>]) -> PathBuf {
     let mut fpath = self.root.clone();
     path.iter().for_each(|seg| fpath.push(seg.as_str()));
     fpath
   }
 }
 impl VirtFS for DirNode {
-  fn get(&self, path: &[Token<String>], full_path: &PathSlice) -> FSResult {
+  fn get(&self, path: &[Tok<String>], full_path: &PathSlice) -> FSResult {
     let fpath = self.mk_pathbuf(path);
     let mut binding = self.cached.borrow_mut();
     let (_, res) = (binding.raw_entry_mut().from_key(&fpath))
@@ -114,7 +114,7 @@ impl VirtFS for DirNode {
     res.clone()
   }
 
-  fn display(&self, path: &[Token<String>]) -> Option<String> {
+  fn display(&self, path: &[Tok<String>]) -> Option<String> {
     let pathbuf = self.mk_pathbuf(path).with_extension(self.ext());
     Some(pathbuf.to_string_lossy().to_string())
   }

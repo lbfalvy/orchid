@@ -8,13 +8,17 @@ edition = "2021"
 [dependencies]
 ahash = "0.8.11"
 derive_destructure = "1.0.0"
+dyn-clone = "1.0.17"
 hashbrown = "0.14.5"
-itertools = "0.12.1"
+itertools = "0.13.0"
+konst = "0.3.9"
 never = "0.1.0"
 orchid-api = { version = "0.1.0", path = "../orchid-api" }
+orchid-api-derive = { version = "0.1.0", path = "../orchid-api-derive" }
 orchid-api-traits = { version = "0.1.0", path = "../orchid-api-traits" }
 orchid-base = { version = "0.1.0", path = "../orchid-base" }
 ordered-float = "4.2.0"
+paste = "1.0.15"
 substack = "1.1.0"
 trait-set = "0.3.0"
 typeid = "1.0.0"

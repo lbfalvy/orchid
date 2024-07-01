@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::num::NonZeroU64;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -12,17 +11,12 @@ pub struct IdStore<T> {
 }
 impl<T> IdStore<T> {
   pub const fn new() -> Self { Self { table: OnceLock::new(), id: AtomicU64::new(1) } }
-  pub fn add<R>(&self, t: T) -> R
-  where
-    NonZeroU64: TryInto<R>,
-    <NonZeroU64 as TryInto<R>>::Error: Debug,
-  {
+  pub fn add(&self, t: T) -> IdRecord<'_, T> {
     let tbl = self.table.get_or_init(Mutex::default);
     let mut tbl_g = tbl.lock().unwrap();
-    let id64: NonZeroU64 = self.id.fetch_add(1, Ordering::Relaxed).try_into().unwrap();
-    let id: R = id64.try_into().expect("Keyspace exhausted");
-    assert!(tbl_g.insert(id64, t).is_none(), "atom ID wraparound");
-    id
+    let id: NonZeroU64 = self.id.fetch_add(1, Ordering::Relaxed).try_into().unwrap();
+    assert!(tbl_g.insert(id, t).is_none(), "atom ID wraparound");
+    IdRecord(id, tbl_g)
   }
   pub fn get(&self, id: impl Into<NonZeroU64>) -> Option<IdRecord<'_, T>> {
     let tbl = self.table.get_or_init(Mutex::default);
@@ -38,6 +32,7 @@ impl<T> Default for IdStore<T> {
 
 pub struct IdRecord<'a, T>(NonZeroU64, MutexGuard<'a, HashMap<NonZeroU64, T>>);
 impl<'a, T> IdRecord<'a, T> {
+  pub fn id(&self) -> NonZeroU64 { self.0 }
   pub fn remove(mut self) -> T { self.1.remove(&self.0).unwrap() }
 }
 impl<'a, T> Deref for IdRecord<'a, T> {
