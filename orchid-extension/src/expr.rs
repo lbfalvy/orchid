@@ -1,5 +1,5 @@
 use std::ops::Deref;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use derive_destructure::destructure;
 use orchid_api::atom::Atom;
@@ -8,7 +8,8 @@ use orchid_base::interner::{deintern, Tok};
 use orchid_base::location::Pos;
 use orchid_base::reqnot::Requester;
 
-use crate::atom::{AtomFactory, ForeignAtom, OwnedAtom, ThinAtom};
+use crate::atom::{AtomFactory, AtomicFeatures, ForeignAtom};
+use crate::error::{err_from_api, err_to_api, DynProjectError, ProjectErrorObj};
 use crate::system::{DynSystem, SysCtx};
 
 #[derive(destructure)]
@@ -22,7 +23,6 @@ impl ExprHandle {
     let (tk, ..) = self.destructure();
     tk
   }
-  pub(crate) fn get_tk(&self) -> ExprTicket { self.tk }
   pub fn get_ctx(&self) -> SysCtx { self.ctx.clone() }
 }
 impl Clone for ExprHandle {
@@ -51,9 +51,9 @@ impl OwnedExpr {
     })
   }
   pub fn foreign_atom(self) -> Result<ForeignAtom, Self> {
-    if let GenExpr { clause: GenClause::Atom(_, atom), position } = self.get_data() {
+    if let GenExpr { clause: GenClause::Atom(_, atom), pos: position } = self.get_data() {
       let (atom, position) = (atom.clone(), position.clone());
-      return Ok(ForeignAtom { expr: self.handle, atom, position });
+      return Ok(ForeignAtom { expr: self.handle, atom, pos: position });
     }
     Err(self)
   }
@@ -65,18 +65,18 @@ impl Deref for OwnedExpr {
 
 #[derive(Clone)]
 pub struct GenExpr {
-  pub position: Pos,
+  pub pos: Pos,
   pub clause: GenClause,
 }
 impl GenExpr {
   pub fn to_api(&self, sys: &dyn DynSystem) -> Expr {
-    Expr { location: self.position.to_api(), clause: self.clause.to_api(sys) }
+    Expr { location: self.pos.to_api(), clause: self.clause.to_api(sys) }
   }
   pub fn into_api(self, sys: &dyn DynSystem) -> Expr {
-    Expr { location: self.position.to_api(), clause: self.clause.into_api(sys) }
+    Expr { location: self.pos.to_api(), clause: self.clause.into_api(sys) }
   }
   pub fn from_api(api: Expr, ctx: SysCtx) -> Self {
-    Self { position: Pos::from_api(&api.location), clause: GenClause::from_api(api.clause, ctx) }
+    Self { pos: Pos::from_api(&api.location), clause: GenClause::from_api(api.clause, ctx) }
   }
 }
 
@@ -90,7 +90,7 @@ pub enum GenClause {
   Const(Tok<Vec<Tok<String>>>),
   NewAtom(AtomFactory),
   Atom(ExprTicket, Atom),
-  Bottom(String),
+  Bottom(ProjectErrorObj),
 }
 impl GenClause {
   pub fn to_api(&self, sys: &dyn DynSystem) -> Clause {
@@ -100,7 +100,7 @@ impl GenClause {
       Self::Lambda(arg, body) => Clause::Lambda(*arg, Box::new(body.to_api(sys))),
       Self::Arg(arg) => Clause::Arg(*arg),
       Self::Const(name) => Clause::Const(name.marker()),
-      Self::Bottom(msg) => Clause::Bottom(msg.clone()),
+      Self::Bottom(msg) => Clause::Bottom(err_to_api(msg.clone())),
       Self::NewAtom(fac) => Clause::NewAtom(fac.clone().build(sys)),
       Self::Atom(tk, atom) => Clause::Atom(*tk, atom.clone()),
       Self::Slot(_) => panic!("Slot is forbidden in const tree"),
@@ -114,7 +114,7 @@ impl GenClause {
       Self::Arg(arg) => Clause::Arg(arg),
       Self::Slot(extk) => Clause::Slot(extk.handle.into_tk()),
       Self::Const(name) => Clause::Const(name.marker()),
-      Self::Bottom(msg) => Clause::Bottom(msg.clone()),
+      Self::Bottom(msg) => Clause::Bottom(err_to_api(msg)),
       Self::NewAtom(fac) => Clause::NewAtom(fac.clone().build(sys)),
       Self::Atom(tk, atom) => Clause::Atom(tk, atom),
     }
@@ -124,7 +124,7 @@ impl GenClause {
       Clause::Arg(id) => Self::Arg(id),
       Clause::Lambda(arg, body) => Self::Lambda(arg, Box::new(GenExpr::from_api(*body, ctx))),
       Clause::NewAtom(_) => panic!("Clause::NewAtom should never be received, only sent"),
-      Clause::Bottom(s) => Self::Bottom(s),
+      Clause::Bottom(s) => Self::Bottom(err_from_api(&s, ctx.reqnot)),
       Clause::Call(f, x) => Self::Call(
         Box::new(GenExpr::from_api(*f, ctx.clone())),
         Box::new(GenExpr::from_api(*x, ctx)),
@@ -139,11 +139,10 @@ impl GenClause {
     }
   }
 }
-fn inherit(clause: GenClause) -> GenExpr { GenExpr { position: Pos::Inherit, clause } }
+fn inherit(clause: GenClause) -> GenExpr { GenExpr { pos: Pos::Inherit, clause } }
 
 pub fn cnst(path: Tok<Vec<Tok<String>>>) -> GenExpr { inherit(GenClause::Const(path)) }
-pub fn val<A: ThinAtom>(atom: A) -> GenExpr { inherit(GenClause::NewAtom(atom.factory())) }
-pub fn obj<A: OwnedAtom>(atom: A) -> GenExpr { inherit(GenClause::NewAtom(atom.factory())) }
+pub fn atom<A: AtomicFeatures>(atom: A) -> GenExpr { inherit(GenClause::NewAtom(atom.factory())) }
 
 pub fn seq(ops: impl IntoIterator<Item = GenExpr>) -> GenExpr {
   fn recur(mut ops: impl Iterator<Item = GenExpr>) -> Option<GenExpr> {
@@ -170,4 +169,5 @@ pub fn call(v: impl IntoIterator<Item = GenExpr>) -> GenExpr {
     .expect("Empty call expression")
 }
 
-pub fn bot(msg: &str) -> GenClause { GenClause::Bottom(msg.to_string()) }
+pub fn bot<E: DynProjectError>(msg: E) -> GenExpr { inherit(GenClause::Bottom(Arc::new(msg))) }
+pub fn bot_obj(e: ProjectErrorObj) -> GenExpr { inherit(GenClause::Bottom(e)) }

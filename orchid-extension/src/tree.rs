@@ -14,6 +14,7 @@ use ordered_float::NotNan;
 use trait_set::trait_set;
 
 use crate::atom::AtomFactory;
+use crate::conv::ToExpr;
 use crate::expr::GenExpr;
 use crate::system::DynSystem;
 
@@ -113,7 +114,7 @@ pub struct GenTree {
   pub location: Pos,
 }
 impl GenTree {
-  pub fn cnst(gc: GenExpr) -> Self { GenItem::Const(gc).at(Pos::Inherit) }
+  pub fn cnst(gc: impl ToExpr) -> Self { GenItem::Const(gc.to_expr()).at(Pos::Inherit) }
   pub fn module<'a>(entries: impl IntoIterator<Item = (&'a str, GenTree)>) -> Self {
     GenItem::Mod(entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect()).at(Pos::Inherit)
   }

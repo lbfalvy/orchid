@@ -9,7 +9,7 @@ use hashbrown::HashMap;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use orchid_api::atom::{Atom, AtomDrop, AtomSame, CallRef, FinalCall, Fwd, Fwded};
-use orchid_api::error::{ErrNotif, ProjErr, ProjErrOrRef, ProjResult, ReportError};
+use orchid_api::error::{ErrNotif, ProjErrOrRef, ProjResult, ReportError};
 use orchid_api::expr::{Acquire, Expr, ExprNotif, ExprTicket, Release, Relocate};
 use orchid_api::interner::IntReq;
 use orchid_api::parser::CharFilter;

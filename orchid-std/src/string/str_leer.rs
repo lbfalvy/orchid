@@ -3,7 +3,7 @@ use orchid_base::interner::intern;
 use orchid_base::location::Pos;
 use orchid_base::name::VName;
 use orchid_base::vname;
-use orchid_extension::atom::OwnedAtom;
+use orchid_extension::atom::AtomicFeatures;
 use orchid_extension::error::{ErrorSansOrigin, ProjectErrorObj, ProjectResult};
 use orchid_extension::lexer::{LexContext, Lexer};
 use orchid_extension::tree::{wrap_tokv, GenTok, GenTokTree};

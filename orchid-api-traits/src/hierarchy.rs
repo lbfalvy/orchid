@@ -1,8 +1,3 @@
-/// [Hierarchy] implementation key. The two implementors of this trait are
-/// [Base] and [Subtype]. These types are assigned to [InHierarchy::Role] to
-/// select the implementation of [Hierarchy].
-pub trait HierarchyRole {}
-
 /// A type-level boolean suitable to select conditional trait implementations.
 /// Implementors are [True] and [False]
 pub trait TLBool {}
@@ -12,17 +7,6 @@ impl TLBool for TLTrue {}
 /// [TLBool] value of `false`. The opposite is [True]
 pub struct TLFalse;
 impl TLBool for TLFalse {}
-
-/// Assign this type to [InHierarchy::Role] and implement [Descendant] to create
-/// a subtype. These types can be upcast to their parent type, conditionally
-/// downcast from it, and selected for [Descendant::Parent] by other types.
-pub struct Subtype;
-impl HierarchyRole for Subtype {}
-/// Assign this type to [InHierarchy::Role] to create a base type. These types
-/// are upcast only to themselves, but they can be selected in
-/// [Descendant::Parent].
-pub struct Base;
-impl HierarchyRole for Base {}
 
 /// A type that implements [Hierarchy]. Used to select implementations of traits
 /// on the hierarchy

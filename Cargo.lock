@@ -326,6 +326,7 @@ dependencies = [
  "itertools",
  "konst",
  "never",
+ "once_cell",
  "orchid-api",
  "orchid-api-derive",
  "orchid-api-traits",
@@ -356,6 +357,7 @@ name = "orchid-std"
 version = "0.1.0"
 dependencies = [
  "itertools",
+ "once_cell",
  "orchid-api",
  "orchid-api-derive",
  "orchid-api-traits",

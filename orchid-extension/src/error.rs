@@ -42,7 +42,7 @@ pub trait ProjectError: Sized + Send + Sync + 'static {
 }
 
 /// Object-safe version of [ProjectError]. Implement that instead of this.
-pub trait DynProjectError: Send + Sync {
+pub trait DynProjectError: Send + Sync + 'static {
   /// Access type information about this error
   #[must_use]
   fn as_any_ref(&self) -> &dyn Any;
@@ -274,23 +274,30 @@ impl ProjectError for MultiError {
   }
 }
 
-pub fn err_to_api(err: ProjectErrorObj) -> ProjErrOrRef {
-  match err.as_any_ref().downcast_ref() {
-    Some(RelayedError { id: Some(id), .. }) => ProjErrOrRef::Known(*id),
-    _ => ProjErrOrRef::New(ProjErr {
-      description: intern(&*err.description()).marker(),
-      message: Arc::new(err.message()),
-      locations: err.positions().map(|e| e.to_api()).collect_vec(),
-    }),
+pub fn err_to_api(err: ProjectErrorObj) -> ProjErr {
+  ProjErr {
+    description: intern(&*err.description()).marker(),
+    message: Arc::new(err.message()),
+    locations: err.positions().map(|e| e.to_api()).collect_vec(),
   }
 }
 
-pub fn err_from_api(err: &ProjErrOrRef, reqnot: ReqNot<ExtMsgSet>) -> ProjectErrorObj {
-  Arc::new(match err {
-    ProjErrOrRef::Known(id) => RelayedError { id: Some(*id), reqnot, details: OnceLock::default() },
-    ProjErrOrRef::New(err) =>
-      RelayedError { id: None, reqnot, details: ErrorDetails::from_api(err).into() },
-  })
+pub(crate) fn err_or_ref_to_api(err: ProjectErrorObj) -> ProjErrOrRef {
+  match err.as_any_ref().downcast_ref() {
+    Some(RelayedError { id: Some(id), .. }) => ProjErrOrRef::Known(*id),
+    _ => ProjErrOrRef::New(err_to_api(err)),
+  }
+}
+
+pub fn err_from_api(err: &ProjErr, reqnot: ReqNot<ExtMsgSet>) -> ProjectErrorObj {
+  Arc::new(RelayedError { id: None, reqnot, details: ErrorDetails::from_api(err).into() })
+}
+
+pub(crate) fn err_from_api_or_ref(err: &ProjErrOrRef, reqnot: ReqNot<ExtMsgSet>) -> ProjectErrorObj {
+  match err {
+    ProjErrOrRef::Known(id) => Arc::new(RelayedError { id: Some(*id), reqnot, details: OnceLock::default() }),
+    ProjErrOrRef::New(err) => err_from_api(err, reqnot),
+  }
 }
 
 struct RelayedError {

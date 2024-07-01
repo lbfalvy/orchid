@@ -20,7 +20,7 @@ use orchid_base::name::PathSlice;
 use orchid_base::reqnot::{ReqNot, Requester};
 
 use crate::atom::AtomInfo;
-use crate::error::{err_to_api, unpack_err};
+use crate::error::{err_or_ref_to_api, unpack_err};
 use crate::fs::VirtFS;
 use crate::lexer::LexContext;
 use crate::msg::{recv_parent_msg, send_parent_msg};
@@ -155,7 +155,7 @@ pub fn extension_main(data: ExtensionData) {
               let data = data.into_api(&*systems_g[&sys].cted.inst());
               Ok(Lexed { data, pos: (text.len() - s.len()) as u32 })
             },
-            Err(e) => Err(unpack_err(e).into_iter().map(err_to_api).collect_vec())
+            Err(e) => Err(unpack_err(e).into_iter().map(err_or_ref_to_api).collect_vec())
           }))
         }));
       },

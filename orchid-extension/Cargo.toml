@@ -13,6 +13,7 @@ hashbrown = "0.14.5"
 itertools = "0.13.0"
 konst = "0.3.9"
 never = "0.1.0"
+once_cell = "1.19.0"
 orchid-api = { version = "0.1.0", path = "../orchid-api" }
 orchid-api-derive = { version = "0.1.0", path = "../orchid-api-derive" }
 orchid-api-traits = { version = "0.1.0", path = "../orchid-api-traits" }

@@ -8,7 +8,7 @@ use orchid_base::interner::Tok;
 use orchid_base::reqnot::{ReqNot, Requester};
 
 use crate::error::{
-  err_from_api, err_to_api, pack_err, unpack_err, ProjectErrorObj, ProjectResult,
+  err_from_api_or_ref, err_or_ref_to_api, pack_err, unpack_err, ProjectErrorObj, ProjectResult,
 };
 use crate::tree::{GenTok, GenTokTree};
 
@@ -25,7 +25,7 @@ impl<'a> LexContext<'a> {
     self
       .reqnot
       .request(SubLex { pos: start, id: self.id })
-      .map_err(|e| pack_err(e.iter().map(|e| err_from_api(e, self.reqnot.clone()))))
+      .map_err(|e| pack_err(e.iter().map(|e| err_from_api_or_ref(e, self.reqnot.clone()))))
       .map(|lx| (&self.text[lx.pos as usize..], GenTok::Slot(lx.ticket).at(start..lx.pos)))
   }
 
@@ -37,7 +37,7 @@ impl<'a> LexContext<'a> {
 
   pub fn report(&self, e: ProjectErrorObj) {
     for e in unpack_err(e) {
-      self.reqnot.notify(ReportError(self.sys, err_to_api(e)))
+      self.reqnot.notify(ReportError(self.sys, err_or_ref_to_api(e)))
     }
   }
 }

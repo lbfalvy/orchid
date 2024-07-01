@@ -8,11 +8,12 @@ use orchid_api_traits::{Encode, Request};
 use orchid_base::id_store::IdStore;
 use orchid_base::interner::{deintern, Tok};
 use orchid_base::location::Pos;
-use orchid_extension::atom::{AtomCard, OwnedAtom, TypAtom};
+use orchid_extension::atom::{Atomic, TypAtom};
+use orchid_extension::atom_owned::{OwnedAtom, OwnedVariant};
 use orchid_extension::error::{ProjectError, ProjectResult};
 use orchid_extension::expr::{ExprHandle, OwnedExpr};
 use orchid_extension::system::{downcast_atom, SysCtx};
-use orchid_extension::try_from_expr::TryFromExpr;
+use orchid_extension::conv::TryFromExpr;
 
 pub static STR_REPO: IdStore<Arc<String>> = IdStore::new();
 
@@ -31,7 +32,8 @@ pub(crate) enum StringAtom {
   Val(NonZeroU64),
   Int(Tok<String>),
 }
-impl AtomCard for StringAtom {
+impl Atomic for StringAtom {
+  type Variant = OwnedVariant;
   type Data = StringVal;
   type Req = StringGetVal;
 }
@@ -72,6 +74,7 @@ impl OwnedAtom for StringAtom {
   }
 }
 
+#[derive(Clone)]
 pub struct OrcString(TypAtom<StringAtom>);
 impl OrcString {
   pub fn get_string(&self) -> Arc<String> {
@@ -92,9 +95,9 @@ impl ProjectError for NotString {
   }
 }
 impl TryFromExpr for OrcString {
-  fn try_from_expr(expr: ExprHandle) -> ProjectResult<Self> {
-    (OwnedExpr::new(expr).foreign_atom().map_err(|expr| expr.position.clone()))
-      .and_then(|fatom| downcast_atom(fatom).map_err(|f| f.position))
+  fn try_from_expr(expr: ExprHandle) -> ProjectResult<OrcString> {
+    (OwnedExpr::new(expr).foreign_atom().map_err(|expr| expr.pos.clone()))
+      .and_then(|fatom| downcast_atom(fatom).map_err(|f| f.pos))
       .map_err(|p| NotString(p).pack())
       .map(OrcString)
   }

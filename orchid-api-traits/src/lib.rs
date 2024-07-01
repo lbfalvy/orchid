@@ -6,7 +6,6 @@ mod relations;
 pub use coding::{Coding, Decode, Encode};
 pub use helpers::{encode_enum, read_exact, write_exact};
 pub use hierarchy::{
-  Base, Extends, HierarchyRole, InHierarchy, Subtype, TLBool, TLFalse, TLTrue, UnderRoot,
-  UnderRootImpl,
+  Extends, InHierarchy, TLBool, TLFalse, TLTrue, UnderRoot,
 };
 pub use relations::{Channel, MsgSet, Request};

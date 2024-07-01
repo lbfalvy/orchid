@@ -1,11 +1,15 @@
-use orchid_extension::atom::owned_atom_info;
+use std::sync::Arc;
+
+use orchid_extension::atom::AtomicFeatures;
 use orchid_extension::fs::DeclFs;
+use orchid_extension::fun::Fun;
 use orchid_extension::system::{System, SystemCard};
 use orchid_extension::system_ctor::SystemCtor;
 use orchid_extension::tree::GenTree;
 
 use crate::string::str_atom::StringAtom;
 use crate::string::str_leer::StringLexer;
+use crate::OrcString;
 
 #[derive(Default)]
 pub struct StdSystem;
@@ -18,13 +22,16 @@ impl SystemCtor for StdSystem {
 }
 impl SystemCard for StdSystem {
   type Ctor = Self;
-  const ATOM_DEFS: &'static [Option<orchid_extension::atom::AtomInfo>] =
-    &[Some(owned_atom_info::<StringAtom>())];
+  const ATOM_DEFS: &'static [Option<fn() -> &'static orchid_extension::atom::AtomInfo>] = &[
+    Some(StringAtom::info)
+  ];
 }
 impl System for StdSystem {
   fn lexers() -> Vec<orchid_extension::lexer::LexerObj> { vec![&StringLexer] }
   fn vfs() -> DeclFs { DeclFs::Mod(&[]) }
   fn env() -> GenTree {
-    GenTree::module([("std", GenTree::module([("string", GenTree::module([]))]))])
+    GenTree::module([("std", GenTree::module([("string", GenTree::module([
+      ("concat", GenTree::cnst(Fun::new(|left: OrcString| Fun::new(move |right: OrcString| StringAtom::new(Arc::new(left.get_string().to_string() + &right.get_string()))))))
+    ]))]))])
   }
 }

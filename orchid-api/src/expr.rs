@@ -4,6 +4,7 @@ use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
 use crate::atom::{Atom, LocalAtom};
+use crate::error::ProjErr;
 use crate::interner::TStrv;
 use crate::location::Location;
 use crate::proto::{ExtHostNotif, ExtHostReq};
@@ -83,7 +84,7 @@ pub enum Clause {
   /// A reference to a constant
   Const(TStrv),
   /// A static runtime error.
-  Bottom(String),
+  Bottom(ProjErr),
 }
 
 #[derive(Clone, Debug, Coding)]
