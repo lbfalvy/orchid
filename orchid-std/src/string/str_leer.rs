@@ -6,7 +6,7 @@ use orchid_base::vname;
 use orchid_extension::atom::AtomicFeatures;
 use orchid_extension::error::{ErrorSansOrigin, ProjectErrorObj, ProjectResult};
 use orchid_extension::lexer::{LexContext, Lexer};
-use orchid_extension::tree::{wrap_tokv, GenTok, GenTokTree};
+use orchid_extension::tree::{wrap_tokv, OwnedTok, OwnedTokTree};
 
 use super::str_atom::StringAtom;
 
@@ -119,15 +119,15 @@ impl Lexer for StringLexer {
   fn lex<'a>(
     full_string: &'a str,
     ctx: &'a LexContext<'a>,
-  ) -> Option<ProjectResult<(&'a str, GenTokTree)>> {
+  ) -> Option<ProjectResult<(&'a str, OwnedTokTree)>> {
     full_string.strip_prefix('"').map(|mut tail| {
       let mut parts = vec![];
       let mut cur = String::new();
-      let commit_str = |str: &mut String, tail: &str, parts: &mut Vec<GenTokTree>| {
+      let commit_str = |str: &mut String, tail: &str, parts: &mut Vec<OwnedTokTree>| {
         let str_val = parse_string(str)
           .inspect_err(|e| ctx.report(e.clone().into_proj(ctx.pos(tail) - str.len() as u32)))
           .unwrap_or_default();
-        let tok = GenTok::Atom(StringAtom::new_int(intern(&str_val)).factory());
+        let tok = OwnedTok::Atom(StringAtom::new_int(intern(&str_val)).factory());
         parts.push(tok.at(ctx.tok_ran(str.len() as u32, tail)));
         *str = String::new();
       };
@@ -137,8 +137,8 @@ impl Lexer for StringLexer {
           return Ok((rest, wrap_tokv(parts, ctx.pos(full_string)..ctx.pos(rest))));
         } else if let Some(rest) = tail.strip_prefix('$') {
           commit_str(&mut cur, tail, &mut parts);
-          parts.push(GenTok::Name(VName::literal("++")).at(ctx.tok_ran(1, rest)));
-          parts.push(GenTok::Name(vname!(std::string::convert)).at(ctx.tok_ran(1, rest)));
+          parts.push(OwnedTok::Name(VName::literal("++")).at(ctx.tok_ran(1, rest)));
+          parts.push(OwnedTok::Name(vname!(std::string::convert)).at(ctx.tok_ran(1, rest)));
           match ctx.recurse(rest) {
             Ok((new_tail, tree)) => {
               tail = new_tail;

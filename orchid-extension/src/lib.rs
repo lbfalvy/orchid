@@ -1,4 +1,7 @@
 pub mod atom;
+pub mod atom_owned;
+pub mod atom_thin;
+pub mod conv;
 pub mod entrypoint;
 pub mod error;
 pub mod expr;
@@ -10,6 +13,3 @@ pub mod other_system;
 pub mod system;
 pub mod system_ctor;
 pub mod tree;
-pub mod conv;
-pub mod atom_thin;
-pub mod atom_owned;

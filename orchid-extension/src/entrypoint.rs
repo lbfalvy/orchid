@@ -19,7 +19,7 @@ use orchid_base::interner::{deintern, init_replica, sweep_replica};
 use orchid_base::name::PathSlice;
 use orchid_base::reqnot::{ReqNot, Requester};
 
-use crate::atom::AtomInfo;
+use crate::atom::AtomDynfo;
 use crate::error::{err_or_ref_to_api, unpack_err};
 use crate::fs::VirtFS;
 use crate::lexer::LexContext;
@@ -48,7 +48,7 @@ pub struct SystemRecord {
 pub fn with_atom_record<T>(
   systems: &Mutex<HashMap<SysId, SystemRecord>>,
   atom: &Atom,
-  cb: impl FnOnce(&AtomInfo, CtedObj, &[u8]) -> T,
+  cb: impl FnOnce(&'static dyn AtomDynfo, CtedObj, &[u8]) -> T,
 ) -> T {
   let mut data = &atom.data[..];
   let systems_g = systems.lock().unwrap();
@@ -77,7 +77,7 @@ pub fn extension_main(data: ExtensionData) {
         mem::drop(systems.lock().unwrap().remove(&sys_id)),
       HostExtNotif::AtomDrop(AtomDrop(atom)) => {
         with_atom_record(&systems, &atom, |rec, cted, data| {
-          (rec.drop)(data, SysCtx{ reqnot, id: atom.owner, cted })
+          rec.drop(data, SysCtx{ reqnot, id: atom.owner, cted })
         })
       }
     }),

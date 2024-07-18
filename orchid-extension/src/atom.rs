@@ -1,4 +1,4 @@
-use std::any::{type_name, Any};
+use std::any::{type_name, Any, TypeId};
 use std::io::{Read, Write};
 use std::ops::Deref;
 
@@ -9,7 +9,6 @@ use orchid_api_traits::{Coding, Decode, Request};
 use orchid_base::location::Pos;
 use orchid_base::reqnot::Requester;
 use trait_set::trait_set;
-use typeid::ConstTypeId;
 
 use crate::error::ProjectError;
 use crate::expr::{ExprHandle, GenExpr};
@@ -33,19 +32,22 @@ impl<A: Atomic> AtomCard for A {
 
 pub trait AtomicFeatures: Atomic {
   fn factory(self) -> AtomFactory;
-  fn info() -> &'static AtomInfo;
+  type Info: AtomDynfo;
+  const INFO: &'static Self::Info;
 }
 pub trait AtomicFeaturesImpl<Variant: AtomicVariant> {
   fn _factory(self) -> AtomFactory;
-  fn _info() -> &'static AtomInfo;
+  type _Info: AtomDynfo;
+  const _INFO: &'static Self::_Info;
 }
 impl<A: Atomic + AtomicFeaturesImpl<A::Variant>> AtomicFeatures for A {
   fn factory(self) -> AtomFactory { self._factory() }
-  fn info() -> &'static AtomInfo { Self::_info() }
+  type Info = <Self as AtomicFeaturesImpl<A::Variant>>::_Info;
+  const INFO: &'static Self::Info = Self::_INFO;
 }
 
-pub fn get_info<A: AtomCard>(sys: &(impl DynSystemCard + ?Sized)) -> (u64, &AtomInfo) {
-  atom_info_for(sys, ConstTypeId::of::<A>()).unwrap_or_else(|| {
+pub fn get_info<A: AtomCard>(sys: &(impl DynSystemCard + ?Sized)) -> (u64, &'static dyn AtomDynfo) {
+  atom_info_for(sys, TypeId::of::<A>()).unwrap_or_else(|| {
     panic!("Atom {} not associated with system {}", type_name::<A>(), sys.name())
   })
 }
@@ -75,14 +77,14 @@ impl<A: AtomCard> Deref for TypAtom<A> {
   fn deref(&self) -> &Self::Target { &self.value }
 }
 
-pub struct AtomInfo {
-  pub tid: ConstTypeId,
-  pub decode: fn(&[u8]) -> Box<dyn Any>,
-  pub call: fn(&[u8], SysCtx, ExprTicket) -> GenExpr,
-  pub call_ref: fn(&[u8], SysCtx, ExprTicket) -> GenExpr,
-  pub same: fn(&[u8], SysCtx, &[u8]) -> bool,
-  pub handle_req: fn(&[u8], SysCtx, &mut dyn Read, &mut dyn Write),
-  pub drop: fn(&[u8], SysCtx),
+pub trait AtomDynfo: Send + Sync + 'static {
+  fn tid(&self) -> TypeId;
+  fn decode(&self, data: &[u8]) -> Box<dyn Any>;
+  fn call(&self, buf: &[u8], ctx: SysCtx, arg: ExprTicket) -> GenExpr;
+  fn call_ref(&self, buf: &[u8], ctx: SysCtx, arg: ExprTicket) -> GenExpr;
+  fn same(&self, buf: &[u8], ctx: SysCtx, buf2: &[u8]) -> bool;
+  fn handle_req(&self, buf: &[u8], ctx: SysCtx, req: &mut dyn Read, rep: &mut dyn Write);
+  fn drop(&self, buf: &[u8], ctx: SysCtx);
 }
 
 trait_set! {

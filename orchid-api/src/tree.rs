@@ -7,6 +7,7 @@ use orchid_api_traits::Request;
 use ordered_float::NotNan;
 
 use crate::atom::LocalAtom;
+use crate::error::ProjErrOrRef;
 use crate::expr::Expr;
 use crate::interner::TStr;
 use crate::proto::HostExtReq;
@@ -38,7 +39,7 @@ pub enum Token {
   Slot(TreeTicket),
   /// A static compile-time error returned by erroring lexers if
   /// the rest of the source is likely still meaningful
-  Bottom(String),
+  Bottom(ProjErrOrRef),
 }
 
 #[derive(Clone, Debug, Coding)]

@@ -1,10 +1,18 @@
-use std::{any::type_name, fmt, io::Write};
+use std::any::{type_name, Any, TypeId};
+use std::fmt;
+use std::io::Write;
+use std::marker::PhantomData;
 
 use orchid_api::atom::LocalAtom;
+use orchid_api::expr::ExprTicket;
 use orchid_api_traits::{Coding, Decode, Encode};
-use typeid::ConstTypeId;
 
-use crate::{atom::{get_info, AtomCard, AtomFactory, AtomInfo, Atomic, AtomicFeaturesImpl, AtomicVariant, ErrorNotCallable}, expr::{bot, ExprHandle, GenExpr}, system::SysCtx};
+use crate::atom::{
+  get_info, AtomCard, AtomDynfo, AtomFactory, Atomic, AtomicFeaturesImpl, AtomicVariant,
+  ErrorNotCallable,
+};
+use crate::expr::{bot, ExprHandle, GenExpr};
+use crate::system::SysCtx;
 
 pub struct ThinVariant;
 impl AtomicVariant for ThinVariant {}
@@ -16,22 +24,32 @@ impl<A: ThinAtom + Atomic<Variant = ThinVariant>> AtomicFeaturesImpl<ThinVariant
       LocalAtom { drop: false, data: buf }
     })
   }
-  fn _info() -> &'static AtomInfo {
-    &const {
-      AtomInfo {
-        tid: ConstTypeId::of::<Self>(),
-        decode: |mut b| Box::new(Self::decode(&mut b)),
-        call: |mut b, ctx, extk| Self::decode(&mut b).call(ExprHandle::from_args(ctx, extk)),
-        call_ref: |mut b, ctx, extk| Self::decode(&mut b).call(ExprHandle::from_args(ctx, extk)),
-        handle_req: |mut b, ctx, req, rep| Self::decode(&mut b).handle_req(ctx, Decode::decode(req), rep),
-        same: |mut b1, ctx, mut b2| Self::decode(&mut b1).same(ctx, &Self::decode(&mut b2)),
-        drop: |mut b1, _| eprintln!("Received drop signal for non-drop atom {:?}", Self::decode(&mut b1)),
-      }
-    }
+  type _Info = ThinAtomDynfo<Self>;
+  const _INFO: &'static Self::_Info = &ThinAtomDynfo(PhantomData);
+}
+
+pub struct ThinAtomDynfo<T: ThinAtom>(PhantomData<T>);
+impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
+  fn tid(&self) -> TypeId { TypeId::of::<T>() }
+  fn decode(&self, mut data: &[u8]) -> Box<dyn Any> { Box::new(T::decode(&mut data)) }
+  fn call(&self, buf: &[u8], ctx: SysCtx, arg: ExprTicket) -> GenExpr {
+    T::decode(&mut &buf[..]).call(ExprHandle::from_args(ctx, arg))
+  }
+  fn call_ref(&self, buf: &[u8], ctx: SysCtx, arg: ExprTicket) -> GenExpr {
+    T::decode(&mut &buf[..]).call(ExprHandle::from_args(ctx, arg))
+  }
+  fn handle_req(&self, buf: &[u8], ctx: SysCtx, req: &mut dyn std::io::Read, rep: &mut dyn Write) {
+    T::decode(&mut &buf[..]).handle_req(ctx, Decode::decode(req), rep)
+  }
+  fn same(&self, buf: &[u8], ctx: SysCtx, buf2: &[u8]) -> bool {
+    T::decode(&mut &buf[..]).same(ctx, &T::decode(&mut &buf2[..]))
+  }
+  fn drop(&self, buf: &[u8], _ctx: SysCtx) {
+    eprintln!("Received drop signal for non-drop atom {:?}", T::decode(&mut &buf[..]))
   }
 }
 
-pub trait ThinAtom: AtomCard<Data = Self> + Coding + fmt::Debug {
+pub trait ThinAtom: AtomCard<Data = Self> + Coding + fmt::Debug + Send + Sync + 'static {
   #[allow(unused_variables)]
   fn call(&self, arg: ExprHandle) -> GenExpr { bot(ErrorNotCallable) }
   #[allow(unused_variables)]

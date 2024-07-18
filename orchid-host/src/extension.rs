@@ -1,4 +1,5 @@
 use std::io::Write as _;
+use std::ops::Deref;
 use std::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -12,16 +13,16 @@ use orchid_api::atom::{Atom, AtomDrop, AtomSame, CallRef, FinalCall, Fwd, Fwded}
 use orchid_api::error::{ErrNotif, ProjErrOrRef, ProjResult, ReportError};
 use orchid_api::expr::{Acquire, Expr, ExprNotif, ExprTicket, Release, Relocate};
 use orchid_api::interner::IntReq;
-use orchid_api::parser::CharFilter;
+use orchid_api::parser::{CharFilter, Lexed, SubLexed};
 use orchid_api::proto::{
-  ExtHostNotif, ExtHostReq, ExtensionHeader, HostExtNotif, HostExtReq, HostHeader, HostMsgSet
+  ExtHostNotif, ExtHostReq, ExtensionHeader, HostExtNotif, HostHeader, HostMsgSet,
 };
 use orchid_api::system::{NewSystem, SysDeclId, SysId, SystemDecl, SystemDrop};
 use orchid_api::tree::{GetConstTree, Tree, TreeId};
-use orchid_api_traits::{Coding, Decode, Encode, Request};
+use orchid_api_traits::{Coding, Decode, Encode};
 use orchid_base::char_filter::char_filter_match;
 use orchid_base::clone;
-use orchid_base::interner::{deintern, intern};
+use orchid_base::interner::{deintern, intern, Tok};
 use orchid_base::reqnot::{ReqNot, Requester as _};
 use ordered_float::NotNan;
 
@@ -230,24 +231,28 @@ impl System {
   pub fn const_tree(&self) -> Tree {
     self.0.ext.0.reqnot.request(GetConstTree(self.0.id, self.0.const_root_id))
   }
-  pub fn request<R: Coding>(&self, req: impl Request<Response = ProjResult<R>> + Into<HostExtReq>) -> ProjResult<R> {
+  pub fn catch_err<R: Coding>(&self, cb: impl FnOnce() -> ProjResult<R>) -> ProjResult<R> {
     let mut errors = Vec::new();
     if let Ok(err) = self.0.err_rec.lock().unwrap().try_recv() {
       eprintln!("Errors left in queue");
       errors.push(err);
     }
-    let value = self.0.ext.0.reqnot.request(req).inspect_err(|e| errors.extend(e.iter().cloned()));
+    let value = cb().inspect_err(|e| errors.extend(e.iter().cloned()));
     while let Ok(err) = self.0.err_rec.lock().unwrap().try_recv() {
       errors.push(err);
     }
-    if !errors.is_empty() {
-      Err(errors)
-    } else {
-      value
-    }
+    if !errors.is_empty() { Err(errors) } else { value }
   }
   pub fn has_lexer(&self) -> bool { !self.0.lex_filter.0.is_empty() }
   pub fn can_lex(&self, c: char) -> bool { char_filter_match(&self.0.lex_filter, c) }
+  pub fn lex(
+    &self,
+    source: Tok<String>,
+    pos: usize,
+    r: impl FnMut(usize) -> ProjResult<SubLexed>,
+  ) -> ProjResult<Lexed> {
+    todo!()
+  }
 }
 impl fmt::Debug for System {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -262,4 +267,8 @@ impl fmt::Debug for System {
       },
     }
   }
+}
+impl Deref for System {
+  type Target = SystemInstData;
+  fn deref(&self) -> &Self::Target { self.0.as_ref() }
 }

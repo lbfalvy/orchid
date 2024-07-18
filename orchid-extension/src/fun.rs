@@ -6,9 +6,9 @@ use trait_set::trait_set;
 
 use crate::atom::Atomic;
 use crate::atom_owned::{OwnedAtom, OwnedVariant};
+use crate::conv::{ToExpr, TryFromExpr};
 use crate::expr::{ExprHandle, GenExpr};
 use crate::system::SysCtx;
-use crate::conv::{ToExpr, TryFromExpr};
 
 trait_set! {
   trait FunCB = FnOnce(ExprHandle) -> GenExpr + DynClone + Send + Sync + 'static;
@@ -16,7 +16,9 @@ trait_set! {
 
 pub struct Fun(Box<dyn FunCB>);
 impl Fun {
-  pub fn new<I: TryFromExpr, O: ToExpr>(f: impl FnOnce(I) -> O + Clone + Send + Sync + 'static) -> Self {
+  pub fn new<I: TryFromExpr, O: ToExpr>(
+    f: impl FnOnce(I) -> O + Clone + Send + Sync + 'static,
+  ) -> Self {
     Self(Box::new(|eh| I::try_from_expr(eh).map(f).to_expr()))
   }
 }

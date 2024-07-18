@@ -10,7 +10,7 @@ use orchid_base::reqnot::{ReqNot, Requester};
 use crate::error::{
   err_from_api_or_ref, err_or_ref_to_api, pack_err, unpack_err, ProjectErrorObj, ProjectResult,
 };
-use crate::tree::{GenTok, GenTokTree};
+use crate::tree::{OwnedTok, OwnedTokTree};
 
 pub struct LexContext<'a> {
   pub text: &'a Tok<String>,
@@ -20,13 +20,13 @@ pub struct LexContext<'a> {
   pub reqnot: ReqNot<ExtMsgSet>,
 }
 impl<'a> LexContext<'a> {
-  pub fn recurse(&self, tail: &'a str) -> ProjectResult<(&'a str, GenTokTree)> {
+  pub fn recurse(&self, tail: &'a str) -> ProjectResult<(&'a str, OwnedTokTree)> {
     let start = self.pos(tail);
     self
       .reqnot
       .request(SubLex { pos: start, id: self.id })
       .map_err(|e| pack_err(e.iter().map(|e| err_from_api_or_ref(e, self.reqnot.clone()))))
-      .map(|lx| (&self.text[lx.pos as usize..], GenTok::Slot(lx.ticket).at(start..lx.pos)))
+      .map(|lx| (&self.text[lx.pos as usize..], OwnedTok::Slot(lx.ticket).at(start..lx.pos)))
   }
 
   pub fn pos(&self, tail: &'a str) -> u32 { (self.text.len() - tail.len()) as u32 }
@@ -47,7 +47,7 @@ pub trait Lexer: Send + Sync + Sized + Default + 'static {
   fn lex<'a>(
     tail: &'a str,
     ctx: &'a LexContext<'a>,
-  ) -> Option<ProjectResult<(&'a str, GenTokTree)>>;
+  ) -> Option<ProjectResult<(&'a str, OwnedTokTree)>>;
 }
 
 pub trait DynLexer: Send + Sync + 'static {
@@ -56,7 +56,7 @@ pub trait DynLexer: Send + Sync + 'static {
     &self,
     tail: &'a str,
     ctx: &'a LexContext<'a>,
-  ) -> Option<ProjectResult<(&'a str, GenTokTree)>>;
+  ) -> Option<ProjectResult<(&'a str, OwnedTokTree)>>;
 }
 
 impl<T: Lexer> DynLexer for T {
@@ -65,7 +65,7 @@ impl<T: Lexer> DynLexer for T {
     &self,
     tail: &'a str,
     ctx: &'a LexContext<'a>,
-  ) -> Option<ProjectResult<(&'a str, GenTokTree)>> {
+  ) -> Option<ProjectResult<(&'a str, OwnedTokTree)>> {
     T::lex(tail, ctx)
   }
 }

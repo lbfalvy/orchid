@@ -10,7 +10,7 @@ use orchid_api::error::{GetErrorDetails, ProjErr, ProjErrId, ProjErrOrRef};
 use orchid_api::proto::ExtMsgSet;
 use orchid_base::boxed_iter::{box_once, BoxedIter};
 use orchid_base::clone;
-use orchid_base::error::{ErrorDetails, ErrorPosition};
+use orchid_base::error::{ErrorPosition, OwnedError};
 use orchid_base::interner::{deintern, intern};
 use orchid_base::location::{GetSrc, Pos};
 use orchid_base::reqnot::{ReqNot, Requester};
@@ -290,12 +290,16 @@ pub(crate) fn err_or_ref_to_api(err: ProjectErrorObj) -> ProjErrOrRef {
 }
 
 pub fn err_from_api(err: &ProjErr, reqnot: ReqNot<ExtMsgSet>) -> ProjectErrorObj {
-  Arc::new(RelayedError { id: None, reqnot, details: ErrorDetails::from_api(err).into() })
+  Arc::new(RelayedError { id: None, reqnot, details: OwnedError::from_api(err).into() })
 }
 
-pub(crate) fn err_from_api_or_ref(err: &ProjErrOrRef, reqnot: ReqNot<ExtMsgSet>) -> ProjectErrorObj {
+pub(crate) fn err_from_api_or_ref(
+  err: &ProjErrOrRef,
+  reqnot: ReqNot<ExtMsgSet>,
+) -> ProjectErrorObj {
   match err {
-    ProjErrOrRef::Known(id) => Arc::new(RelayedError { id: Some(*id), reqnot, details: OnceLock::default() }),
+    ProjErrOrRef::Known(id) =>
+      Arc::new(RelayedError { id: Some(*id), reqnot, details: OnceLock::default() }),
     ProjErrOrRef::New(err) => err_from_api(err, reqnot),
   }
 }
@@ -303,18 +307,18 @@ pub(crate) fn err_from_api_or_ref(err: &ProjErrOrRef, reqnot: ReqNot<ExtMsgSet>)
 struct RelayedError {
   pub id: Option<ProjErrId>,
   pub reqnot: ReqNot<ExtMsgSet>,
-  pub details: OnceLock<ErrorDetails>,
+  pub details: OnceLock<OwnedError>,
 }
 impl RelayedError {
-  fn details(&self) -> &ErrorDetails {
+  fn details(&self) -> &OwnedError {
     let Self { id, reqnot, details: data } = self;
     data.get_or_init(clone!(reqnot; move || {
       let id = id.expect("Either data or ID must be initialized");
       let projerr = reqnot.request(GetErrorDetails(id));
-      ErrorDetails {
+      OwnedError {
         description: deintern(projerr.description),
         message: projerr.message,
-        locations: projerr.locations.iter().map(ErrorPosition::from_api).collect_vec(),
+        positions: projerr.locations.iter().map(ErrorPosition::from_api).collect_vec(),
       }
     }))
   }
@@ -325,6 +329,6 @@ impl DynProjectError for RelayedError {
   fn as_any_ref(&self) -> &dyn std::any::Any { self }
   fn into_packed(self: Arc<Self>) -> ProjectErrorObj { self }
   fn positions(&self) -> BoxedIter<'_, ErrorPosition> {
-    Box::new(self.details().locations.iter().cloned())
+    Box::new(self.details().positions.iter().cloned())
   }
 }

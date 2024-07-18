@@ -10,10 +10,10 @@ use orchid_base::interner::{deintern, Tok};
 use orchid_base::location::Pos;
 use orchid_extension::atom::{Atomic, TypAtom};
 use orchid_extension::atom_owned::{OwnedAtom, OwnedVariant};
+use orchid_extension::conv::TryFromExpr;
 use orchid_extension::error::{ProjectError, ProjectResult};
 use orchid_extension::expr::{ExprHandle, OwnedExpr};
 use orchid_extension::system::{downcast_atom, SysCtx};
-use orchid_extension::conv::TryFromExpr;
 
 pub static STR_REPO: IdStore<Arc<String>> = IdStore::new();
 
@@ -59,10 +59,12 @@ impl StringAtom {
   fn get_value(&self) -> Arc<String> { self.try_local_value().expect("no string found for ID") }
 }
 impl OwnedAtom for StringAtom {
-  fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(match self {
-    Self::Int(tok) => StringVal::Int(tok.marker()),
-    Self::Val(id) => StringVal::Val(*id),
-  }) }
+  fn val(&self) -> Cow<'_, Self::Data> {
+    Cow::Owned(match self {
+      Self::Int(tok) => StringVal::Int(tok.marker()),
+      Self::Val(id) => StringVal::Val(*id),
+    })
+  }
   fn same(&self, _ctx: SysCtx, other: &Self) -> bool { self.get_value() == other.get_value() }
   fn handle_req(
     &self,
@@ -90,9 +92,7 @@ impl OrcString {
 pub struct NotString(Pos);
 impl ProjectError for NotString {
   const DESCRIPTION: &'static str = "A string was expected";
-  fn one_position(&self) -> Pos {
-      self.0.clone()
-  }
+  fn one_position(&self) -> Pos { self.0.clone() }
 }
 impl TryFromExpr for OrcString {
   fn try_from_expr(expr: ExprHandle) -> ProjectResult<OrcString> {

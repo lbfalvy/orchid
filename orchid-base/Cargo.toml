@@ -17,5 +17,6 @@ orchid-api-derive = { version = "0.1.0", path = "../orchid-api-derive" }
 orchid-api-traits = { version = "0.1.0", path = "../orchid-api-traits" }
 ordered-float = "4.2.0"
 rust-embed = "8.3.0"
+rust_decimal = "1.35.0"
 substack = "1.1.0"
 trait-set = "0.3.0"

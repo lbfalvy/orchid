@@ -1,11 +1,11 @@
-use orchid_api_traits::Decode;
+use std::any::TypeId;
 
 use orchid_api::proto::ExtMsgSet;
 use orchid_api::system::SysId;
+use orchid_api_traits::Decode;
 use orchid_base::reqnot::ReqNot;
-use typeid::ConstTypeId;
 
-use crate::atom::{get_info, AtomCard, AtomInfo, AtomicFeatures, ForeignAtom, TypAtom};
+use crate::atom::{get_info, AtomCard, AtomDynfo, AtomicFeatures, ForeignAtom, TypAtom};
 use crate::fs::DeclFs;
 use crate::fun::Fun;
 use crate::lexer::LexerObj;
@@ -15,44 +15,45 @@ use crate::tree::GenTree;
 /// System as consumed by foreign code
 pub trait SystemCard: Default + Send + Sync + 'static {
   type Ctor: SystemCtor;
-  const ATOM_DEFS: &'static [Option<fn() -> &'static AtomInfo>];
+  const ATOM_DEFS: &'static [Option<&'static dyn AtomDynfo>];
 }
 
 pub trait DynSystemCard: Send + Sync + 'static {
   fn name(&self) -> &'static str;
   /// Atoms explicitly defined by the system card. Do not rely on this for
   /// querying atoms as it doesn't include the general atom types
-  fn atoms(&self) -> &'static [Option<fn() -> &'static AtomInfo>];
+  fn atoms(&self) -> &'static [Option<&'static dyn AtomDynfo>];
 }
 
 /// Atoms supported by this package which may appear in all extensions.
 /// The indices of these are bitwise negated, such that the MSB of an atom index
 /// marks whether it belongs to this package (0) or the importer (1)
-fn general_atoms() -> &'static [Option<fn () -> &'static AtomInfo>] {
-  &[Some(Fun::info)]
-}
+fn general_atoms() -> &'static [Option<&'static dyn AtomDynfo>] { &[Some(Fun::INFO)] }
 
 pub fn atom_info_for(
   sys: &(impl DynSystemCard + ?Sized),
-  tid: ConstTypeId,
-) -> Option<(u64, &AtomInfo)> {
+  tid: TypeId,
+) -> Option<(u64, &'static dyn AtomDynfo)> {
   (sys.atoms().iter().enumerate().map(|(i, o)| (i as u64, o)))
     .chain(general_atoms().iter().enumerate().map(|(i, o)| (!(i as u64), o)))
-    .filter_map(|(i, o)| o.as_ref().map(|a| (i, a())))
-    .find(|ent| ent.1.tid == tid)
+    .filter_map(|(i, o)| o.as_ref().map(|a| (i, *a)))
+    .find(|ent| ent.1.tid() == tid)
 }
 
-pub fn atom_by_idx(sys: &(impl DynSystemCard + ?Sized), tid: u64) -> Option<&'static AtomInfo> {
+pub fn atom_by_idx(
+  sys: &(impl DynSystemCard + ?Sized),
+  tid: u64,
+) -> Option<&'static dyn AtomDynfo> {
   if (tid >> (u64::BITS - 1)) & 1 == 1 {
-    general_atoms()[!tid as usize].map(|f| f())
+    general_atoms()[!tid as usize]
   } else {
-    sys.atoms()[tid as usize].map(|f| f())
+    sys.atoms()[tid as usize]
   }
 }
 
 impl<T: SystemCard> DynSystemCard for T {
   fn name(&self) -> &'static str { T::Ctor::NAME }
-  fn atoms(&self) -> &'static [Option<fn() -> &'static AtomInfo>] { Self::ATOM_DEFS }
+  fn atoms(&self) -> &'static [Option<&'static dyn AtomDynfo>] { Self::ATOM_DEFS }
 }
 
 /// System as defined by author
@@ -85,7 +86,7 @@ pub fn downcast_atom<A: AtomCard>(foreign: ForeignAtom) -> Result<TypAtom<A>, Fo
   match info_ent {
     None => Err(foreign),
     Some((_, info)) => {
-      let val = (info.decode)(data);
+      let val = info.decode(data);
       let value = *val.downcast::<A::Data>().expect("atom decode returned wrong type");
       Ok(TypAtom { value, data: foreign })
     },

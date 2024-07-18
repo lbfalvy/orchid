@@ -27,22 +27,26 @@ impl ErrorPosition {
       location: self.position.to_api(),
     }
   }
+  pub fn new(msg: &str, position: Pos) -> Self {
+    Self { message: Some(Arc::new(msg.to_string())), position }
+  }
 }
 impl From<Pos> for ErrorPosition {
   fn from(origin: Pos) -> Self { Self { position: origin, message: None } }
 }
 
-pub struct ErrorDetails {
+#[derive(Clone)]
+pub struct OwnedError {
   pub description: Tok<String>,
   pub message: Arc<String>,
-  pub locations: Vec<ErrorPosition>,
+  pub positions: Vec<ErrorPosition>,
 }
-impl ErrorDetails {
+impl OwnedError {
   pub fn from_api(err: &ProjErr) -> Self {
     Self {
       description: deintern(err.description),
       message: err.message.clone(),
-      locations: err.locations.iter().map(ErrorPosition::from_api).collect(),
+      positions: err.locations.iter().map(ErrorPosition::from_api).collect(),
     }
   }
 }
