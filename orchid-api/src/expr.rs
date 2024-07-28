@@ -15,7 +15,8 @@ use crate::system::SysId;
 /// [Acquire].
 ///
 /// The ID is globally unique within its lifetime, but may be reused.
-pub type ExprTicket = NonZeroU64;
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
+pub struct ExprTicket(pub NonZeroU64);
 
 /// Acquire a strong reference to an expression. This keeps it alive until a
 /// corresponding [Release] is emitted. The number of times a system has
@@ -84,7 +85,7 @@ pub enum Clause {
   /// A reference to a constant
   Const(TStrv),
   /// A static runtime error.
-  Bottom(ProjErr),
+  Bottom(Vec<ProjErr>),
 }
 
 #[derive(Clone, Debug, Coding)]

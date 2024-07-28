@@ -1,25 +1,27 @@
 use std::io::Write as _;
+use std::num::NonZero;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicU16, AtomicU32, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, Ordering};
+use std::sync::mpsc::{sync_channel, SyncSender};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::{fmt, io, process, thread};
 
 use derive_destructure::destructure;
+use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use orchid_api::atom::{Atom, AtomDrop, AtomSame, CallRef, FinalCall, Fwd, Fwded};
-use orchid_api::error::{ErrNotif, ProjErrOrRef, ProjResult, ReportError};
+use orchid_api::error::ProjResult;
 use orchid_api::expr::{Acquire, Expr, ExprNotif, ExprTicket, Release, Relocate};
 use orchid_api::interner::IntReq;
-use orchid_api::parser::{CharFilter, Lexed, SubLexed};
+use orchid_api::parser::{CharFilter, LexExpr, LexedExpr, ParsId, SubLex, SubLexed};
 use orchid_api::proto::{
   ExtHostNotif, ExtHostReq, ExtensionHeader, HostExtNotif, HostHeader, HostMsgSet,
 };
 use orchid_api::system::{NewSystem, SysDeclId, SysId, SystemDecl, SystemDrop};
-use orchid_api::tree::{GetConstTree, Tree, TreeId};
-use orchid_api_traits::{Coding, Decode, Encode};
+use orchid_api::tree::{GetMember, Member, MemberKind, TreeId};
+use orchid_api_traits::{Decode, Encode, Request};
 use orchid_base::char_filter::char_filter_match;
 use orchid_base::clone;
 use orchid_base::interner::{deintern, intern, Tok};
@@ -27,6 +29,7 @@ use orchid_base::reqnot::{ReqNot, Requester as _};
 use ordered_float::NotNan;
 
 use crate::expr::RtExpr;
+use crate::tree::OwnedMember;
 
 #[derive(Debug, destructure)]
 pub struct AtomData {
@@ -37,16 +40,16 @@ pub struct AtomData {
 impl AtomData {
   fn api(self) -> Atom {
     let (owner, drop, data) = self.destructure();
-    Atom { data, drop, owner: owner.0.id }
+    Atom { data, drop, owner: owner.id() }
   }
   fn api_ref(&self) -> Atom {
-    Atom { data: self.data.clone(), drop: self.drop, owner: self.owner.0.id }
+    Atom { data: self.data.clone(), drop: self.drop, owner: self.owner.id() }
   }
 }
 impl Drop for AtomData {
   fn drop(&mut self) {
-    self.owner.0.ext.0.reqnot.notify(AtomDrop(Atom {
-      owner: self.owner.0.id,
+    self.owner.reqnot().notify(AtomDrop(Atom {
+      owner: self.owner.id(),
       data: self.data.clone(),
       drop: true,
     }))
@@ -62,22 +65,22 @@ impl AtomHand {
   }
   pub fn call(self, arg: RtExpr) -> Expr {
     let owner_sys = self.0.owner.clone();
-    let ext = &owner_sys.0.ext;
+    let reqnot = owner_sys.reqnot();
     let ticket = owner_sys.give_expr(arg.canonicalize(), || arg);
     match Arc::try_unwrap(self.0) {
-      Ok(data) => ext.0.reqnot.request(FinalCall(data.api(), ticket)),
-      Err(hand) => ext.0.reqnot.request(CallRef(hand.api_ref(), ticket)),
+      Ok(data) => reqnot.request(FinalCall(data.api(), ticket)),
+      Err(hand) => reqnot.request(CallRef(hand.api_ref(), ticket)),
     }
   }
   pub fn same(&self, other: &AtomHand) -> bool {
-    let owner = self.0.owner.0.id;
-    if other.0.owner.0.id != owner {
+    let owner = self.0.owner.id();
+    if other.0.owner.id() != owner {
       return false;
     }
-    self.0.owner.0.ext.0.reqnot.request(AtomSame(self.0.api_ref(), other.0.api_ref()))
+    self.0.owner.reqnot().request(AtomSame(self.0.api_ref(), other.0.api_ref()))
   }
   pub fn req(&self, req: Vec<u8>) -> Vec<u8> {
-    self.0.owner.0.ext.0.reqnot.request(Fwded(self.0.api_ref(), req))
+    self.0.owner.reqnot().request(Fwded(self.0.api_ref(), req))
   }
   pub fn api_ref(&self) -> Atom { self.0.api_ref() }
 }
@@ -131,9 +134,7 @@ impl Extension {
             acq_expr(inc, expr);
             rel_expr(dec, expr);
           },
-          ExtHostNotif::ErrNotif(ErrNotif::ReportError(ReportError(sys, err))) => {
-            System::resolve(sys).unwrap().0.err_send.send(err).unwrap();
-          },
+          ExtHostNotif::AdviseSweep(_advice) => eprintln!("Sweep advice is unsupported")
         },
         |req| match req.req() {
           ExtHostReq::Ping(ping) => req.handle(ping, &()),
@@ -145,8 +146,15 @@ impl Extension {
           ExtHostReq::Fwd(fw @ Fwd(atom, _body)) => {
             let sys = System::resolve(atom.owner).unwrap();
             thread::spawn(clone!(fw; move || {
-              req.handle(&fw, &sys.0.ext.0.reqnot.request(Fwded(fw.0.clone(), fw.1.clone())))
+              req.handle(&fw, &sys.reqnot().request(Fwded(fw.0.clone(), fw.1.clone())))
             }));
+          },
+          ExtHostReq::SubLex(sl) => {
+            let lex_g = LEX_RECUR.lock().unwrap();
+            let (rep_in, rep_out) = sync_channel(0);
+            let req_in = lex_g.get(&sl.id).expect("Sublex for nonexistent lexid");
+            req_in.send(ReqPair(sl.clone(), rep_in)).unwrap();
+            req.handle(sl, &rep_out.recv().unwrap())
           },
           _ => todo!(),
         },
@@ -169,23 +177,24 @@ impl SystemCtor {
   }
   pub fn run<'a>(&self, depends: impl IntoIterator<Item = &'a System>) -> System {
     let mut inst_g = SYSTEM_INSTS.write().unwrap();
-    let depends = depends.into_iter().map(|si| si.0.id).collect_vec();
+    let depends = depends.into_iter().map(|si| si.id()).collect_vec();
     debug_assert_eq!(depends.len(), self.decl.depends.len(), "Wrong number of deps provided");
     let ext = self.ext.upgrade().expect("SystemCtor should be freed before Extension");
     static NEXT_ID: AtomicU16 = AtomicU16::new(1);
-    let id = SysId::new(NEXT_ID.fetch_add(1, Ordering::Relaxed)).expect("next_id wrapped");
+    let id = SysId(NonZero::new(NEXT_ID.fetch_add(1, Ordering::Relaxed)).expect("next_id wrapped"));
     let sys_inst = ext.reqnot.request(NewSystem { depends, id, system: self.decl.id });
-    let (err_send, err_rec) = channel();
     let data = System(Arc::new(SystemInstData {
       decl_id: self.decl.id,
       ext: Extension(ext),
       exprs: RwLock::default(),
       lex_filter: sys_inst.lex_filter,
-      const_root_id: sys_inst.const_root_id,
-      err_send,
-      err_rec: Mutex::new(err_rec),
+      const_root: OnceLock::new(),
       id,
     }));
+    let root = (sys_inst.const_root.into_iter())
+        .map(|(k, v)| OwnedMember::from_api(Member { public: true, name: k, kind: v }, &data))
+        .collect_vec();
+      data.0.const_root.set(root).unwrap();
     inst_g.insert(id, data.clone());
     data
   }
@@ -193,7 +202,10 @@ impl SystemCtor {
 
 lazy_static! {
   static ref SYSTEM_INSTS: RwLock<HashMap<SysId, System>> = RwLock::default();
+  static ref LEX_RECUR: Mutex<HashMap<ParsId, SyncSender<ReqPair<SubLex>>>> = Mutex::default();
 }
+
+pub struct ReqPair<R: Request>(R, pub SyncSender<R::Response>);
 
 #[derive(destructure)]
 pub struct SystemInstData {
@@ -202,9 +214,7 @@ pub struct SystemInstData {
   decl_id: SysDeclId,
   lex_filter: CharFilter,
   id: SysId,
-  const_root_id: TreeId,
-  err_rec: Mutex<Receiver<ProjErrOrRef>>,
-  err_send: Sender<ProjErrOrRef>,
+  const_root: OnceLock<Vec<OwnedMember>>,
 }
 impl Drop for SystemInstData {
   fn drop(&mut self) {
@@ -217,48 +227,59 @@ impl Drop for SystemInstData {
 #[derive(Clone)]
 pub struct System(Arc<SystemInstData>);
 impl System {
+  pub fn id(&self) -> SysId { self.id }
   fn resolve(id: SysId) -> Option<System> { SYSTEM_INSTS.read().unwrap().get(&id).cloned() }
+  fn reqnot(&self) -> &ReqNot<HostMsgSet> { &self.0.ext.0.reqnot }
   fn give_expr(&self, ticket: ExprTicket, get_expr: impl FnOnce() -> RtExpr) -> ExprTicket {
-    let mut exprs = self.0.exprs.write().unwrap();
-    exprs
-      .entry(ticket)
-      .and_modify(|(c, _)| {
-        c.fetch_add(1, Ordering::Relaxed);
-      })
-      .or_insert((AtomicU32::new(1), get_expr()));
+    match self.0.exprs.write().unwrap().entry(ticket) {
+      Entry::Occupied(mut oe) => {
+        oe.get_mut().0.fetch_add(1, Ordering::Relaxed);
+      },
+      Entry::Vacant(v) => {
+        v.insert((AtomicU32::new(1), get_expr()));
+      }
+    }
     ticket
   }
-  pub fn const_tree(&self) -> Tree {
-    self.0.ext.0.reqnot.request(GetConstTree(self.0.id, self.0.const_root_id))
-  }
-  pub fn catch_err<R: Coding>(&self, cb: impl FnOnce() -> ProjResult<R>) -> ProjResult<R> {
-    let mut errors = Vec::new();
-    if let Ok(err) = self.0.err_rec.lock().unwrap().try_recv() {
-      eprintln!("Errors left in queue");
-      errors.push(err);
-    }
-    let value = cb().inspect_err(|e| errors.extend(e.iter().cloned()));
-    while let Ok(err) = self.0.err_rec.lock().unwrap().try_recv() {
-      errors.push(err);
-    }
-    if !errors.is_empty() { Err(errors) } else { value }
+  pub fn get_tree(&self, id: TreeId) -> MemberKind {
+    self.reqnot().request(GetMember(self.0.id, id))
   }
   pub fn has_lexer(&self) -> bool { !self.0.lex_filter.0.is_empty() }
   pub fn can_lex(&self, c: char) -> bool { char_filter_match(&self.0.lex_filter, c) }
+  /// Have this system lex a part of the source. It is assumed that
+  /// [Self::can_lex] was called and returned true.
   pub fn lex(
     &self,
     source: Tok<String>,
-    pos: usize,
-    r: impl FnMut(usize) -> ProjResult<SubLexed>,
-  ) -> ProjResult<Lexed> {
-    todo!()
+    pos: u32,
+    mut r: impl FnMut(u32) -> Option<SubLexed> + Send,
+  ) -> ProjResult<Option<LexedExpr>> {
+    // get unique lex ID
+    static LEX_ID: AtomicU64 = AtomicU64::new(1);
+    let id = ParsId(NonZero::new(LEX_ID.fetch_add(1, Ordering::Relaxed)).unwrap());
+    thread::scope(|s| {
+      // create and register channel
+      let (req_in, req_out) = sync_channel(0);
+      LEX_RECUR.lock().unwrap().insert(id, req_in); // LEX_RECUR released
+      // spawn recursion handler which will exit when the sender is collected
+      s.spawn(move || {
+        while let Ok(ReqPair(sublex, rep_in)) = req_out.recv() {
+          rep_in.send(r(sublex.pos)).unwrap()
+        }
+      });
+      // Pass control to extension
+      let ret = self.reqnot().request(LexExpr { id, pos, sys: self.id(), text: source.marker() });
+      // collect sender to unblock recursion handler thread before returning
+      LEX_RECUR.lock().unwrap().remove(&id);
+      ret.transpose()
+    }) // exit recursion handler thread
   }
 }
 impl fmt::Debug for System {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     let ctor = (self.0.ext.0.systems.iter().find(|c| c.decl.id == self.0.decl_id))
       .expect("System instance with no associated constructor");
-    write!(f, "System({} @ {} #{}, ", ctor.decl.name, ctor.decl.priority, self.0.id)?;
+    write!(f, "System({} @ {} #{}, ", ctor.decl.name, ctor.decl.priority, self.0.id.0)?;
     match self.0.exprs.read() {
       Err(_) => write!(f, "expressions unavailable"),
       Ok(r) => {

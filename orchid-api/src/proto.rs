@@ -82,7 +82,7 @@ pub enum ExtHostReq {
 #[extendable]
 pub enum ExtHostNotif {
   ExprNotif(expr::ExprNotif),
-  ErrNotif(error::ErrNotif),
+  AdviseSweep(interner::AdviseSweep),
 }
 
 pub struct ExtHostChannel;
@@ -100,7 +100,7 @@ pub enum HostExtReq {
   Sweep(interner::Sweep),
   AtomReq(atom::AtomReq),
   ParserReq(parser::ParserReq),
-  GetConstTree(tree::GetConstTree),
+  GetMember(tree::GetMember),
   VfsReq(vfs::VfsReq),
 }
 

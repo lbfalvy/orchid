@@ -5,7 +5,6 @@ pub mod event;
 pub mod msg;
 // pub mod gen;
 pub mod api_utils;
-pub mod as_api;
 pub mod box_cow;
 pub mod char_filter;
 pub mod error;

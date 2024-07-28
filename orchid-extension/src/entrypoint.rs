@@ -1,48 +1,49 @@
-use std::num::{NonZeroU16, NonZeroU64};
+use std::num::NonZero;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{mem, thread};
 
 use hashbrown::HashMap;
 use itertools::Itertools;
-use orchid_api::atom::{Atom, AtomDrop, AtomReq, AtomSame, CallRef, Command, FinalCall, Fwded};
+use orchid_api::atom::{
+  Atom, AtomDrop, AtomReq, AtomSame, CallRef, Command, FinalCall, Fwded, NextStep,
+};
 use orchid_api::interner::Sweep;
-use orchid_api::parser::{CharFilter, Lex, Lexed, ParserReq};
+use orchid_api::parser::{CharFilter, LexExpr, LexedExpr, ParserReq};
 use orchid_api::proto::{ExtMsgSet, ExtensionHeader, HostExtNotif, HostExtReq, HostHeader, Ping};
-use orchid_api::system::{SysId, SystemDrop, SystemInst};
-use orchid_api::tree::{GetConstTree, Tree, TreeId};
+use orchid_api::system::{SysDeclId, SysId, SystemDrop, SystemInst};
+use orchid_api::tree::{GetMember, TreeId};
 use orchid_api::vfs::{EagerVfs, GetVfs, VfsId, VfsRead, VfsReq};
 use orchid_api_traits::{Decode, Encode};
-use orchid_base::char_filter::{char_filter_union, mk_char_filter};
+use orchid_base::char_filter::{char_filter_match, char_filter_union, mk_char_filter};
 use orchid_base::clone;
 use orchid_base::interner::{deintern, init_replica, sweep_replica};
 use orchid_base::name::PathSlice;
 use orchid_base::reqnot::{ReqNot, Requester};
 
-use crate::atom::AtomDynfo;
-use crate::error::{err_or_ref_to_api, unpack_err};
+use crate::atom::{AtomCtx, AtomDynfo};
+use crate::error::errv_to_apiv;
 use crate::fs::VirtFS;
-use crate::lexer::LexContext;
+use crate::lexer::{CascadingError, LexContext, NotApplicableLexerError};
 use crate::msg::{recv_parent_msg, send_parent_msg};
-use crate::system::{atom_by_idx, SysCtx};
+use crate::system::{atom_by_idx, resolv_atom, SysCtx};
 use crate::system_ctor::{CtedObj, DynSystemCtor};
-use crate::tree::LazyTreeFactory;
+use crate::tree::{LazyMemberFactory, TIACtxImpl};
 
 pub struct ExtensionData {
   pub systems: &'static [&'static dyn DynSystemCtor],
 }
 
-pub enum TreeRecord {
-  Gen(LazyTreeFactory),
-  Res(Tree),
+pub enum MemberRecord {
+  Gen(LazyMemberFactory),
+  Res,
 }
 
 pub struct SystemRecord {
   cted: CtedObj,
   vfses: HashMap<VfsId, &'static dyn VirtFS>,
   declfs: EagerVfs,
-  tree: Tree,
-  subtrees: HashMap<TreeId, TreeRecord>,
+  lazy_members: HashMap<TreeId, MemberRecord>,
 }
 
 pub fn with_atom_record<T>(
@@ -63,7 +64,7 @@ pub fn extension_main(data: ExtensionData) {
   let mut buf = Vec::new();
   let decls = (data.systems.iter().enumerate())
     .map(|(id, sys)| (u16::try_from(id).expect("more than u16max system ctors"), sys))
-    .map(|(id, sys)| sys.decl(NonZeroU16::new(id + 1).unwrap()))
+    .map(|(id, sys)| sys.decl(SysDeclId(NonZero::new(id + 1).unwrap())))
     .collect_vec();
   let systems = Arc::new(Mutex::new(HashMap::<SysId, SystemRecord>::new()));
   ExtensionHeader { systems: decls.clone() }.encode(&mut buf);
@@ -77,7 +78,7 @@ pub fn extension_main(data: ExtensionData) {
         mem::drop(systems.lock().unwrap().remove(&sys_id)),
       HostExtNotif::AtomDrop(AtomDrop(atom)) => {
         with_atom_record(&systems, &atom, |rec, cted, data| {
-          rec.drop(data, SysCtx{ reqnot, id: atom.owner, cted })
+          rec.drop(AtomCtx(data, SysCtx{ reqnot, id: atom.owner, cted }))
         })
       }
     }),
@@ -91,44 +92,36 @@ pub fn extension_main(data: ExtensionData) {
         let lex_filter = cted.inst().dyn_lexers().iter().fold(CharFilter(vec![]), |cf, lx| {
           char_filter_union(&cf, &mk_char_filter(lx.char_filter().iter().cloned()))
         });
-        let mut subtrees = HashMap::new();
+        let mut lazy_mems = HashMap::new();
+        let const_root = (cted.inst().dyn_env().into_iter())
+          .map(|(k, v)| {
+            (k.marker(), v.into_api(&mut TIACtxImpl{ lazy: &mut lazy_mems, sys: &*cted.inst()}))
+          })
+          .collect();
         systems.lock().unwrap().insert(new_sys.id, SystemRecord {
           declfs: cted.inst().dyn_vfs().to_api_rec(&mut vfses),
           vfses,
-          tree: cted.inst().dyn_env().into_api(&*cted.inst(), &mut |gen| {
-            let id = TreeId::new((subtrees.len() + 2) as u64).unwrap();
-            subtrees.insert(id, TreeRecord::Gen(gen.clone()));
-            id
-          }),
           cted,
-          subtrees
+          lazy_members: lazy_mems
         });
         req.handle(new_sys, &SystemInst {
-          lex_filter, const_root_id: NonZeroU64::new(1).unwrap()
+          lex_filter,
+          const_root,
+          parses_lines: vec!()
         })
       }
-      HostExtReq::GetConstTree(get_tree@GetConstTree(sys_id, tree_id)) => {
+      HostExtReq::GetMember(get_tree@GetMember(sys_id, tree_id)) => {
         let mut systems_g = systems.lock().unwrap();
         let sys = systems_g.get_mut(sys_id).expect("System not found");
-        if tree_id.get() == 1 {
-          req.handle(get_tree, &sys.tree);
-        } else {
-          let subtrees = &mut sys.subtrees;
-          let tree_rec = subtrees.get_mut(tree_id).expect("Tree for ID not found");
-          match tree_rec {
-            TreeRecord::Res(tree) => req.handle(get_tree, tree),
-            TreeRecord::Gen(cb) => {
-              let tree = cb.build();
-              let reply_tree = tree.into_api(&*sys.cted.inst(), &mut |cb| {
-                let id = NonZeroU64::new((subtrees.len() + 2) as u64).unwrap();
-                subtrees.insert(id, TreeRecord::Gen(cb.clone()));
-                id
-              });
-              req.handle(get_tree, &reply_tree);
-              subtrees.insert(*tree_id, TreeRecord::Res(reply_tree));
-            }
-          }
-        }
+        let lazy = &mut sys.lazy_members;
+        let cb = match lazy.insert(*tree_id, MemberRecord::Res) {
+          None => panic!("Tree for ID not found"),
+          Some(MemberRecord::Res) => panic!("This tree has already been transmitted"),
+          Some(MemberRecord::Gen(cb)) => cb,
+        };
+        let tree = cb.build();
+        let reply_tree = tree.into_api(&mut TIACtxImpl{ sys: &*sys.cted.inst(), lazy });
+        req.handle(get_tree, &reply_tree);
       }
       HostExtReq::VfsReq(VfsReq::GetVfs(get_vfs@GetVfs(sys_id))) => {
         let systems_g = systems.lock().unwrap();
@@ -139,8 +132,8 @@ pub fn extension_main(data: ExtensionData) {
         let path = path.iter().map(|t| deintern(*t)).collect_vec();
         req.handle(vfs_read, &systems_g[sys_id].vfses[vfs_id].load(PathSlice::new(&path)))
       }
-      HostExtReq::ParserReq(ParserReq::Lex(lex)) => {
-        let Lex{ sys, text, pos, id } = *lex;
+      HostExtReq::ParserReq(ParserReq::LexExpr(lex)) => {
+        let LexExpr{ sys, text, pos, id } = *lex;
         let systems_g = systems.lock().unwrap();
         let lexers = systems_g[&sys].cted.inst().dyn_lexers();
         mem::drop(systems_g);
@@ -148,22 +141,56 @@ pub fn extension_main(data: ExtensionData) {
         let tk = req.will_handle_as(lex);
         thread::spawn(clone!(systems; move || {
           let ctx = LexContext { sys, id, pos, reqnot: req.reqnot(), text: &text };
-          let lex_res = lexers.iter().find_map(|lx| lx.lex(&text[pos as usize..], &ctx));
-          req.handle_as(tk, &lex_res.map(|r| match r {
-            Ok((s, data)) => {
-              let systems_g = systems.lock().unwrap();
-              let data = data.into_api(&*systems_g[&sys].cted.inst());
-              Ok(Lexed { data, pos: (text.len() - s.len()) as u32 })
-            },
-            Err(e) => Err(unpack_err(e).into_iter().map(err_or_ref_to_api).collect_vec())
-          }))
+          let first_char = text.chars().next().unwrap();
+          for lx in lexers.iter().filter(|l| char_filter_match(l.char_filter(), first_char)) {
+            match lx.lex(&text[pos as usize..], &ctx) {
+              Err(e) if e.as_any_ref().is::<NotApplicableLexerError>() => continue,
+              Err(e) if e.as_any_ref().is::<CascadingError>() => return req.handle_as(tk, &None),
+              Err(e) => return req.handle_as(tk, &Some(Err(errv_to_apiv([e])))),
+              Ok((s, expr)) => {
+                let systems_g = systems.lock().unwrap();
+                let expr = expr.into_api(&*systems_g[&sys].cted.inst());
+                let pos = (text.len() - s.len()) as u32;
+                return req.handle_as(tk, &Some(Ok(LexedExpr{ pos, expr })))
+              }
+            }
+          }
+          req.handle_as(tk, &None)
         }));
       },
-      HostExtReq::AtomReq(AtomReq::AtomSame(same@AtomSame(l, r))) => todo!("subsys nimpl"),
-      HostExtReq::AtomReq(AtomReq::Fwded(call@Fwded(atom, req))) => todo!("subsys nimpl"),
-      HostExtReq::AtomReq(AtomReq::CallRef(call@CallRef(atom, arg))) => todo!("subsys nimpl"),
-      HostExtReq::AtomReq(AtomReq::FinalCall(call@FinalCall(atom, arg))) => todo!("subsys nimpl"),
-      HostExtReq::AtomReq(AtomReq::Command(cmd@Command(atom))) => todo!("subsys impl"),
+      HostExtReq::AtomReq(atom_req) => {
+        let systems_g = systems.lock().unwrap();
+        let atom = atom_req.get_atom();
+        let sys = &systems_g[&atom.owner];
+        let ctx = SysCtx { cted: sys.cted.clone(), id: atom.owner, reqnot: req.reqnot() };
+        let dynfo = resolv_atom(&*sys.cted.inst(), atom);
+        let actx = AtomCtx(&atom.data[8..], ctx);
+        match atom_req {
+          AtomReq::AtomSame(same@AtomSame(_, r)) => {
+            // different systems or different type tags
+            if atom.owner != r.owner || atom.data[..8] != r.data[..8] {
+              return req.handle(same, &false)
+            }
+            req.handle(same, &dynfo.same(actx, &r.data[8..]))
+          },
+          AtomReq::Fwded(fwded@Fwded(_, payload)) => {
+            let mut reply = Vec::new();
+            dynfo.handle_req(actx, &mut &payload[..], &mut reply);
+            req.handle(fwded, &reply)
+          }
+          AtomReq::CallRef(call@CallRef(_, arg))
+            => req.handle(call, &dynfo.call_ref(actx, *arg).to_api(&*sys.cted.inst())),
+          AtomReq::FinalCall(call@FinalCall(_, arg))
+            => req.handle(call, &dynfo.call(actx, *arg).to_api(&*sys.cted.inst())),
+          AtomReq::Command(cmd@Command(_)) => req.handle(cmd, &match dynfo.command(actx) {
+            Err(e) => Err(errv_to_apiv([e])),
+            Ok(opt) => Ok(match opt {
+              Some(cont) => NextStep::Continue(cont.into_api(&*sys.cted.inst())),
+              None => NextStep::Halt,
+            })
+          })
+        }
+      }
     }),
   );
   init_replica(rn.clone().map());

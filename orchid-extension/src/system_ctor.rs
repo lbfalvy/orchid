@@ -1,8 +1,7 @@
 use std::any::Any;
-use std::num::NonZeroU16;
 use std::sync::Arc;
 
-use orchid_api::system::{NewSystem, SysId, SystemDecl};
+use orchid_api::system::{NewSystem, SysDeclId, SysId, SystemDecl};
 use orchid_base::boxed_iter::{box_empty, box_once, BoxedIter};
 use ordered_float::NotNan;
 
@@ -67,12 +66,12 @@ pub trait SystemCtor: Send + Sync + 'static {
 }
 
 pub trait DynSystemCtor: Send + Sync + 'static {
-  fn decl(&self, id: NonZeroU16) -> SystemDecl;
+  fn decl(&self, id: SysDeclId) -> SystemDecl;
   fn new_system(&self, new: &NewSystem) -> CtedObj;
 }
 
 impl<T: SystemCtor> DynSystemCtor for T {
-  fn decl(&self, id: NonZeroU16) -> SystemDecl {
+  fn decl(&self, id: SysDeclId) -> SystemDecl {
     // Version is equivalent to priority for all practical purposes
     let priority = NotNan::new(T::VERSION).unwrap();
     // aggregate depends names

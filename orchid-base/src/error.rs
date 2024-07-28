@@ -7,7 +7,7 @@ use crate::location::Pos;
 
 /// A point of interest in resolving the error, such as the point where
 /// processing got stuck, a command that is likely to be incorrect
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ErrorPosition {
   /// The suspected origin
   pub position: Pos,
@@ -35,7 +35,7 @@ impl From<Pos> for ErrorPosition {
   fn from(origin: Pos) -> Self { Self { position: origin, message: None } }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct OwnedError {
   pub description: Tok<String>,
   pub message: Arc<String>,
@@ -48,5 +48,8 @@ impl OwnedError {
       message: err.message.clone(),
       positions: err.locations.iter().map(ErrorPosition::from_api).collect(),
     }
+  }
+  pub fn from_apiv(err: Vec<ProjErr>) -> Vec<Self> {
+    err.into_iter().map(|e| Self::from_api(&e)).collect()
   }
 }

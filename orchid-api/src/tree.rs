@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use crate::interner::TStrv;
+use crate::location::Location;
 use std::num::NonZeroU64;
 use std::ops::Range;
 
@@ -7,7 +8,7 @@ use orchid_api_traits::Request;
 use ordered_float::NotNan;
 
 use crate::atom::LocalAtom;
-use crate::error::ProjErrOrRef;
+use crate::error::ProjErr;
 use crate::expr::Expr;
 use crate::interner::TStr;
 use crate::proto::HostExtReq;
@@ -17,8 +18,11 @@ use crate::system::SysId;
 /// the lexer can include it in its output or discard it by implication.
 ///
 /// Similar to [crate::expr::ExprTicket] in that it represents a token tree the
-/// lifetime of which is managed by the interpreter.
-pub type TreeTicket = NonZeroU64;
+/// lifetime of which is managed by the interpreter, and as such should probably
+/// not be exposed to libraries directly but rather wrapped in a
+/// lifetime-controlled abstraction.
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
+pub struct TreeTicket(pub NonZeroU64);
 
 #[derive(Clone, Debug, Coding)]
 pub struct TokenTree {
@@ -28,18 +32,26 @@ pub struct TokenTree {
 
 #[derive(Clone, Debug, Coding)]
 pub enum Token {
-  /// Lambda function. The number operates as an argument name
-  Lambda(Vec<TokenTree>, Vec<TokenTree>),
-  Name(Vec<TStr>),
+  /// Lambda function head, from the opening \ until the beginning of the body.
+  Lambda(Vec<TokenTree>),
+  /// A name segment or an operator.
+  Name(TStr),
+  /// ::
+  NS,
+  /// Line break.
+  BR,
+  /// ( Round parens ), [ Square brackets ] or { Curly braces }
   S(Paren, Vec<TokenTree>),
   /// A placeholder in a macro. This variant is forbidden everywhere outside
   /// line parser output
   Ph(Placeholder),
+  /// A new atom
   Atom(LocalAtom),
+  /// Anchor to insert a subtree
   Slot(TreeTicket),
-  /// A static compile-time error returned by erroring lexers if
+  /// A static compile-time error returned by failing lexers if
   /// the rest of the source is likely still meaningful
-  Bottom(ProjErrOrRef),
+  Bottom(Vec<ProjErr>),
 }
 
 #[derive(Clone, Debug, Coding)]
@@ -63,30 +75,52 @@ pub enum Paren {
 }
 
 #[derive(Clone, Debug, Coding)]
-pub struct MacroRule {
+pub struct Macro {
   pub pattern: Vec<TokenTree>,
   pub priority: NotNan<f64>,
   pub template: Vec<TokenTree>,
 }
 
-pub type TreeId = NonZeroU64;
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
+pub struct TreeId(pub NonZeroU64);
+
 
 #[derive(Clone, Debug, Coding)]
-pub enum Tree {
+pub struct Item {
+  pub location: Location,
+  pub kind: ItemKind,
+}
+
+#[derive(Clone, Debug, Coding)]
+pub enum ItemKind {
+  Member(Member),
+  Raw(Vec<TokenTree>),
+  Rule(Macro),
+}
+
+#[derive(Clone, Debug, Coding)]
+pub struct Member {
+  pub name: TStr,
+  pub public: bool,
+  pub kind: MemberKind,
+}
+
+#[derive(Clone, Debug, Coding)]
+pub enum MemberKind {
   Const(Expr),
-  Mod(TreeModule),
-  Rule(MacroRule),
+  Module(Module),
   Lazy(TreeId),
 }
 
 #[derive(Clone, Debug, Coding)]
-pub struct TreeModule {
-  pub children: HashMap<String, Tree>,
+pub struct Module {
+  pub imports: Vec<TStrv>,
+  pub items: Vec<Item>,
 }
 
 #[derive(Clone, Copy, Debug, Coding, Hierarchy)]
 #[extends(HostExtReq)]
-pub struct GetConstTree(pub SysId, pub TreeId);
-impl Request for GetConstTree {
-  type Response = Tree;
+pub struct GetMember(pub SysId, pub TreeId);
+impl Request for GetMember {
+  type Response = MemberKind;
 }

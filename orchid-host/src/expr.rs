@@ -4,9 +4,9 @@ use std::sync::{Arc, RwLock};
 
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
-use orchid_api::expr::ExprTicket;
+use orchid_api::expr::{Expr, ExprTicket};
 
-use crate::extension::AtomHand;
+use crate::extension::{AtomHand, System};
 
 #[derive(Clone, Debug)]
 pub struct RtExpr {
@@ -17,8 +17,10 @@ impl RtExpr {
   pub fn as_atom(&self) -> Option<AtomHand> { todo!() }
   pub fn strong_count(&self) -> usize { todo!() }
   pub fn id(&self) -> ExprTicket {
-    NonZeroU64::new(self.data.as_ref() as *const () as usize as u64)
-      .expect("this is a ref, it cannot be null")
+    ExprTicket(
+      NonZeroU64::new(self.data.as_ref() as *const () as usize as u64)
+        .expect("this is a ref, it cannot be null")
+    )
   }
   pub fn canonicalize(&self) -> ExprTicket {
     if !self.is_canonical.swap(true, Ordering::Relaxed) {
@@ -27,6 +29,7 @@ impl RtExpr {
     self.id()
   }
   pub fn resolve(tk: ExprTicket) -> Option<Self> { KNOWN_EXPRS.read().unwrap().get(&tk).cloned() }
+  pub fn from_api(api: Expr, sys: &System) -> Self { todo!() }
 }
 impl Drop for RtExpr {
   fn drop(&mut self) {

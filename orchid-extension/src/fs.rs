@@ -1,4 +1,4 @@
-use std::num::NonZeroU16;
+use std::num::NonZero;
 
 use hashbrown::HashMap;
 use orchid_api::error::ProjResult;
@@ -19,7 +19,7 @@ impl DeclFs {
     match self {
       DeclFs::Lazy(fs) => {
         let vfsc: u16 = vfses.len().try_into().expect("too many vfses (more than u16::MAX)");
-        let id: VfsId = NonZeroU16::new(vfsc + 1).unwrap();
+        let id = VfsId(NonZero::new(vfsc + 1).unwrap());
         vfses.insert(id, *fs);
         EagerVfs::Lazy(id)
       },

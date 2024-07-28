@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::num::NonZeroU64;
+use std::sync::Arc;
 
 use orchid_api::atom::LocalAtom;
 use orchid_api::expr::ExprTicket;
@@ -10,8 +11,10 @@ use orchid_api_traits::{Decode, Encode};
 use orchid_base::id_store::{IdRecord, IdStore};
 
 use crate::atom::{
-  AtomCard, AtomDynfo, AtomFactory, Atomic, AtomicFeaturesImpl, AtomicVariant, ErrorNotCallable,
+  AtomCard, AtomCtx, AtomDynfo, AtomFactory, Atomic, AtomicFeaturesImpl, AtomicVariant,
+  ErrorNotCallable, ErrorNotCommand, ReqPck, RequestPack,
 };
+use crate::error::ProjectResult;
 use crate::expr::{bot, ExprHandle, GenExpr};
 use crate::system::{atom_info_for, SysCtx};
 
@@ -38,22 +41,26 @@ fn with_atom<U>(mut b: &[u8], f: impl FnOnce(IdRecord<'_, Box<dyn DynOwnedAtom>>
 pub struct OwnedAtomDynfo<T: OwnedAtom>(PhantomData<T>);
 impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
   fn tid(&self) -> TypeId { TypeId::of::<T>() }
-  fn decode(&self, data: &[u8]) -> Box<dyn Any> {
+  fn name(&self) -> &'static str { type_name::<T>() }
+  fn decode(&self, AtomCtx(data, _): AtomCtx) -> Box<dyn Any> {
     Box::new(<T as AtomCard>::Data::decode(&mut &data[..]))
   }
-  fn call(&self, buf: &[u8], ctx: SysCtx, arg: ExprTicket) -> GenExpr {
+  fn call(&self, AtomCtx(buf, ctx): AtomCtx, arg: ExprTicket) -> GenExpr {
     with_atom(buf, |a| a.remove().dyn_call(ctx, arg))
   }
-  fn call_ref(&self, buf: &[u8], ctx: SysCtx, arg: ExprTicket) -> GenExpr {
+  fn call_ref(&self, AtomCtx(buf, ctx): AtomCtx, arg: ExprTicket) -> GenExpr {
     with_atom(buf, |a| a.dyn_call_ref(ctx, arg))
   }
-  fn same(&self, buf: &[u8], ctx: SysCtx, buf2: &[u8]) -> bool {
+  fn same(&self, AtomCtx(buf, ctx): AtomCtx, buf2: &[u8]) -> bool {
     with_atom(buf, |a1| with_atom(buf2, |a2| a1.dyn_same(ctx, &**a2)))
   }
-  fn handle_req(&self, buf: &[u8], ctx: SysCtx, req: &mut dyn Read, rep: &mut dyn Write) {
+  fn handle_req(&self, AtomCtx(buf, ctx): AtomCtx, req: &mut dyn Read, rep: &mut dyn Write) {
     with_atom(buf, |a| a.dyn_handle_req(ctx, req, rep))
   }
-  fn drop(&self, buf: &[u8], ctx: SysCtx) { with_atom(buf, |a| a.remove().dyn_free(ctx)) }
+  fn command(&self, AtomCtx(buf, ctx): AtomCtx<'_>) -> ProjectResult<Option<GenExpr>> {
+    with_atom(buf, |a| a.remove().dyn_command(ctx))
+  }
+  fn drop(&self, AtomCtx(buf, ctx): AtomCtx) { with_atom(buf, |a| a.remove().dyn_free(ctx)) }
 }
 
 /// Atoms that have a [Drop]
@@ -75,7 +82,9 @@ pub trait OwnedAtom: Atomic<Variant = OwnedVariant> + Send + Sync + Any + Clone 
     );
     false
   }
-  fn handle_req(&self, ctx: SysCtx, req: Self::Req, rep: &mut (impl Write + ?Sized));
+  fn handle_req(&self, ctx: SysCtx, pck: impl ReqPck<Self>);
+  #[allow(unused_variables)]
+  fn command(self, ctx: SysCtx) -> ProjectResult<Option<GenExpr>> { Err(Arc::new(ErrorNotCommand)) }
   #[allow(unused_variables)]
   fn free(self, ctx: SysCtx) {}
 }
@@ -87,6 +96,7 @@ pub trait DynOwnedAtom: Send + Sync + 'static {
   fn dyn_call(self: Box<Self>, ctx: SysCtx, arg: ExprTicket) -> GenExpr;
   fn dyn_same(&self, ctx: SysCtx, other: &dyn DynOwnedAtom) -> bool;
   fn dyn_handle_req(&self, ctx: SysCtx, req: &mut dyn Read, rep: &mut dyn Write);
+  fn dyn_command(self: Box<Self>, ctx: SysCtx) -> ProjectResult<Option<GenExpr>>;
   fn dyn_free(self: Box<Self>, ctx: SysCtx);
 }
 impl<T: OwnedAtom> DynOwnedAtom for T {
@@ -107,7 +117,10 @@ impl<T: OwnedAtom> DynOwnedAtom for T {
     self.same(ctx, other_self)
   }
   fn dyn_handle_req(&self, ctx: SysCtx, req: &mut dyn Read, rep: &mut dyn Write) {
-    self.handle_req(ctx, <Self as AtomCard>::Req::decode(req), rep)
+    self.handle_req(ctx, RequestPack::<T, dyn Write>(<Self as AtomCard>::Req::decode(req), rep))
+  }
+  fn dyn_command(self: Box<Self>, ctx: SysCtx) -> ProjectResult<Option<GenExpr>> {
+    self.command(ctx)
   }
   fn dyn_free(self: Box<Self>, ctx: SysCtx) { self.free(ctx) }
 }

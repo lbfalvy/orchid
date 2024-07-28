@@ -10,7 +10,8 @@ use crate::proto::{ExtHostReq, HostExtReq};
 use crate::system::SysId;
 use crate::tree::{TokenTree, TreeTicket};
 
-pub type LexId = NonZeroU64;
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
+pub struct ParsId(pub NonZeroU64);
 
 /// - All ranges contain at least one character
 /// - All ranges are in increasing characeter order
@@ -22,35 +23,35 @@ pub struct CharFilter(pub Vec<RangeInclusive<char>>);
 #[extends(HostExtReq)]
 #[extendable]
 pub enum ParserReq {
-  Lex(Lex),
+  LexExpr(LexExpr),
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(ParserReq, HostExtReq)]
-pub struct Lex {
+pub struct LexExpr {
   pub sys: SysId,
-  pub id: LexId,
+  pub id: ParsId,
   pub text: TStr,
   pub pos: u32,
 }
-impl Request for Lex {
-  type Response = Option<ProjResult<Lexed>>;
+impl Request for LexExpr {
+  type Response = Option<ProjResult<LexedExpr>>;
 }
 
 #[derive(Clone, Debug, Coding)]
-pub struct Lexed {
+pub struct LexedExpr {
   pub pos: u32,
-  pub data: TokenTree,
+  pub expr: TokenTree,
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(ExtHostReq)]
 pub struct SubLex {
-  pub id: LexId,
+  pub id: ParsId,
   pub pos: u32,
 }
 impl Request for SubLex {
-  type Response = ProjResult<SubLexed>;
+  type Response = Option<SubLexed>;
 }
 
 #[derive(Clone, Debug, Coding)]
@@ -59,4 +60,11 @@ pub struct SubLexed {
   pub ticket: TreeTicket,
 }
 
-pub struct ParseLine {}
+#[derive(Clone, Debug, Coding)]
+pub struct ParseLine {
+  pub sys: SysId,
+  pub line: Vec<TokenTree>,
+}
+impl Request for ParseLine {
+  type Response = Vec<TokenTree>;
+}

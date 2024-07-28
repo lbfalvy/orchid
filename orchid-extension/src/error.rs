@@ -6,7 +6,7 @@ use std::{fmt, iter};
 
 use dyn_clone::{clone_box, DynClone};
 use itertools::Itertools;
-use orchid_api::error::{GetErrorDetails, ProjErr, ProjErrId, ProjErrOrRef};
+use orchid_api::error::{GetErrorDetails, ProjErr, ProjErrId};
 use orchid_api::proto::ExtMsgSet;
 use orchid_base::boxed_iter::{box_once, BoxedIter};
 use orchid_base::clone;
@@ -274,7 +274,7 @@ impl ProjectError for MultiError {
   }
 }
 
-pub fn err_to_api(err: ProjectErrorObj) -> ProjErr {
+fn err_to_api(err: ProjectErrorObj) -> ProjErr {
   ProjErr {
     description: intern(&*err.description()).marker(),
     message: Arc::new(err.message()),
@@ -282,26 +282,18 @@ pub fn err_to_api(err: ProjectErrorObj) -> ProjErr {
   }
 }
 
-pub(crate) fn err_or_ref_to_api(err: ProjectErrorObj) -> ProjErrOrRef {
-  match err.as_any_ref().downcast_ref() {
-    Some(RelayedError { id: Some(id), .. }) => ProjErrOrRef::Known(*id),
-    _ => ProjErrOrRef::New(err_to_api(err)),
-  }
+pub fn errv_to_apiv(errv: impl IntoIterator<Item = ProjectErrorObj>) -> Vec<ProjErr> {
+  errv.into_iter().flat_map(unpack_err).map(err_to_api).collect_vec()
 }
 
-pub fn err_from_api(err: &ProjErr, reqnot: ReqNot<ExtMsgSet>) -> ProjectErrorObj {
-  Arc::new(RelayedError { id: None, reqnot, details: OwnedError::from_api(err).into() })
-}
-
-pub(crate) fn err_from_api_or_ref(
-  err: &ProjErrOrRef,
-  reqnot: ReqNot<ExtMsgSet>,
+pub fn err_from_apiv<'a>(
+  err: impl IntoIterator<Item = &'a ProjErr>,
+  reqnot: &ReqNot<ExtMsgSet>
 ) -> ProjectErrorObj {
-  match err {
-    ProjErrOrRef::Known(id) =>
-      Arc::new(RelayedError { id: Some(*id), reqnot, details: OnceLock::default() }),
-    ProjErrOrRef::New(err) => err_from_api(err, reqnot),
-  }
+  pack_err(err.into_iter().map(|e| {
+    let details: OnceLock<_> = OwnedError::from_api(e).into();
+    Arc::new(RelayedError { id: None, reqnot: reqnot.clone(), details }).into_packed()
+  }))
 }
 
 struct RelayedError {

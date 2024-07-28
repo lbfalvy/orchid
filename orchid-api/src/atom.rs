@@ -15,6 +15,9 @@ pub struct LocalAtom {
   pub drop: bool,
   pub data: AtomData,
 }
+impl LocalAtom {
+  pub fn associate(self, owner: SysId) -> Atom { Atom { owner, drop: self.drop, data: self.data } }
+}
 
 /// An atom representation that can be serialized and sent around. Atoms
 /// represent the smallest increment of work.
@@ -101,6 +104,7 @@ impl Request for Command {
 #[extends(HostExtNotif)]
 pub struct AtomDrop(pub Atom);
 
+/// Requests that apply to an existing atom instance
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
 #[extends(HostExtReq)]
 #[extendable]
@@ -110,4 +114,17 @@ pub enum AtomReq {
   AtomSame(AtomSame),
   Fwded(Fwded),
   Command(Command),
+}
+impl AtomReq {
+  /// Obtain the first [Atom] argument of the request. All requests in this
+  /// subclass have at least one atom argument.
+  pub fn get_atom(&self) -> &Atom {
+    match self {
+      Self::AtomSame(AtomSame(a, ..))
+      | Self::CallRef(CallRef(a, ..))
+      | Self::Command(Command(a))
+      | Self::FinalCall(FinalCall(a, ..))
+      | Self::Fwded(Fwded(a, ..)) => a,
+    }
+  }
 }

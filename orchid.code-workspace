@@ -5,6 +5,9 @@
 		}
 	],
 	"settings": {
+		"editor.rulers": [
+			100 // Important; for accessibility reasons, code cannot be wider than 100ch
+		],
 		"[markdown]": {
 			"editor.unicodeHighlight.ambiguousCharacters": false,
 			"editor.unicodeHighlight.invisibleCharacters": false,
@@ -23,11 +26,6 @@
 			"editor.formatOnSave": true,
 			"editor.formatOnType": true,
 		},
-		"[rust]": {
-			"editor.rulers": [
-				100
-			],
-		},
 		"rust-analyzer.showUnlinkedFileNotification": false,
 		"rust-analyzer.checkOnSave": true,
 		"rust-analyzer.check.command": "clippy",
@@ -42,12 +40,12 @@
 	"extensions": {
 		"recommendations": [
 			"maptz.regionfolder",
-			"serayuzgur.crates",
 			"tamasfe.even-better-toml",
 			"yzhang.markdown-all-in-one",
 			"gruntfuggly.todo-tree",
 			"vadimcn.vscode-lldb",
-			"rust-lang.rust-analyzer"
+			"rust-lang.rust-analyzer",
+			"fill-labs.dependi"
 		]
 	},
 }

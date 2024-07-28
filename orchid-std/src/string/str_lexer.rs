@@ -1,14 +1,14 @@
+use orchid_base::intern;
 use itertools::Itertools;
 use orchid_base::interner::intern;
 use orchid_base::location::Pos;
-use orchid_base::name::VName;
 use orchid_base::vname;
 use orchid_extension::atom::AtomicFeatures;
-use orchid_extension::error::{ErrorSansOrigin, ProjectErrorObj, ProjectResult};
-use orchid_extension::lexer::{LexContext, Lexer};
-use orchid_extension::tree::{wrap_tokv, OwnedTok, OwnedTokTree};
+use orchid_extension::error::{ErrorSansOrigin, ProjectError, ProjectErrorObj, ProjectResult};
+use orchid_extension::lexer::{LexContext, Lexer, NotApplicableLexerError};
+use orchid_extension::tree::{wrap_tokv, GenTok, GenTokTree};
 
-use super::str_atom::StringAtom;
+use super::str_atom::IntStrAtom;
 
 /// Reasons why [parse_string] might fail. See [StringError]
 #[derive(Clone)]
@@ -117,55 +117,48 @@ pub struct StringLexer;
 impl Lexer for StringLexer {
   const CHAR_FILTER: &'static [std::ops::RangeInclusive<char>] = &['"'..='"'];
   fn lex<'a>(
-    full_string: &'a str,
+    all: &'a str,
     ctx: &'a LexContext<'a>,
-  ) -> Option<ProjectResult<(&'a str, OwnedTokTree)>> {
-    full_string.strip_prefix('"').map(|mut tail| {
-      let mut parts = vec![];
-      let mut cur = String::new();
-      let commit_str = |str: &mut String, tail: &str, parts: &mut Vec<OwnedTokTree>| {
-        let str_val = parse_string(str)
-          .inspect_err(|e| ctx.report(e.clone().into_proj(ctx.pos(tail) - str.len() as u32)))
-          .unwrap_or_default();
-        let tok = OwnedTok::Atom(StringAtom::new_int(intern(&str_val)).factory());
-        parts.push(tok.at(ctx.tok_ran(str.len() as u32, tail)));
-        *str = String::new();
-      };
-      loop {
-        if let Some(rest) = tail.strip_prefix('"') {
-          commit_str(&mut cur, tail, &mut parts);
-          return Ok((rest, wrap_tokv(parts, ctx.pos(full_string)..ctx.pos(rest))));
-        } else if let Some(rest) = tail.strip_prefix('$') {
-          commit_str(&mut cur, tail, &mut parts);
-          parts.push(OwnedTok::Name(VName::literal("++")).at(ctx.tok_ran(1, rest)));
-          parts.push(OwnedTok::Name(vname!(std::string::convert)).at(ctx.tok_ran(1, rest)));
-          match ctx.recurse(rest) {
-            Ok((new_tail, tree)) => {
-              tail = new_tail;
-              parts.push(tree);
-            },
-            Err(e) => {
-              ctx.report(e.clone());
-              return Ok(("", wrap_tokv(parts, ctx.pos(full_string)..ctx.pos(rest))));
-            },
-          }
-        } else if tail.starts_with('\\') {
-          // parse_string will deal with it, we just have to make sure we skip the next
-          // char
-          tail = &tail[2..];
+  ) -> ProjectResult<(&'a str, GenTokTree)> {
+    let mut tail = all.strip_prefix('"').ok_or_else(|| NotApplicableLexerError.pack())?;
+    let mut parts = vec![];
+    let mut cur = String::new();
+    let mut errors = vec![];
+    let commit_str = |str: &mut String, tail: &str, err: &mut Vec<ProjectErrorObj>, parts: &mut Vec<GenTokTree>| {
+      let str_val = parse_string(str)
+        .inspect_err(|e| err.push(e.clone().into_proj(ctx.pos(tail) - str.len() as u32)))
+        .unwrap_or_default();
+      let tok = GenTok::Atom(IntStrAtom::from(intern(&*str_val)).factory());
+      parts.push(tok.at(ctx.tok_ran(str.len() as u32, tail)));
+      *str = String::new();
+    };
+    loop {
+      if let Some(rest) = tail.strip_prefix('"') {
+        commit_str(&mut cur, tail, &mut errors, &mut parts);
+        return Ok((rest, wrap_tokv(parts, ctx.pos(all)..ctx.pos(rest))));
+      } else if let Some(rest) = tail.strip_prefix('$') {
+        commit_str(&mut cur, tail, &mut errors, &mut parts);
+        parts.push(GenTok::Name(intern!(str: "++")).at(ctx.tok_ran(1, rest)));
+        parts.extend(GenTok::vname(&vname!(std::string::convert))
+          .map(|t| t.at(ctx.tok_ran(1, rest))));
+        let (new_tail, tree) = ctx.recurse(rest)?;
+        tail = new_tail;
+        parts.push(tree);
+      } else if tail.starts_with('\\') {
+        // parse_string will deal with it, we just have to make sure we skip the next
+        // char
+        tail = &tail[2..];
+      } else {
+        let mut ch = tail.chars();
+        if let Some(c) = ch.next() {
+          cur.push(c);
+          tail = ch.as_str();
         } else {
-          let mut ch = tail.chars();
-          if let Some(c) = ch.next() {
-            cur.push(c);
-            tail = ch.as_str();
-          } else {
-            let range = ctx.pos(full_string)..ctx.pos("");
-            commit_str(&mut cur, tail, &mut parts);
-            ctx.report(NoStringEnd.bundle(&Pos::Range(range.clone())));
-            return Ok(("", wrap_tokv(parts, range)));
-          }
+          let range = ctx.pos(all)..ctx.pos("");
+          commit_str(&mut cur, tail, &mut errors, &mut parts);
+          return Err(NoStringEnd.bundle(&Pos::Range(range.clone())));
         }
       }
-    })
+    }
   }
 }

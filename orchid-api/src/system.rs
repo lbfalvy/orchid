@@ -1,20 +1,25 @@
+use std::collections::HashMap;
 use std::num::NonZeroU16;
 
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 use ordered_float::NotNan;
 
+use crate::interner::TStr;
 use crate::parser::CharFilter;
 use crate::proto::{HostExtNotif, HostExtReq};
-use crate::tree::TreeId;
+use crate::tree::MemberKind;
 
 /// ID of a system type
-pub type SysDeclId = NonZeroU16;
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
+pub struct SysDeclId(pub NonZeroU16);
 
 /// ID of a system instance
-pub type SysId = NonZeroU16;
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
+pub struct SysId(pub NonZeroU16);
 
-/// Details about a system provided by this library
+/// Details about a system provided by this library. This is included in the extension header,
+/// so it cannot rely on the interner. 
 #[derive(Debug, Clone, Coding)]
 pub struct SystemDecl {
   /// ID of the system, unique within the library
@@ -59,7 +64,8 @@ pub struct SystemInst {
   /// can process. The lexer will notify this system if it encounters one of
   /// these characters.9
   pub lex_filter: CharFilter,
-  pub const_root_id: TreeId,
+  pub parses_lines: Vec<TStr>,
+  pub const_root: HashMap<TStr, MemberKind>,
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]

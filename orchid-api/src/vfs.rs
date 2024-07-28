@@ -9,7 +9,8 @@ use crate::interner::TStr;
 use crate::proto::HostExtReq;
 use crate::system::SysId;
 
-pub type VfsId = NonZeroU16;
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
+pub struct VfsId(pub NonZeroU16);
 
 #[derive(Clone, Debug, Coding)]
 pub enum Loaded {

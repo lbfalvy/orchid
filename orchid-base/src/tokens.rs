@@ -2,7 +2,7 @@ use orchid_api::tree::{Placeholder, PlaceholderKind};
 
 use crate::interner::{deintern, Tok};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct OwnedPh {
   pub name: Tok<String>,
   pub kind: PlaceholderKind,

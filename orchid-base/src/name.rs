@@ -9,9 +9,10 @@ use std::path::Path;
 use std::{fmt, slice, vec};
 
 use itertools::Itertools;
+use orchid_api::interner::TStr;
 use trait_set::trait_set;
 
-use crate::interner::{intern, InternMarker, Tok};
+use crate::interner::{deintern, intern, InternMarker, Tok};
 
 trait_set! {
   /// Traits that all name iterators should implement
@@ -225,6 +226,9 @@ impl VName {
   pub fn new(items: impl IntoIterator<Item = Tok<String>>) -> Result<Self, EmptyNameError> {
     let data: Vec<_> = items.into_iter().collect();
     if data.is_empty() { Err(EmptyNameError) } else { Ok(Self(data)) }
+  }
+  pub fn deintern(items: impl IntoIterator<Item = TStr>) -> Result<Self, EmptyNameError> {
+    Self::new(items.into_iter().map(deintern))
   }
   /// Unwrap the enclosed vector
   pub fn into_vec(self) -> Vec<Tok<String>> { self.0 }

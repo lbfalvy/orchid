@@ -9,7 +9,7 @@ use orchid_base::location::Pos;
 use orchid_base::reqnot::Requester;
 
 use crate::atom::{AtomFactory, AtomicFeatures, ForeignAtom};
-use crate::error::{err_from_api, err_to_api, DynProjectError, ProjectErrorObj};
+use crate::error::{err_from_apiv, errv_to_apiv, DynProjectError, ProjectErrorObj};
 use crate::system::{DynSystem, SysCtx};
 
 #[derive(destructure)]
@@ -46,7 +46,7 @@ impl OwnedExpr {
     self.val.get_or_init(|| {
       Box::new(GenExpr::from_api(
         self.handle.ctx.reqnot.request(Inspect(self.handle.tk)).expr,
-        self.handle.get_ctx(),
+        &self.handle.ctx,
       ))
     })
   }
@@ -75,7 +75,7 @@ impl GenExpr {
   pub fn into_api(self, sys: &dyn DynSystem) -> Expr {
     Expr { location: self.pos.to_api(), clause: self.clause.into_api(sys) }
   }
-  pub fn from_api(api: Expr, ctx: SysCtx) -> Self {
+  pub fn from_api(api: Expr, ctx: &SysCtx) -> Self {
     Self { pos: Pos::from_api(&api.location), clause: GenClause::from_api(api.clause, ctx) }
   }
 }
@@ -100,7 +100,7 @@ impl GenClause {
       Self::Lambda(arg, body) => Clause::Lambda(*arg, Box::new(body.to_api(sys))),
       Self::Arg(arg) => Clause::Arg(*arg),
       Self::Const(name) => Clause::Const(name.marker()),
-      Self::Bottom(msg) => Clause::Bottom(err_to_api(msg.clone())),
+      Self::Bottom(err) => Clause::Bottom(errv_to_apiv([err.clone()])),
       Self::NewAtom(fac) => Clause::NewAtom(fac.clone().build(sys)),
       Self::Atom(tk, atom) => Clause::Atom(*tk, atom.clone()),
       Self::Slot(_) => panic!("Slot is forbidden in const tree"),
@@ -114,34 +114,34 @@ impl GenClause {
       Self::Arg(arg) => Clause::Arg(arg),
       Self::Slot(extk) => Clause::Slot(extk.handle.into_tk()),
       Self::Const(name) => Clause::Const(name.marker()),
-      Self::Bottom(msg) => Clause::Bottom(err_to_api(msg)),
+      Self::Bottom(err) => Clause::Bottom(errv_to_apiv([err])),
       Self::NewAtom(fac) => Clause::NewAtom(fac.clone().build(sys)),
       Self::Atom(tk, atom) => Clause::Atom(tk, atom),
     }
   }
-  pub fn from_api(api: Clause, ctx: SysCtx) -> Self {
+  pub fn from_api(api: Clause, ctx: &SysCtx) -> Self {
     match api {
       Clause::Arg(id) => Self::Arg(id),
       Clause::Lambda(arg, body) => Self::Lambda(arg, Box::new(GenExpr::from_api(*body, ctx))),
       Clause::NewAtom(_) => panic!("Clause::NewAtom should never be received, only sent"),
-      Clause::Bottom(s) => Self::Bottom(err_from_api(&s, ctx.reqnot)),
+      Clause::Bottom(s) => Self::Bottom(err_from_apiv(&s, &ctx.reqnot)),
       Clause::Call(f, x) => Self::Call(
-        Box::new(GenExpr::from_api(*f, ctx.clone())),
+        Box::new(GenExpr::from_api(*f, ctx)),
         Box::new(GenExpr::from_api(*x, ctx)),
       ),
       Clause::Seq(a, b) => Self::Seq(
-        Box::new(GenExpr::from_api(*a, ctx.clone())),
+        Box::new(GenExpr::from_api(*a, ctx)),
         Box::new(GenExpr::from_api(*b, ctx)),
       ),
       Clause::Const(name) => Self::Const(deintern(name)),
-      Clause::Slot(exi) => Self::Slot(OwnedExpr::new(ExprHandle::from_args(ctx, exi))),
+      Clause::Slot(exi) => Self::Slot(OwnedExpr::new(ExprHandle::from_args(ctx.clone(), exi))),
       Clause::Atom(tk, atom) => Self::Atom(tk, atom),
     }
   }
 }
 fn inherit(clause: GenClause) -> GenExpr { GenExpr { pos: Pos::Inherit, clause } }
 
-pub fn cnst(path: Tok<Vec<Tok<String>>>) -> GenExpr { inherit(GenClause::Const(path)) }
+pub fn sym_ref(path: Tok<Vec<Tok<String>>>) -> GenExpr { inherit(GenClause::Const(path)) }
 pub fn atom<A: AtomicFeatures>(atom: A) -> GenExpr { inherit(GenClause::NewAtom(atom.factory())) }
 
 pub fn seq(ops: impl IntoIterator<Item = GenExpr>) -> GenExpr {

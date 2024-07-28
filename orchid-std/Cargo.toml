@@ -5,9 +5,11 @@ edition = "2021"
 
 [dependencies]
 itertools = "0.13.0"
+never = "0.1.0"
 once_cell = "1.19.0"
 orchid-api = { version = "0.1.0", path = "../orchid-api" }
 orchid-api-derive = { version = "0.1.0", path = "../orchid-api-derive" }
 orchid-api-traits = { version = "0.1.0", path = "../orchid-api-traits" }
 orchid-base = { version = "0.1.0", path = "../orchid-base" }
 orchid-extension = { version = "0.1.0", path = "../orchid-extension" }
+ordered-float = "4.2.1"

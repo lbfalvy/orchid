@@ -6,10 +6,10 @@ use orchid_api_traits::Request;
 
 use crate::interner::TStr;
 use crate::location::Location;
-use crate::proto::{ExtHostNotif, ExtHostReq};
-use crate::system::SysId;
+use crate::proto::ExtHostReq;
 
-pub type ProjErrId = NonZeroU16;
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
+pub struct ProjErrId(pub NonZeroU16);
 
 #[derive(Clone, Debug, Coding)]
 pub struct ProjErrLocation {
@@ -37,18 +37,8 @@ pub struct ProjErr {
   pub locations: Vec<ProjErrLocation>,
 }
 
-/// When the interpreter encounters an error while serving a system's request,
-/// it sends this error as an ID back to the system to save bandwidth.
-/// The lifetime of this ID is the request being served, the receiving system
-/// can return it and query its details with [GetDetails].
-#[derive(Clone, Debug, Coding)]
-pub enum ProjErrOrRef {
-  New(ProjErr),
-  Known(ProjErrId),
-}
-
 /// If this is an [`Err`] then the [`Vec`] must not be empty.
-pub type ProjResult<T> = Result<T, Vec<ProjErrOrRef>>;
+pub type ProjResult<T> = Result<T, Vec<ProjErr>>;
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(ProjErrReq, ExtHostReq)]
@@ -57,26 +47,9 @@ impl Request for GetErrorDetails {
   type Response = ProjErr;
 }
 
-/// Notify the host about an error without being forced to return said error.
-/// This will still count as an error, but later operations that depend on the
-/// value returned by the currently running function will get to run
-///
-/// The error is not connected to the place it was raised, since multiple calls
-/// can be issued to a system at the same time
-#[derive(Clone, Debug, Coding, Hierarchy)]
-#[extends(ErrNotif, ExtHostNotif)]
-pub struct ReportError(pub SysId, pub ProjErrOrRef);
-
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(ExtHostReq)]
 #[extendable]
 pub enum ProjErrReq {
   GetErrorDetails(GetErrorDetails),
-}
-
-#[derive(Clone, Debug, Coding, Hierarchy)]
-#[extends(ExtHostNotif)]
-#[extendable]
-pub enum ErrNotif {
-  ReportError(ReportError),
 }

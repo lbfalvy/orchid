@@ -1,16 +1,19 @@
 use std::any::TypeId;
 
+use hashbrown::HashMap;
+use orchid_api::atom::Atom;
 use orchid_api::proto::ExtMsgSet;
 use orchid_api::system::SysId;
 use orchid_api_traits::Decode;
+use orchid_base::interner::Tok;
 use orchid_base::reqnot::ReqNot;
 
-use crate::atom::{get_info, AtomCard, AtomDynfo, AtomicFeatures, ForeignAtom, TypAtom};
+use crate::atom::{get_info, AtomCtx, AtomDynfo, AtomicFeatures, ForeignAtom, TypAtom};
 use crate::fs::DeclFs;
 use crate::fun::Fun;
 use crate::lexer::LexerObj;
 use crate::system_ctor::{CtedObj, SystemCtor};
-use crate::tree::GenTree;
+use crate::tree::GenMemberKind;
 
 /// System as consumed by foreign code
 pub trait SystemCard: Default + Send + Sync + 'static {
@@ -51,6 +54,11 @@ pub fn atom_by_idx(
   }
 }
 
+pub fn resolv_atom(sys: &(impl DynSystemCard + ?Sized), atom: &Atom) -> &'static dyn AtomDynfo {
+  let tid = u64::decode(&mut &atom.data[..8]);
+  atom_by_idx(sys, tid).expect("Value of nonexistent type found")
+}
+
 impl<T: SystemCard> DynSystemCard for T {
   fn name(&self) -> &'static str { T::Ctor::NAME }
   fn atoms(&self) -> &'static [Option<&'static dyn AtomDynfo>] { Self::ATOM_DEFS }
@@ -58,26 +66,26 @@ impl<T: SystemCard> DynSystemCard for T {
 
 /// System as defined by author
 pub trait System: Send + Sync + SystemCard + 'static {
-  fn env() -> GenTree;
+  fn env() -> Vec<(Tok<String>, GenMemberKind)>;
   fn vfs() -> DeclFs;
   fn lexers() -> Vec<LexerObj>;
 }
 
-pub trait DynSystem: Send + Sync + 'static {
-  fn dyn_env(&self) -> GenTree;
+pub trait DynSystem: Send + Sync + DynSystemCard + 'static {
+  fn dyn_env(&self) -> HashMap<Tok<String>, GenMemberKind>;
   fn dyn_vfs(&self) -> DeclFs;
   fn dyn_lexers(&self) -> Vec<LexerObj>;
   fn dyn_card(&self) -> &dyn DynSystemCard;
 }
 
 impl<T: System> DynSystem for T {
-  fn dyn_env(&self) -> GenTree { Self::env() }
+  fn dyn_env(&self) -> HashMap<Tok<String>, GenMemberKind> { Self::env().into_iter().collect() }
   fn dyn_vfs(&self) -> DeclFs { Self::vfs() }
   fn dyn_lexers(&self) -> Vec<LexerObj> { Self::lexers() }
   fn dyn_card(&self) -> &dyn DynSystemCard { self }
 }
 
-pub fn downcast_atom<A: AtomCard>(foreign: ForeignAtom) -> Result<TypAtom<A>, ForeignAtom> {
+pub fn downcast_atom<A: AtomicFeatures>(foreign: ForeignAtom) -> Result<TypAtom<A>, ForeignAtom> {
   let mut data = &foreign.atom.data[..];
   let ctx = foreign.expr.get_ctx();
   let info_ent = (ctx.cted.deps().find(|s| s.id() == foreign.atom.owner))
@@ -86,7 +94,7 @@ pub fn downcast_atom<A: AtomCard>(foreign: ForeignAtom) -> Result<TypAtom<A>, Fo
   match info_ent {
     None => Err(foreign),
     Some((_, info)) => {
-      let val = info.decode(data);
+      let val = info.decode(AtomCtx(data, ctx));
       let value = *val.downcast::<A::Data>().expect("atom decode returned wrong type");
       Ok(TypAtom { value, data: foreign })
     },
