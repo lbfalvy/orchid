@@ -1,4 +1,6 @@
 use std::borrow::Borrow;
+use std::cell::RefCell;
+use std::fmt::{Display, Write};
 use std::ops::Range;
 use std::sync::{Mutex, OnceLock};
 
@@ -9,7 +11,7 @@ use orchid_base::error::OwnedError;
 use orchid_base::interner::{deintern, Tok};
 use orchid_base::location::Pos;
 use orchid_base::name::Sym;
-use orchid_base::tokens::OwnedPh;
+use orchid_base::tokens::{OwnedPh, PARENS};
 use ordered_float::NotNan;
 
 use crate::expr::RtExpr;
@@ -49,6 +51,9 @@ impl OwnedTokTree {
     tokv.into_iter().map(|t| Self::from_api(t.borrow(), sys, do_slot)).collect()
   }
 }
+impl Display for OwnedTokTree {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.tok) }
+}
 
 #[derive(Clone, Debug)]
 pub enum OwnedTok {
@@ -61,6 +66,52 @@ pub enum OwnedTok {
   Atom(AtomHand),
   Ph(OwnedPh),
   Bottom(Vec<OwnedError>),
+}
+impl Display for OwnedTok {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    thread_local! {
+      static PAREN_LEVEL: RefCell<usize> = 0.into();
+    }
+    fn get_indent() -> usize { PAREN_LEVEL.with_borrow(|t| *t) }
+    fn with_indent<T>(f: impl FnOnce() -> T) -> T {
+      PAREN_LEVEL.with_borrow_mut(|t| *t += 1);
+      let r = f();
+      PAREN_LEVEL.with_borrow_mut(|t| *t -= 1);
+      r
+    }
+    match self {
+      Self::Atom(ah) => f.write_str(&indent(&ah.print(), get_indent(), false)),
+      Self::BR => write!(f, "\n{}", "  ".repeat(get_indent())),
+      Self::Bottom(err) => write!(f, "Botttom({})",
+        err.iter().map(|e| format!("{}: {}", e.description, e.message)).join(", ")
+      ),
+      Self::Comment(c) => write!(f, "--[{c}]--"),
+      Self::Lambda(arg) => with_indent(|| write!(f, "\\ {} .", fmt_tt_v(arg))),
+      Self::NS => f.write_str("::"),
+      Self::Name(n) => f.write_str(n),
+      Self::Ph(ph) => write!(f, "{ph}"),
+      Self::S(p, b) => {
+        let (lp, rp, _) = PARENS.iter().find(|(_, _, par)| par == p).unwrap();
+        f.write_char(*lp)?;
+        with_indent(|| f.write_str(&fmt_tt_v(b)))?;
+        f.write_char(*rp)
+      }
+    }
+  }
+}
+
+pub fn fmt_tt_v<'a>(ttv: impl IntoIterator<Item = &'a OwnedTokTree>) -> String {
+  ttv.into_iter().join(" ")
+}
+
+pub fn indent(s: &str, lvl: usize, first: bool) -> String {
+  if first {
+    s.replace("\n", &("\n".to_string() + &"  ".repeat(lvl)))
+  } else if let Some((fst, rest)) = s.split_once('\n') {
+    fst.to_string() + "\n" + &indent(rest, lvl, true)
+  } else {
+    s.to_string()
+  }
 }
 
 #[derive(Debug)]

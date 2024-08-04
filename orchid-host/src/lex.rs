@@ -3,12 +3,12 @@ use std::num::NonZeroU64;
 use hashbrown::HashMap;
 use orchid_api::parser::SubLexed;
 use orchid_api::system::SysId;
-use orchid_api::tree::{Paren, Token, TokenTree, TreeTicket};
+use orchid_api::tree::{Token, TokenTree, TreeTicket};
 use orchid_base::error::OwnedError;
 use orchid_base::intern;
 use orchid_base::interner::{deintern, intern, Tok};
 use orchid_base::location::Pos;
-use orchid_base::tokens::OwnedPh;
+use orchid_base::tokens::{OwnedPh, PARENS};
 
 use crate::extension::{AtomHand, System};
 use crate::results::{mk_err, OwnedResult};
@@ -68,9 +68,6 @@ impl<'a> LexCtx<'a> {
     matches
   }
 }
-
-const PARENS: &[(char, char, Paren)] =
-  &[('(', ')', Paren::Round), ('[', ']', Paren::Square), ('{', '}', Paren::Curly)];
 
 pub fn lex_once(ctx: &mut LexCtx) -> OwnedResult<OwnedTokTree> {
   let start = ctx.get_pos();
@@ -164,7 +161,7 @@ pub fn lex_once(ctx: &mut LexCtx) -> OwnedResult<OwnedTokTree> {
 
 fn name_start(c: char) -> bool { c.is_alphabetic() || c == '_' }
 fn name_char(c: char) -> bool { name_start(c) || c.is_numeric() }
-fn op_char(c: char) -> bool { !name_char(c) && !c.is_whitespace() && !"()[]{}:\\".contains(c) }
+fn op_char(c: char) -> bool { !name_char(c) && !c.is_whitespace() && !"()[]{}\\".contains(c) }
 fn unrep_space(c: char) -> bool { c.is_whitespace() && !"\r\n".contains(c) }
 
 fn tt_to_owned(api: &TokenTree, sys: SysId, ctx: &mut LexCtx<'_>) -> OwnedTokTree {

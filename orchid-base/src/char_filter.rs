@@ -1,11 +1,11 @@
-use std::ops::RangeInclusive;
+use std::{fmt, ops::RangeInclusive};
 
 use itertools::Itertools;
 use orchid_api::parser::CharFilter;
 
 pub type CRange = RangeInclusive<char>;
 
-pub trait ICFilter {
+pub trait ICFilter: fmt::Debug {
   fn ranges(&self) -> &[RangeInclusive<char>];
 }
 impl ICFilter for [RangeInclusive<char>] {
@@ -27,7 +27,7 @@ fn try_merge_char_ranges(left: CRange, right: CRange) -> Result<CRange, (CRange,
 pub fn mk_char_filter(items: impl IntoIterator<Item = CRange>) -> CharFilter {
   CharFilter(
     (items.into_iter())
-      .filter(|r| *r.start() as u32 + 1 < *r.end() as u32)
+      .filter(|r| *r.start() as u32 <= *r.end() as u32)
       .sorted_by_key(|r| *r.start() as u32)
       .coalesce(try_merge_char_ranges)
       .collect_vec(),

@@ -37,7 +37,7 @@ fn encode_body(data: &syn::Data) -> Option<pm2::TokenStream> {
         let body = encode_items(&v.fields);
         quote! {
           Self::#ident #dest => {
-            (#i as u64).encode(write);
+            (#i as u8).encode(write);
             #body
           }
         }

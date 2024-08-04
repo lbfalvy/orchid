@@ -47,7 +47,7 @@ pub fn ph(s: &str) -> OwnedPh {
       if konst::string::starts_with(name, "_") {
         panic!("Names starting with an underscore indicate a single-name scalar placeholder")
       }
-      OwnedPh { name: intern(name), kind: PlaceholderKind::Vector { nonzero, priority } }
+      OwnedPh { name: intern(name), kind: PlaceholderKind::Vector { nz: nonzero, prio: priority } }
     },
     None => match konst::string::strip_prefix(s, "$_") {
       Some(name) => OwnedPh { name: intern(name), kind: PlaceholderKind::Name },

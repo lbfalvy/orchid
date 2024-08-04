@@ -29,7 +29,9 @@ impl RtExpr {
     self.id()
   }
   pub fn resolve(tk: ExprTicket) -> Option<Self> { KNOWN_EXPRS.read().unwrap().get(&tk).cloned() }
-  pub fn from_api(api: Expr, sys: &System) -> Self { todo!() }
+  pub fn from_api(api: Expr, sys: &System) -> Self {
+    Self { data: Arc::default(), is_canonical: Arc::default() }
+  }
 }
 impl Drop for RtExpr {
   fn drop(&mut self) {

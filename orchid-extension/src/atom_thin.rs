@@ -1,5 +1,4 @@
 use std::any::{type_name, Any, TypeId};
-use std::fmt;
 use std::io::Write;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -10,7 +9,7 @@ use orchid_api_traits::{Coding, Decode, Encode};
 
 use crate::atom::{
   get_info, AtomCard, AtomCtx, AtomDynfo, AtomFactory, Atomic, AtomicFeaturesImpl, AtomicVariant,
-  ErrorNotCallable, ReqPck, RequestPack,
+  ErrNotCallable, ReqPck, RequestPack,
 };
 use crate::error::ProjectResult;
 use crate::expr::{bot, ExprHandle, GenExpr};
@@ -32,11 +31,10 @@ impl<A: ThinAtom + Atomic<Variant = ThinVariant>> AtomicFeaturesImpl<ThinVariant
 
 pub struct ThinAtomDynfo<T: ThinAtom>(PhantomData<T>);
 impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
+  fn print(&self, AtomCtx(buf, ctx): AtomCtx<'_>) -> String { T::decode(&mut &buf[..]).print(ctx) }
   fn tid(&self) -> TypeId { TypeId::of::<T>() }
   fn name(&self) -> &'static str { type_name::<T>() }
-  fn decode(&self, AtomCtx(data, _): AtomCtx) -> Box<dyn Any> {
-    Box::new(T::decode(&mut &data[..]))
-  }
+  fn decode(&self, AtomCtx(buf, _): AtomCtx) -> Box<dyn Any> { Box::new(T::decode(&mut &buf[..])) }
   fn call(&self, AtomCtx(buf, ctx): AtomCtx, arg: ExprTicket) -> GenExpr {
     T::decode(&mut &buf[..]).call(ExprHandle::from_args(ctx, arg))
   }
@@ -57,25 +55,24 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
   fn command(&self, AtomCtx(buf, ctx): AtomCtx<'_>) -> ProjectResult<Option<GenExpr>> {
     T::decode(&mut &buf[..]).command(ctx)
   }
-  fn drop(&self, AtomCtx(buf, _): AtomCtx) {
-    eprintln!("Received drop signal for non-drop atom {:?}", T::decode(&mut &buf[..]))
+  fn drop(&self, AtomCtx(buf, ctx): AtomCtx) {
+    let string_self = T::decode(&mut &buf[..]).print(ctx);
+    eprintln!("Received drop signal for non-drop atom {string_self:?}")
   }
 }
 
-pub trait ThinAtom: AtomCard<Data = Self> + Coding + fmt::Debug + Send + Sync + 'static {
+pub trait ThinAtom: AtomCard<Data = Self> + Coding + Send + Sync + 'static {
   #[allow(unused_variables)]
-  fn call(&self, arg: ExprHandle) -> GenExpr { bot(ErrorNotCallable) }
+  fn call(&self, arg: ExprHandle) -> GenExpr { bot(ErrNotCallable) }
   #[allow(unused_variables)]
   fn same(&self, ctx: SysCtx, other: &Self) -> bool {
-    eprintln!(
-      "Override ThinAtom::same for {} if it can be generated during parsing",
-      type_name::<Self>()
-    );
+    let tname = type_name::<Self>();
+    eprintln!("Override ThinAtom::same for {tname} if it can be generated during parsing");
     false
   }
   fn handle_req(&self, ctx: SysCtx, pck: impl ReqPck<Self>);
   #[allow(unused_variables)]
-  fn command(&self, ctx: SysCtx) -> ProjectResult<Option<GenExpr>> {
-    Err(Arc::new(ErrorNotCallable))
-  }
+  fn command(&self, ctx: SysCtx) -> ProjectResult<Option<GenExpr>> { Err(Arc::new(ErrNotCallable)) }
+  #[allow(unused_variables)]
+  fn print(&self, ctx: SysCtx) -> String { format!("ThinAtom({})", type_name::<Self>()) }
 }

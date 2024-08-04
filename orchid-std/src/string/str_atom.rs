@@ -61,6 +61,7 @@ impl From<Tok<String>> for IntStrAtom {
 impl OwnedAtom for IntStrAtom {
   fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(self.0.marker()) }
   fn handle_req(&self, _ctx: SysCtx, pck: impl ReqPck<Self>) { pck.never() }
+  fn print(&self, _ctx: SysCtx) -> String { format!("{:?}i", self.0.as_str()) }
 }
 
 #[derive(Clone)]

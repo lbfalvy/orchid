@@ -1,12 +1,13 @@
+use std::io::Write;
 use std::num::NonZero;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::{mem, thread};
+use std::{mem, process, thread};
 
 use hashbrown::HashMap;
 use itertools::Itertools;
 use orchid_api::atom::{
-  Atom, AtomDrop, AtomReq, AtomSame, CallRef, Command, FinalCall, Fwded, NextStep,
+  Atom, AtomDrop, AtomPrint, AtomReq, AtomSame, CallRef, Command, FinalCall, Fwded, NextStep
 };
 use orchid_api::interner::Sweep;
 use orchid_api::parser::{CharFilter, LexExpr, LexedExpr, ParserReq};
@@ -18,6 +19,7 @@ use orchid_api_traits::{Decode, Encode};
 use orchid_base::char_filter::{char_filter_match, char_filter_union, mk_char_filter};
 use orchid_base::clone;
 use orchid_base::interner::{deintern, init_replica, sweep_replica};
+use orchid_base::logging::Logger;
 use orchid_base::name::PathSlice;
 use orchid_base::reqnot::{ReqNot, Requester};
 
@@ -31,7 +33,16 @@ use crate::system_ctor::{CtedObj, DynSystemCtor};
 use crate::tree::{LazyMemberFactory, TIACtxImpl};
 
 pub struct ExtensionData {
+  pub thread_name: &'static str,
   pub systems: &'static [&'static dyn DynSystemCtor],
+}
+impl ExtensionData {
+  pub fn new(thread_name: &'static str, systems: &'static [&'static dyn DynSystemCtor]) -> Self {
+    Self { thread_name, systems }
+  }
+  pub fn main(self) {
+    extension_main(self)
+  }
 }
 
 pub enum MemberRecord {
@@ -60,7 +71,13 @@ pub fn with_atom_record<T>(
 }
 
 pub fn extension_main(data: ExtensionData) {
-  HostHeader::decode(&mut &recv_parent_msg().unwrap()[..]);
+  if thread::Builder::new().name(data.thread_name.to_string()).spawn(|| extension_main_logic(data)).unwrap().join().is_err() {
+    process::exit(-1)
+  }
+}
+
+fn extension_main_logic(data: ExtensionData) {
+  let HostHeader{ log_strategy } = HostHeader::decode(&mut std::io::stdin().lock());
   let mut buf = Vec::new();
   let decls = (data.systems.iter().enumerate())
     .map(|(id, sys)| (u16::try_from(id).expect("more than u16max system ctors"), sys))
@@ -68,21 +85,26 @@ pub fn extension_main(data: ExtensionData) {
     .collect_vec();
   let systems = Arc::new(Mutex::new(HashMap::<SysId, SystemRecord>::new()));
   ExtensionHeader { systems: decls.clone() }.encode(&mut buf);
-  send_parent_msg(&buf).unwrap();
+  std::io::stdout().write_all(&buf).unwrap();
+  std::io::stdout().flush().unwrap();
   let exiting = Arc::new(AtomicBool::new(false));
+  let logger = Arc::new(Logger::new(log_strategy));
   let rn = ReqNot::<ExtMsgSet>::new(
-    |a, _| send_parent_msg(a).unwrap(),
-    clone!(systems, exiting; move |n, reqnot| match n {
+    |a, _| {
+      eprintln!("Upsending {:?}", a);
+      send_parent_msg(a).unwrap()
+    },
+    clone!(systems, exiting, logger; move |n, reqnot| match n {
       HostExtNotif::Exit => exiting.store(true, Ordering::Relaxed),
       HostExtNotif::SystemDrop(SystemDrop(sys_id)) =>
         mem::drop(systems.lock().unwrap().remove(&sys_id)),
       HostExtNotif::AtomDrop(AtomDrop(atom)) => {
         with_atom_record(&systems, &atom, |rec, cted, data| {
-          rec.drop(AtomCtx(data, SysCtx{ reqnot, id: atom.owner, cted }))
+          rec.drop(AtomCtx(data, SysCtx{ reqnot, logger: logger.clone(), id: atom.owner, cted }))
         })
       }
     }),
-    clone!(systems; move |req| match req.req() {
+    clone!(systems, logger; move |req| match req.req() {
       HostExtReq::Ping(ping@Ping) => req.handle(ping, &()),
       HostExtReq::Sweep(sweep@Sweep) => req.handle(sweep, &sweep_replica()),
       HostExtReq::NewSystem(new_sys) => {
@@ -90,7 +112,8 @@ pub fn extension_main(data: ExtensionData) {
         let cted = data.systems[i].new_system(new_sys);
         let mut vfses = HashMap::new();
         let lex_filter = cted.inst().dyn_lexers().iter().fold(CharFilter(vec![]), |cf, lx| {
-          char_filter_union(&cf, &mk_char_filter(lx.char_filter().iter().cloned()))
+          let lxcf = mk_char_filter(lx.char_filter().iter().cloned());
+          char_filter_union(&cf, &lxcf)
         });
         let mut lazy_mems = HashMap::new();
         let const_root = (cted.inst().dyn_env().into_iter())
@@ -141,8 +164,8 @@ pub fn extension_main(data: ExtensionData) {
         let tk = req.will_handle_as(lex);
         thread::spawn(clone!(systems; move || {
           let ctx = LexContext { sys, id, pos, reqnot: req.reqnot(), text: &text };
-          let first_char = text.chars().next().unwrap();
-          for lx in lexers.iter().filter(|l| char_filter_match(l.char_filter(), first_char)) {
+          let trigger_char = text.chars().nth(pos as usize).unwrap();
+          for lx in lexers.iter().filter(|l| char_filter_match(l.char_filter(), trigger_char)) {
             match lx.lex(&text[pos as usize..], &ctx) {
               Err(e) if e.as_any_ref().is::<NotApplicableLexerError>() => continue,
               Err(e) if e.as_any_ref().is::<CascadingError>() => return req.handle_as(tk, &None),
@@ -155,6 +178,7 @@ pub fn extension_main(data: ExtensionData) {
               }
             }
           }
+          eprintln!("Got notified about n/a character '{trigger_char}'");
           req.handle_as(tk, &None)
         }));
       },
@@ -162,10 +186,16 @@ pub fn extension_main(data: ExtensionData) {
         let systems_g = systems.lock().unwrap();
         let atom = atom_req.get_atom();
         let sys = &systems_g[&atom.owner];
-        let ctx = SysCtx { cted: sys.cted.clone(), id: atom.owner, reqnot: req.reqnot() };
+        let ctx = SysCtx {
+          cted: sys.cted.clone(),
+          id: atom.owner,
+          logger: logger.clone(),
+          reqnot: req.reqnot()
+        };
         let dynfo = resolv_atom(&*sys.cted.inst(), atom);
         let actx = AtomCtx(&atom.data[8..], ctx);
         match atom_req {
+          AtomReq::AtomPrint(print@AtomPrint(_)) => req.handle(print, &dynfo.print(actx)),
           AtomReq::AtomSame(same@AtomSame(_, r)) => {
             // different systems or different type tags
             if atom.owner != r.owner || atom.data[..8] != r.data[..8] {
@@ -195,6 +225,8 @@ pub fn extension_main(data: ExtensionData) {
   );
   init_replica(rn.clone().map());
   while !exiting.load(Ordering::Relaxed) {
-    rn.receive(recv_parent_msg().unwrap())
+    let rcvd = recv_parent_msg().unwrap();
+    // eprintln!("Downsent {rcvd:?}");
+    rn.receive(rcvd)
   }
 }

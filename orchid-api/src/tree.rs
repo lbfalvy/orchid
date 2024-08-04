@@ -64,7 +64,7 @@ pub struct Placeholder {
 pub enum PlaceholderKind {
   Scalar,
   Name,
-  Vector { nonzero: bool, priority: u8 },
+  Vector { nz: bool, prio: u8 },
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding)]

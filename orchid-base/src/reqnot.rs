@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use std::mem;
+use std::{mem, thread};
 use std::ops::{BitAnd, Deref};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
@@ -12,7 +12,7 @@ use trait_set::trait_set;
 
 trait_set! {
   pub trait SendFn<T: MsgSet> = for<'a> FnMut(&'a [u8], ReqNot<T>) + DynClone + Send + 'static;
-  pub trait ReqFn<T: MsgSet> = FnMut(RequestHandle<T>) + DynClone + Send + 'static;
+  pub trait ReqFn<T: MsgSet> = FnMut(RequestHandle<T>) + DynClone + Send + Sync + 'static;
   pub trait NotifFn<T: MsgSet> =
     for<'a> FnMut(<T::In as Channel>::Notif, ReqNot<T>) + DynClone + Send + Sync + 'static;
 }
@@ -31,7 +31,7 @@ impl<MS: MsgSet + 'static> RequestHandle<MS> {
   pub fn reqnot(&self) -> ReqNot<MS> { self.parent.clone() }
   pub fn req(&self) -> &<MS::In as Channel>::Req { &self.message }
   fn respond(&self, response: &impl Encode) {
-    assert!(!self.fulfilled.swap(true, Ordering::Relaxed), "Already responded");
+    assert!(!self.fulfilled.swap(true, Ordering::Relaxed), "Already responded to {}", self.id);
     let mut buf = (!self.id).to_be_bytes().to_vec();
     response.encode(&mut buf);
     let mut send = clone_box(&*self.reqnot().0.lock().unwrap().send);
@@ -45,7 +45,8 @@ impl<MS: MsgSet + 'static> RequestHandle<MS> {
 }
 impl<MS: MsgSet> Drop for RequestHandle<MS> {
   fn drop(&mut self) {
-    debug_assert!(self.fulfilled.load(Ordering::Relaxed), "Request dropped without response")
+    let done = self.fulfilled.load(Ordering::Relaxed);
+    debug_assert!(done, "Request {} dropped without response", self.id)
   }
 }
 
@@ -63,6 +64,9 @@ pub struct ReqNotData<T: MsgSet> {
   responses: HashMap<u64, SyncSender<Vec<u8>>>,
 }
 
+/// Wraps a raw message buffer to save on copying.
+/// Dereferences to the tail of the message buffer, cutting off the ID
+#[derive(Debug, Clone)]
 pub struct RawReply(Vec<u8>);
 impl Deref for RawReply {
   type Target = [u8];
@@ -96,7 +100,8 @@ impl<T: MsgSet> ReqNot<T> {
       let message = <T::In as Channel>::Req::decode(&mut &payload[..]);
       let mut req = clone_box(&*g.req);
       mem::drop(g);
-      req(RequestHandle { id, message, fulfilled: false.into(), parent: self.clone() })
+      let handle = RequestHandle { id, message, fulfilled: false.into(), parent: self.clone() };
+      thread::Builder::new().name(format!("request {id}")).spawn(move || req(handle)).unwrap();
     }
   }
 
@@ -107,6 +112,12 @@ impl<T: MsgSet> ReqNot<T> {
     msg.encode(&mut buf);
     send(&buf, self.clone())
   }
+}
+
+pub trait DynRequester: Send + Sync {
+  type Transfer;
+  /// Encode and send a request, then receive the response buffer.
+  fn raw_request(&self, data: Self::Transfer) -> RawReply;
 }
 
 pub struct MappedRequester<'a, T>(Box<dyn Fn(T) -> RawReply + Send + Sync + 'a>);
@@ -139,10 +150,6 @@ impl<T: MsgSet> DynRequester for ReqNot<T> {
   }
 }
 
-pub trait DynRequester: Send + Sync {
-  type Transfer;
-  fn raw_request(&self, data: Self::Transfer) -> RawReply;
-}
 pub trait Requester: DynRequester {
   #[must_use = "These types are subject to change with protocol versions. \
     If you don't want to use the return value, At a minimum, force the type."]

@@ -315,11 +315,30 @@ pub fn sweep_master(retained: Retained) {
   g.interners.vecs.sweep_master(retained.vecs.into_iter().collect());
 }
 
-#[test]
-fn test_i() {
-  let _: Tok<String> = intern!(str: "foo");
-  let _: Tok<Vec<Tok<String>>> = intern!([Tok<String>]: &[
-    intern!(str: "bar"),
-    intern!(str: "baz")
-  ]);
+#[cfg(test)]
+mod test {
+  use super::*;
+
+    use std::num::NonZero;
+
+    use orchid_api::interner::TStr;
+    use orchid_api_traits::{Decode, Encode};
+
+  #[test]
+  fn test_i() {
+    let _: Tok<String> = intern!(str: "foo");
+    let _: Tok<Vec<Tok<String>>> = intern!([Tok<String>]: &[
+      intern!(str: "bar"),
+      intern!(str: "baz")
+    ]);
+  }
+
+  #[test]
+  fn test_coding() {
+    let coded = TStr(NonZero::new(3u64).unwrap());
+    let mut enc = &coded.enc_vec()[..];
+    eprintln!("Coded {enc:?}");
+    TStr::decode(&mut enc);
+    assert_eq!(enc, [])
+  }
 }

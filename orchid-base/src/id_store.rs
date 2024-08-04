@@ -24,6 +24,10 @@ impl<T> IdStore<T> {
     let id64 = id.into();
     if tbl_g.contains_key(&id64) { Some(IdRecord(id64, tbl_g)) } else { None }
   }
+  pub fn is_empty(&self) -> bool { self.len() == 0 }
+  pub fn len(&self) -> usize {
+    self.table.get().map(|t| t.lock().unwrap().len()).unwrap_or(0)
+  }
 }
 
 impl<T> Default for IdStore<T> {

@@ -18,3 +18,4 @@ pub mod reqnot;
 pub mod sequence;
 pub mod tokens;
 pub mod tree;
+pub mod logging;

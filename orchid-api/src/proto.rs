@@ -27,18 +27,23 @@ use std::io::{Read, Write};
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::{read_exact, write_exact, Channel, Decode, Encode, MsgSet, Request};
 
-use crate::{atom, error, expr, interner, parser, system, tree, vfs};
+use crate::{atom, error, expr, interner, logging::{self, LogStrategy}, parser, system, tree, vfs};
 
 static HOST_INTRO: &[u8] = b"Orchid host, binary API v0\n";
-pub struct HostHeader;
+pub struct HostHeader {
+  pub log_strategy: LogStrategy,
+}
 impl Decode for HostHeader {
   fn decode<R: Read + ?Sized>(read: &mut R) -> Self {
     read_exact(read, HOST_INTRO);
-    Self
+    Self { log_strategy: LogStrategy::decode(read) }
   }
 }
 impl Encode for HostHeader {
-  fn encode<W: Write + ?Sized>(&self, write: &mut W) { write_exact(write, HOST_INTRO) }
+  fn encode<W: Write + ?Sized>(&self, write: &mut W) {
+    write_exact(write, HOST_INTRO);
+    self.log_strategy.encode(write)
+  }
 }
 
 static EXT_INTRO: &[u8] = b"Orchid extension, binary API v0\n";
@@ -83,6 +88,7 @@ pub enum ExtHostReq {
 pub enum ExtHostNotif {
   ExprNotif(expr::ExprNotif),
   AdviseSweep(interner::AdviseSweep),
+  Log(logging::Log),
 }
 
 pub struct ExtHostChannel;
@@ -133,4 +139,39 @@ pub struct HostMsgSet;
 impl MsgSet for HostMsgSet {
   type In = ExtHostChannel;
   type Out = HostExtChannel;
+}
+
+#[cfg(test)]
+mod tests {
+    use ordered_float::NotNan;
+    use system::{SysDeclId, SystemDecl};
+
+    use super::*;
+
+    #[test]
+    fn host_header_enc() {
+      let hh = HostHeader { log_strategy: LogStrategy::File("SomeFile".to_string()) };
+      let mut enc = &hh.enc_vec()[..];
+      eprintln!("Encoded to {enc:?}");
+      HostHeader::decode(&mut enc);
+      assert_eq!(enc, []);
+    }
+
+    #[test]
+    fn ext_header_enc() {
+      let eh = ExtensionHeader {
+        systems: vec![
+          SystemDecl {
+            id: SysDeclId(1.try_into().unwrap()),
+            name: "misc".to_string(),
+            depends: vec![ "std".to_string() ],
+            priority: NotNan::new(1f64).unwrap()
+          }
+        ]
+      };
+      let mut enc = &eh.enc_vec()[..];
+      eprintln!("Encoded to {enc:?}");
+      ExtensionHeader::decode(&mut enc);
+      assert_eq!(enc, [])
+    }
 }

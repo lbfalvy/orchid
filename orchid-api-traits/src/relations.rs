@@ -10,7 +10,7 @@ pub trait Channel: 'static {
   type Notif: Coding + Sized + Send + 'static;
 }
 
-pub trait MsgSet {
+pub trait MsgSet: Send + Sync + 'static {
   type In: Channel;
   type Out: Channel;
 }

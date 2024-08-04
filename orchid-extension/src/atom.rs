@@ -108,6 +108,7 @@ pub trait AtomDynfo: Send + Sync + 'static {
   fn call(&self, ctx: AtomCtx<'_>, arg: ExprTicket) -> GenExpr;
   fn call_ref(&self, ctx: AtomCtx<'_>, arg: ExprTicket) -> GenExpr;
   fn same(&self, ctx: AtomCtx<'_>, buf2: &[u8]) -> bool;
+  fn print(&self, ctx: AtomCtx<'_>) -> String;
   fn handle_req(&self, ctx: AtomCtx<'_>, req: &mut dyn Read, rep: &mut dyn Write);
   fn command(&self, ctx: AtomCtx<'_>) -> ProjectResult<Option<GenExpr>>;
   fn drop(&self, ctx: AtomCtx<'_>);
@@ -127,8 +128,8 @@ impl Clone for AtomFactory {
   fn clone(&self) -> Self { AtomFactory(clone_box(&*self.0)) }
 }
 
-pub struct ErrorNotCallable;
-impl ProjectError for ErrorNotCallable {
+pub struct ErrNotCallable;
+impl ProjectError for ErrNotCallable {
   const DESCRIPTION: &'static str = "This atom is not callable";
 }
 

@@ -104,6 +104,13 @@ impl Request for Command {
 #[extends(HostExtNotif)]
 pub struct AtomDrop(pub Atom);
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
+#[extends(AtomReq, HostExtReq)]
+pub struct AtomPrint(pub Atom);
+impl Request for AtomPrint {
+  type Response = String;
+}
+
 /// Requests that apply to an existing atom instance
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
 #[extends(HostExtReq)]
@@ -114,6 +121,7 @@ pub enum AtomReq {
   AtomSame(AtomSame),
   Fwded(Fwded),
   Command(Command),
+  AtomPrint(AtomPrint),
 }
 impl AtomReq {
   /// Obtain the first [Atom] argument of the request. All requests in this
@@ -124,7 +132,8 @@ impl AtomReq {
       | Self::CallRef(CallRef(a, ..))
       | Self::Command(Command(a))
       | Self::FinalCall(FinalCall(a, ..))
-      | Self::Fwded(Fwded(a, ..)) => a,
+      | Self::Fwded(Fwded(a, ..))
+      | Self::AtomPrint(AtomPrint(a)) => a,
     }
   }
 }

@@ -1,4 +1,5 @@
 use std::any::TypeId;
+use std::sync::Arc;
 
 use hashbrown::HashMap;
 use orchid_api::atom::Atom;
@@ -6,6 +7,7 @@ use orchid_api::proto::ExtMsgSet;
 use orchid_api::system::SysId;
 use orchid_api_traits::Decode;
 use orchid_base::interner::Tok;
+use orchid_base::logging::Logger;
 use orchid_base::reqnot::ReqNot;
 
 use crate::atom::{get_info, AtomCtx, AtomDynfo, AtomicFeatures, ForeignAtom, TypAtom};
@@ -106,4 +108,5 @@ pub struct SysCtx {
   pub reqnot: ReqNot<ExtMsgSet>,
   pub id: SysId,
   pub cted: CtedObj,
+  pub logger: Arc<Logger>,
 }

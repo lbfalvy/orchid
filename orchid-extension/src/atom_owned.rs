@@ -11,12 +11,11 @@ use orchid_api_traits::{Decode, Encode};
 use orchid_base::id_store::{IdRecord, IdStore};
 
 use crate::atom::{
-  AtomCard, AtomCtx, AtomDynfo, AtomFactory, Atomic, AtomicFeaturesImpl, AtomicVariant,
-  ErrorNotCallable, ErrorNotCommand, ReqPck, RequestPack,
+  get_info, AtomCard, AtomCtx, AtomDynfo, AtomFactory, Atomic, AtomicFeaturesImpl, AtomicVariant, ErrNotCallable, ErrorNotCommand, ReqPck, RequestPack
 };
 use crate::error::ProjectResult;
 use crate::expr::{bot, ExprHandle, GenExpr};
-use crate::system::{atom_info_for, SysCtx};
+use crate::system::SysCtx;
 
 pub struct OwnedVariant;
 impl AtomicVariant for OwnedVariant {}
@@ -24,7 +23,7 @@ impl<A: OwnedAtom + Atomic<Variant = OwnedVariant>> AtomicFeaturesImpl<OwnedVari
   fn _factory(self) -> AtomFactory {
     AtomFactory::new(move |sys| {
       let rec = OBJ_STORE.add(Box::new(self));
-      let mut data = atom_info_for(sys.dyn_card(), rec.atom_tid()).expect("obj exists").0.enc_vec();
+      let mut data = get_info::<A>(sys.dyn_card()).0.enc_vec();
       rec.id().encode(&mut data);
       rec.encode(&mut data);
       LocalAtom { drop: true, data }
@@ -35,11 +34,15 @@ impl<A: OwnedAtom + Atomic<Variant = OwnedVariant>> AtomicFeaturesImpl<OwnedVari
 }
 
 fn with_atom<U>(mut b: &[u8], f: impl FnOnce(IdRecord<'_, Box<dyn DynOwnedAtom>>) -> U) -> U {
-  f(OBJ_STORE.get(NonZeroU64::decode(&mut b)).expect("Received invalid atom ID"))
+  let id = NonZeroU64::decode(&mut b);
+  f(OBJ_STORE.get(id).unwrap_or_else(|| panic!("Received invalid atom ID: {id}")))
 }
 
 pub struct OwnedAtomDynfo<T: OwnedAtom>(PhantomData<T>);
 impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
+  fn print(&self, AtomCtx(buf, ctx): AtomCtx<'_>) -> String {
+    with_atom(buf, |a| a.dyn_print(ctx))
+  }
   fn tid(&self) -> TypeId { TypeId::of::<T>() }
   fn name(&self) -> &'static str { type_name::<T>() }
   fn decode(&self, AtomCtx(data, _): AtomCtx) -> Box<dyn Any> {
@@ -67,7 +70,7 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 pub trait OwnedAtom: Atomic<Variant = OwnedVariant> + Send + Sync + Any + Clone + 'static {
   fn val(&self) -> Cow<'_, Self::Data>;
   #[allow(unused_variables)]
-  fn call_ref(&self, arg: ExprHandle) -> GenExpr { bot(ErrorNotCallable) }
+  fn call_ref(&self, arg: ExprHandle) -> GenExpr { bot(ErrNotCallable) }
   fn call(self, arg: ExprHandle) -> GenExpr {
     let ctx = arg.get_ctx();
     let gcl = self.call_ref(arg);
@@ -87,6 +90,8 @@ pub trait OwnedAtom: Atomic<Variant = OwnedVariant> + Send + Sync + Any + Clone 
   fn command(self, ctx: SysCtx) -> ProjectResult<Option<GenExpr>> { Err(Arc::new(ErrorNotCommand)) }
   #[allow(unused_variables)]
   fn free(self, ctx: SysCtx) {}
+  #[allow(unused_variables)]
+  fn print(&self, ctx: SysCtx) -> String { format!("OwnedAtom({})", type_name::<Self>()) }
 }
 pub trait DynOwnedAtom: Send + Sync + 'static {
   fn atom_tid(&self) -> TypeId;
@@ -98,6 +103,7 @@ pub trait DynOwnedAtom: Send + Sync + 'static {
   fn dyn_handle_req(&self, ctx: SysCtx, req: &mut dyn Read, rep: &mut dyn Write);
   fn dyn_command(self: Box<Self>, ctx: SysCtx) -> ProjectResult<Option<GenExpr>>;
   fn dyn_free(self: Box<Self>, ctx: SysCtx);
+  fn dyn_print(&self, ctx: SysCtx) -> String;
 }
 impl<T: OwnedAtom> DynOwnedAtom for T {
   fn atom_tid(&self) -> TypeId { TypeId::of::<T>() }
@@ -123,6 +129,7 @@ impl<T: OwnedAtom> DynOwnedAtom for T {
     self.command(ctx)
   }
   fn dyn_free(self: Box<Self>, ctx: SysCtx) { self.free(ctx) }
+  fn dyn_print(&self, ctx: SysCtx) -> String { self.print(ctx) }
 }
 
 pub(crate) static OBJ_STORE: IdStore<Box<dyn DynOwnedAtom>> = IdStore::new();

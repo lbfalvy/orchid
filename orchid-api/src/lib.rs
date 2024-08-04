@@ -8,3 +8,4 @@ pub mod proto;
 pub mod system;
 pub mod tree;
 pub mod vfs;
+pub mod logging;

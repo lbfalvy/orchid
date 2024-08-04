@@ -9,7 +9,7 @@ use orchid_extension::system_ctor::SystemCtor;
 use orchid_extension::tree::{cnst, module, root_mod, GenMemberKind};
 
 use crate::number::num_atom::{Float, Int};
-use crate::string::str_atom::StrAtom;
+use crate::string::str_atom::{IntStrAtom, StrAtom};
 use crate::string::str_lexer::StringLexer;
 use crate::OrcString;
 
@@ -25,7 +25,7 @@ impl SystemCtor for StdSystem {
 impl SystemCard for StdSystem {
   type Ctor = Self;
   const ATOM_DEFS: &'static [Option<&'static dyn AtomDynfo>] =
-    &[Some(Int::INFO), Some(Float::INFO), Some(StrAtom::INFO)];
+    &[Some(Int::INFO), Some(Float::INFO), Some(StrAtom::INFO), Some(IntStrAtom::INFO)];
 }
 impl System for StdSystem {
   fn lexers() -> Vec<orchid_extension::lexer::LexerObj> { vec![&StringLexer] }
