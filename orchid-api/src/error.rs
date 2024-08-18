@@ -1,18 +1,16 @@
 use std::num::NonZeroU16;
 use std::sync::Arc;
 
-use orchid_api_derive::{Coding, Hierarchy};
-use orchid_api_traits::Request;
+use orchid_api_derive::Coding;
 
 use crate::interner::TStr;
 use crate::location::Location;
-use crate::proto::ExtHostReq;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
-pub struct ProjErrId(pub NonZeroU16);
+pub struct ErrId(pub NonZeroU16);
 
 #[derive(Clone, Debug, Coding)]
-pub struct ProjErrLocation {
+pub struct ErrLocation {
   /// Description of the relation of this location to the error. If not used,
   /// set to empty string
   pub message: Arc<String>,
@@ -26,7 +24,7 @@ pub struct ProjErrLocation {
 /// For example, file reading produces result::err when the file doesn't exist,
 /// and a bottom if the file name isn't a string.
 #[derive(Clone, Debug, Coding)]
-pub struct ProjErr {
+pub struct OrcError {
   /// General description of the kind of error.
   pub description: TStr,
   /// Specific information about the exact error, preferably containing concrete
@@ -34,22 +32,8 @@ pub struct ProjErr {
   pub message: Arc<String>,
   /// Specific code fragments that have contributed to the emergence of the
   /// error.
-  pub locations: Vec<ProjErrLocation>,
+  pub locations: Vec<ErrLocation>,
 }
 
 /// If this is an [`Err`] then the [`Vec`] must not be empty.
-pub type ProjResult<T> = Result<T, Vec<ProjErr>>;
-
-#[derive(Clone, Debug, Coding, Hierarchy)]
-#[extends(ProjErrReq, ExtHostReq)]
-pub struct GetErrorDetails(pub ProjErrId);
-impl Request for GetErrorDetails {
-  type Response = ProjErr;
-}
-
-#[derive(Clone, Debug, Coding, Hierarchy)]
-#[extends(ExtHostReq)]
-#[extendable]
-pub enum ProjErrReq {
-  GetErrorDetails(GetErrorDetails),
-}
+pub type OrcResult<T> = Result<T, Vec<OrcError>>;

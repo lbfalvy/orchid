@@ -10,8 +10,12 @@ pub struct SharedChild {
   debug: Option<(String, Mutex<Box<dyn fmt::Write>>)>,
 }
 impl SharedChild {
-  pub fn new(command: &mut process::Command, debug: Option<(&str, impl fmt::Write + 'static)>) -> io::Result<Self> {
-    let mut child = command.stdin(process::Stdio::piped()).stdout(process::Stdio::piped()).spawn()?;
+  pub fn new(
+    command: &mut process::Command,
+    debug: Option<(&str, impl fmt::Write + 'static)>,
+  ) -> io::Result<Self> {
+    let mut child =
+      command.stdin(process::Stdio::piped()).stdout(process::Stdio::piped()).spawn()?;
     let stdin = Mutex::new(child.stdin.take().expect("Piped stdin above"));
     let stdout = Mutex::new(child.stdout.take().expect("Piped stdout above"));
     let debug = debug.map(|(n, w)| (n.to_string(), Mutex::new(Box::new(w) as Box<dyn fmt::Write>)));

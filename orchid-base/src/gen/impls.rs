@@ -1,8 +1,7 @@
 use std::any::TypeId;
 
 use itertools::Itertools;
-use orchid_api::expr::{Clause, Expr};
-use orchid_api::location::Location;
+use crate::api;
 
 use super::traits::{GenClause, Generable};
 use crate::intern::{deintern, intern};

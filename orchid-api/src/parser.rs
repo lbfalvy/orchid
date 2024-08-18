@@ -4,7 +4,7 @@ use std::ops::RangeInclusive;
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
-use crate::error::ProjResult;
+use crate::error::OrcResult;
 use crate::interner::TStr;
 use crate::proto::{ExtHostReq, HostExtReq};
 use crate::system::SysId;
@@ -24,6 +24,7 @@ pub struct CharFilter(pub Vec<RangeInclusive<char>>);
 #[extendable]
 pub enum ParserReq {
   LexExpr(LexExpr),
+  ParseLine(ParseLine),
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
@@ -35,7 +36,7 @@ pub struct LexExpr {
   pub pos: u32,
 }
 impl Request for LexExpr {
-  type Response = Option<ProjResult<LexedExpr>>;
+  type Response = Option<OrcResult<LexedExpr>>;
 }
 
 #[derive(Clone, Debug, Coding)]
@@ -60,11 +61,12 @@ pub struct SubLexed {
   pub ticket: TreeTicket,
 }
 
-#[derive(Clone, Debug, Coding)]
+#[derive(Clone, Debug, Coding, Hierarchy)]
+#[extends(ParserReq, HostExtReq)]
 pub struct ParseLine {
   pub sys: SysId,
   pub line: Vec<TokenTree>,
 }
 impl Request for ParseLine {
-  type Response = Vec<TokenTree>;
+  type Response = OrcResult<Vec<TokenTree>>;
 }

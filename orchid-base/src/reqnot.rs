@@ -1,18 +1,20 @@
 use std::marker::PhantomData;
-use std::{mem, thread};
 use std::ops::{BitAnd, Deref};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex};
+use std::{mem, thread};
 
 use dyn_clone::{clone_box, DynClone};
 use hashbrown::HashMap;
 use orchid_api_traits::{Channel, Coding, Decode, Encode, MsgSet, Request};
 use trait_set::trait_set;
 
+pub struct ReplyToken;
+
 trait_set! {
   pub trait SendFn<T: MsgSet> = for<'a> FnMut(&'a [u8], ReqNot<T>) + DynClone + Send + 'static;
-  pub trait ReqFn<T: MsgSet> = FnMut(RequestHandle<T>) + DynClone + Send + Sync + 'static;
+  pub trait ReqFn<T: MsgSet> = FnMut(RequestHandle<T>) -> ReplyToken + DynClone + Send + Sync + 'static;
   pub trait NotifFn<T: MsgSet> =
     for<'a> FnMut(<T::In as Channel>::Notif, ReqNot<T>) + DynClone + Send + Sync + 'static;
 }
@@ -30,16 +32,17 @@ pub struct RequestHandle<T: MsgSet> {
 impl<MS: MsgSet + 'static> RequestHandle<MS> {
   pub fn reqnot(&self) -> ReqNot<MS> { self.parent.clone() }
   pub fn req(&self) -> &<MS::In as Channel>::Req { &self.message }
-  fn respond(&self, response: &impl Encode) {
+  fn respond(&self, response: &impl Encode) -> ReplyToken {
     assert!(!self.fulfilled.swap(true, Ordering::Relaxed), "Already responded to {}", self.id);
     let mut buf = (!self.id).to_be_bytes().to_vec();
     response.encode(&mut buf);
     let mut send = clone_box(&*self.reqnot().0.lock().unwrap().send);
     (send)(&buf, self.parent.clone());
+    ReplyToken
   }
-  pub fn handle<T: Request>(&self, _: &T, rep: &T::Response) { self.respond(rep) }
+  pub fn handle<T: Request>(&self, _: &T, rep: &T::Response) -> ReplyToken { self.respond(rep) }
   pub fn will_handle_as<T: Request>(&self, _: &T) -> ReqTypToken<T> { ReqTypToken(PhantomData) }
-  pub fn handle_as<T: Request>(&self, _token: ReqTypToken<T>, rep: &T::Response) {
+  pub fn handle_as<T: Request>(&self, _token: ReqTypToken<T>, rep: &T::Response) -> ReplyToken {
     self.respond(rep)
   }
 }
@@ -236,7 +239,7 @@ mod test {
       |_, _| panic!("Not receiving notifs"),
       |req| {
         assert_eq!(req.req(), &TestReq(5));
-        req.respond(&6u8);
+        req.respond(&6u8)
       },
     ));
     let response = sender.request(TestReq(5));

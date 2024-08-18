@@ -1,12 +1,12 @@
-use orchid_base::intern;
 use itertools::Itertools;
+use orchid_base::error::{mk_err, OrcErr, OrcRes};
 use orchid_base::interner::intern;
 use orchid_base::location::Pos;
-use orchid_base::vname;
+use orchid_base::tree::{vname_tv, wrap_tokv};
+use orchid_base::{intern, vname};
 use orchid_extension::atom::AtomicFeatures;
-use orchid_extension::error::{ErrorSansOrigin, ProjectError, ProjectErrorObj, ProjectResult};
-use orchid_extension::lexer::{LexContext, Lexer, NotApplicableLexerError};
-use orchid_extension::tree::{wrap_tokv, GenTok, GenTokTree};
+use orchid_extension::lexer::{err_lexer_na, LexContext, Lexer};
+use orchid_extension::tree::{GenTok, GenTokTree};
 
 use super::str_atom::IntStrAtom;
 
@@ -30,34 +30,19 @@ struct StringError {
   kind: StringErrorKind,
 }
 
-#[derive(Clone)]
-struct NotHex;
-impl ErrorSansOrigin for NotHex {
-  const DESCRIPTION: &'static str = "Expected a hex digit";
-}
-
-#[derive(Clone)]
-struct BadCodePoint;
-impl ErrorSansOrigin for BadCodePoint {
-  const DESCRIPTION: &'static str = "The specified number is not a Unicode code point";
-}
-
-#[derive(Clone)]
-struct BadEscapeSequence;
-impl ErrorSansOrigin for BadEscapeSequence {
-  const DESCRIPTION: &'static str = "Unrecognized escape sequence";
-}
-
 impl StringError {
   /// Convert into project error for reporting
-  pub fn into_proj(self, pos: u32) -> ProjectErrorObj {
+  pub fn into_proj(self, pos: u32) -> OrcErr {
     let start = pos + self.pos;
-    let pos = Pos::Range(start..start + 1);
-    match self.kind {
-      StringErrorKind::NotHex => NotHex.bundle(&pos),
-      StringErrorKind::BadCodePoint => BadCodePoint.bundle(&pos),
-      StringErrorKind::BadEscSeq => BadEscapeSequence.bundle(&pos),
-    }
+    mk_err(
+      intern!(str: "Failed to parse string"),
+      match self.kind {
+        StringErrorKind::NotHex => "Expected a hex digit",
+        StringErrorKind::BadCodePoint => "The specified number is not a Unicode code point",
+        StringErrorKind::BadEscSeq => "Unrecognized escape sequence",
+      },
+      [Pos::Range(start..start + 1).into()],
+    )
   }
 }
 
@@ -106,32 +91,24 @@ fn parse_string(str: &str) -> Result<String, StringError> {
   Ok(target)
 }
 
-#[derive(Clone)]
-pub struct NoStringEnd;
-impl ErrorSansOrigin for NoStringEnd {
-  const DESCRIPTION: &'static str = "String never terminated with \"";
-}
-
 #[derive(Default)]
 pub struct StringLexer;
 impl Lexer for StringLexer {
   const CHAR_FILTER: &'static [std::ops::RangeInclusive<char>] = &['"'..='"'];
-  fn lex<'a>(
-    all: &'a str,
-    ctx: &'a LexContext<'a>,
-  ) -> ProjectResult<(&'a str, GenTokTree)> {
-    let mut tail = all.strip_prefix('"').ok_or_else(|| NotApplicableLexerError.pack())?;
-    let mut parts = vec![];
+  fn lex<'a>(all: &'a str, ctx: &'a LexContext<'a>) -> OrcRes<(&'a str, GenTokTree<'a>)> {
+    let mut tail = all.strip_prefix('"').ok_or_else(err_lexer_na)?;
+    let mut parts = Vec::<GenTokTree<'a>>::new();
     let mut cur = String::new();
     let mut errors = vec![];
-    let commit_str = |str: &mut String, tail: &str, err: &mut Vec<ProjectErrorObj>, parts: &mut Vec<GenTokTree>| {
-      let str_val = parse_string(str)
-        .inspect_err(|e| err.push(e.clone().into_proj(ctx.pos(tail) - str.len() as u32)))
-        .unwrap_or_default();
-      let tok = GenTok::Atom(IntStrAtom::from(intern(&*str_val)).factory());
-      parts.push(tok.at(ctx.tok_ran(str.len() as u32, tail)));
-      *str = String::new();
-    };
+    let commit_str =
+      |str: &mut String, tail: &str, err: &mut Vec<OrcErr>, parts: &mut Vec<GenTokTree<'a>>| {
+        let str_val = parse_string(str)
+          .inspect_err(|e| err.push(e.clone().into_proj(ctx.pos(tail) - str.len() as u32)))
+          .unwrap_or_default();
+        let tok = GenTok::X(IntStrAtom::from(intern(&*str_val)).factory());
+        parts.push(tok.at(ctx.tok_ran(str.len() as u32, tail)));
+        *str = String::new();
+      };
     loop {
       if let Some(rest) = tail.strip_prefix('"') {
         commit_str(&mut cur, tail, &mut errors, &mut parts);
@@ -139,8 +116,7 @@ impl Lexer for StringLexer {
       } else if let Some(rest) = tail.strip_prefix('$') {
         commit_str(&mut cur, tail, &mut errors, &mut parts);
         parts.push(GenTok::Name(intern!(str: "++")).at(ctx.tok_ran(1, rest)));
-        parts.extend(GenTok::vname(&vname!(std::string::convert))
-          .map(|t| t.at(ctx.tok_ran(1, rest))));
+        parts.extend(vname_tv(&vname!(std::string::convert), ctx.tok_ran(1, rest)));
         let (new_tail, tree) = ctx.recurse(rest)?;
         tail = new_tail;
         parts.push(tree);
@@ -156,7 +132,11 @@ impl Lexer for StringLexer {
         } else {
           let range = ctx.pos(all)..ctx.pos("");
           commit_str(&mut cur, tail, &mut errors, &mut parts);
-          return Err(NoStringEnd.bundle(&Pos::Range(range.clone())));
+          return Err(vec![mk_err(
+            intern!(str: "No string end"),
+            "String never terminated with \"",
+            [Pos::Range(range.clone()).into()],
+          )]);
         }
       }
     }

@@ -4,8 +4,7 @@
 use std::fmt;
 
 use dyn_clone::{clone_box, DynClone};
-use orchid_api::atom::Atom;
-use orchid_api::expr::Expr;
+use crate::api;
 use trait_set::trait_set;
 
 use super::tpl;

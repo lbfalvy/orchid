@@ -6,14 +6,14 @@ use std::{fmt, iter};
 
 use dyn_clone::{clone_box, DynClone};
 use itertools::Itertools;
-use orchid_api::error::{GetErrorDetails, ProjErr, ProjErrId};
-use orchid_api::proto::ExtMsgSet;
 use orchid_base::boxed_iter::{box_once, BoxedIter};
 use orchid_base::clone;
-use orchid_base::error::{ErrorPosition, OwnedError};
+use orchid_base::error::{ErrPos, OrcError};
 use orchid_base::interner::{deintern, intern};
 use orchid_base::location::{GetSrc, Pos};
 use orchid_base::reqnot::{ReqNot, Requester};
+
+use crate::api;
 
 /// Errors addressed to the developer which are to be resolved with
 /// code changes
@@ -26,8 +26,8 @@ pub trait ProjectError: Sized + Send + Sync + 'static {
   /// Code positions relevant to this error. If you don't implement this, you
   /// must implement [ProjectError::one_position]
   #[must_use]
-  fn positions(&self) -> impl IntoIterator<Item = ErrorPosition> + '_ {
-    box_once(ErrorPosition { position: self.one_position(), message: None })
+  fn positions(&self) -> impl IntoIterator<Item = ErrPos> + '_ {
+    box_once(ErrPos { position: self.one_position(), message: None })
   }
   /// Short way to provide a single origin. If you don't implement this, you
   /// must implement [ProjectError::positions]
@@ -58,7 +58,7 @@ pub trait DynProjectError: Send + Sync + 'static {
   fn message(&self) -> String { self.description().to_string() }
   /// Code positions relevant to this error.
   #[must_use]
-  fn positions(&self) -> BoxedIter<'_, ErrorPosition>;
+  fn positions(&self) -> BoxedIter<'_, ErrPos>;
 }
 
 impl<T> DynProjectError for T
@@ -68,9 +68,7 @@ where T: ProjectError
   fn into_packed(self: Arc<Self>) -> ProjectErrorObj { self }
   fn description(&self) -> Cow<'_, str> { Cow::Borrowed(T::DESCRIPTION) }
   fn message(&self) -> String { ProjectError::message(self) }
-  fn positions(&self) -> BoxedIter<ErrorPosition> {
-    Box::new(ProjectError::positions(self).into_iter())
-  }
+  fn positions(&self) -> BoxedIter<ErrPos> { Box::new(ProjectError::positions(self).into_iter()) }
 }
 
 pub fn pretty_print(err: &dyn DynProjectError, get_src: &mut impl GetSrc) -> String {
@@ -82,7 +80,7 @@ pub fn pretty_print(err: &dyn DynProjectError, get_src: &mut impl GetSrc) -> Str
     head + "No origins specified"
   } else {
     iter::once(head)
-      .chain(positions.iter().map(|ErrorPosition { position: origin, message }| match message {
+      .chain(positions.iter().map(|ErrPos { position: origin, message }| match message {
         None => format!("@{}", origin.pretty_print(get_src)),
         Some(msg) => format!("@{}: {msg}", origin.pretty_print(get_src)),
       }))
@@ -95,7 +93,7 @@ impl DynProjectError for ProjectErrorObj {
   fn description(&self) -> Cow<'_, str> { (**self).description() }
   fn into_packed(self: Arc<Self>) -> ProjectErrorObj { (*self).clone() }
   fn message(&self) -> String { (**self).message() }
-  fn positions(&self) -> BoxedIter<'_, ErrorPosition> { (**self).positions() }
+  fn positions(&self) -> BoxedIter<'_, ErrPos> { (**self).positions() }
 }
 
 /// Type-erased [ProjectError] implementor through the [DynProjectError]
@@ -179,8 +177,8 @@ impl<T: ErrorSansOrigin> DynProjectError for OriginBundle<T> {
   fn into_packed(self: Arc<Self>) -> ProjectErrorObj { self }
   fn description(&self) -> Cow<'_, str> { self.1.description() }
   fn message(&self) -> String { self.1.message() }
-  fn positions(&self) -> BoxedIter<ErrorPosition> {
-    box_once(ErrorPosition { position: self.0.clone(), message: None })
+  fn positions(&self) -> BoxedIter<ErrPos> {
+    box_once(ErrPos { position: self.0.clone(), message: None })
   }
 }
 
@@ -259,7 +257,7 @@ struct MultiError(Vec<ProjectErrorObj>);
 impl ProjectError for MultiError {
   const DESCRIPTION: &'static str = "Multiple errors occurred";
   fn message(&self) -> String { format!("{} errors occurred", self.0.len()) }
-  fn positions(&self) -> impl IntoIterator<Item = ErrorPosition> + '_ {
+  fn positions(&self) -> impl IntoIterator<Item = ErrPos> + '_ {
     self.0.iter().flat_map(|e| {
       e.positions().map(|pos| {
         let emsg = e.message();
@@ -268,49 +266,35 @@ impl ProjectError for MultiError {
           Some(s) if s.is_empty() => emsg,
           Some(pmsg) => format!("{emsg}: {pmsg}"),
         };
-        ErrorPosition { position: pos.position, message: Some(Arc::new(msg)) }
+        ErrPos { position: pos.position, message: Some(Arc::new(msg)) }
       })
     })
   }
 }
 
-fn err_to_api(err: ProjectErrorObj) -> ProjErr {
-  ProjErr {
+fn err_to_api(err: ProjectErrorObj) -> api::OrcErr {
+  api::OrcErr {
     description: intern(&*err.description()).marker(),
     message: Arc::new(err.message()),
     locations: err.positions().map(|e| e.to_api()).collect_vec(),
   }
 }
 
-pub fn errv_to_apiv(errv: impl IntoIterator<Item = ProjectErrorObj>) -> Vec<ProjErr> {
-  errv.into_iter().flat_map(unpack_err).map(err_to_api).collect_vec()
-}
-
-pub fn err_from_apiv<'a>(
-  err: impl IntoIterator<Item = &'a ProjErr>,
-  reqnot: &ReqNot<ExtMsgSet>
-) -> ProjectErrorObj {
-  pack_err(err.into_iter().map(|e| {
-    let details: OnceLock<_> = OwnedError::from_api(e).into();
-    Arc::new(RelayedError { id: None, reqnot: reqnot.clone(), details }).into_packed()
-  }))
-}
-
 struct RelayedError {
-  pub id: Option<ProjErrId>,
-  pub reqnot: ReqNot<ExtMsgSet>,
-  pub details: OnceLock<OwnedError>,
+  pub id: Option<api::ErrId>,
+  pub reqnot: ReqNot<api::ExtMsgSet>,
+  pub details: OnceLock<OrcError>,
 }
 impl RelayedError {
-  fn details(&self) -> &OwnedError {
+  fn details(&self) -> &OrcError {
     let Self { id, reqnot, details: data } = self;
     data.get_or_init(clone!(reqnot; move || {
       let id = id.expect("Either data or ID must be initialized");
-      let projerr = reqnot.request(GetErrorDetails(id));
-      OwnedError {
+      let projerr = reqnot.request(api::GetErrorDetails(id));
+      OrcError {
         description: deintern(projerr.description),
         message: projerr.message,
-        positions: projerr.locations.iter().map(ErrorPosition::from_api).collect_vec(),
+        positions: projerr.locations.iter().map(ErrPos::from_api).collect_vec(),
       }
     }))
   }
@@ -320,7 +304,7 @@ impl DynProjectError for RelayedError {
   fn message(&self) -> String { self.details().message.to_string() }
   fn as_any_ref(&self) -> &dyn std::any::Any { self }
   fn into_packed(self: Arc<Self>) -> ProjectErrorObj { self }
-  fn positions(&self) -> BoxedIter<'_, ErrorPosition> {
+  fn positions(&self) -> BoxedIter<'_, ErrPos> {
     Box::new(self.details().positions.iter().cloned())
   }
 }

@@ -4,7 +4,7 @@ use std::num::NonZeroU16;
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
-use crate::error::ProjResult;
+use crate::error::OrcResult;
 use crate::interner::TStr;
 use crate::proto::HostExtReq;
 use crate::system::SysId;
@@ -22,7 +22,7 @@ pub enum Loaded {
 #[extends(VfsReq, HostExtReq)]
 pub struct VfsRead(pub SysId, pub VfsId, pub Vec<TStr>);
 impl Request for VfsRead {
-  type Response = ProjResult<Loaded>;
+  type Response = OrcResult<Loaded>;
 }
 
 #[derive(Clone, Debug, Coding)]

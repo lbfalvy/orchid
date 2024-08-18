@@ -4,14 +4,15 @@ use std::borrow::Borrow;
 use std::hash::Hash;
 use std::iter::Cloned;
 use std::num::{NonZeroU64, NonZeroUsize};
-use std::ops::{Deref, Index};
+use std::ops::{Bound, Deref, Index, RangeBounds};
 use std::path::Path;
 use std::{fmt, slice, vec};
 
 use itertools::Itertools;
-use orchid_api::interner::TStr;
+use orchid_api::TStrv;
 use trait_set::trait_set;
 
+use crate::api;
 use crate::interner::{deintern, intern, InternMarker, Tok};
 
 trait_set! {
@@ -40,11 +41,11 @@ impl PathSlice {
   }
   /// Find the longest shared prefix of this name and another sequence
   pub fn coprefix<'a>(&'a self, other: &PathSlice) -> &'a PathSlice {
-    &self[0..self.iter().zip(other.iter()).take_while(|(l, r)| l == r).count()]
+    &self[0..self.iter().zip(other.iter()).take_while(|(l, r)| l == r).count() as u16]
   }
   /// Find the longest shared suffix of this name and another sequence
   pub fn cosuffix<'a>(&'a self, other: &PathSlice) -> &'a PathSlice {
-    &self[0..self.iter().zip(other.iter()).take_while(|(l, r)| l == r).count()]
+    &self[0..self.iter().zip(other.iter()).take_while(|(l, r)| l == r).count() as u16]
   }
   /// Remove another
   pub fn strip_prefix<'a>(&'a self, other: &PathSlice) -> Option<&'a PathSlice> {
@@ -52,7 +53,8 @@ impl PathSlice {
     (shared == other.len()).then_some(PathSlice::new(&self[shared..]))
   }
   /// Number of path segments
-  pub fn len(&self) -> usize { self.0.len() }
+  pub fn len(&self) -> u16 { self.0.len().try_into().expect("Too long name!") }
+  pub fn get<I: NameIndex>(&self, index: I) -> Option<&I::Output> { index.get(self) }
   /// Whether there are any path segments. In other words, whether this is a
   /// valid name
   pub fn is_empty(&self) -> bool { self.len() == 0 }
@@ -79,31 +81,47 @@ impl<'a> IntoIterator for &'a PathSlice {
   fn into_iter(self) -> Self::IntoIter { self.0.iter().cloned() }
 }
 
+pub trait NameIndex {
+  type Output: ?Sized;
+  fn get(self, name: &PathSlice) -> Option<&Self::Output>;
+}
+impl<T: NameIndex> Index<T> for PathSlice {
+  type Output = T::Output;
+  fn index(&self, index: T) -> &Self::Output { index.get(self).expect("Index out of bounds") }
+}
+
 mod idx_impls {
   use std::ops;
 
-  use super::PathSlice;
+  use super::{NameIndex, PathSlice, conv_range};
   use crate::interner::Tok;
 
-  impl ops::Index<usize> for PathSlice {
+  impl NameIndex for u16 {
     type Output = Tok<String>;
-    fn index(&self, index: usize) -> &Self::Output { &self.0[index] }
+    fn get(self, name: &PathSlice) -> Option<&Self::Output> { name.0.get(self as usize) }
   }
+
+  impl NameIndex for ops::RangeFull {
+    type Output = PathSlice;
+    fn get(self, name: &PathSlice) -> Option<&Self::Output> { Some(name) }
+  }
+
   macro_rules! impl_range_index_for_pathslice {
-    ($range:ty) => {
-      impl ops::Index<$range> for PathSlice {
+    ($range:ident) => {
+      impl ops::Index<ops::$range<u16>> for PathSlice {
         type Output = Self;
-        fn index(&self, index: $range) -> &Self::Output { Self::new(&self.0[index]) }
+        fn index(&self, index: ops::$range<u16>) -> &Self::Output {
+          Self::new(&self.0[conv_range::<u16, usize>(index)])
+        }
       }
     };
   }
 
-  impl_range_index_for_pathslice!(ops::RangeFull);
-  impl_range_index_for_pathslice!(ops::RangeFrom<usize>);
-  impl_range_index_for_pathslice!(ops::RangeTo<usize>);
-  impl_range_index_for_pathslice!(ops::Range<usize>);
-  impl_range_index_for_pathslice!(ops::RangeInclusive<usize>);
-  impl_range_index_for_pathslice!(ops::RangeToInclusive<usize>);
+  impl_range_index_for_pathslice!(RangeFrom);
+  impl_range_index_for_pathslice!(RangeTo);
+  impl_range_index_for_pathslice!(Range);
+  impl_range_index_for_pathslice!(RangeInclusive);
+  impl_range_index_for_pathslice!(RangeToInclusive);
 }
 
 impl Deref for PathSlice {
@@ -119,6 +137,18 @@ impl<const N: usize> Borrow<PathSlice> for [Tok<String>; N] {
 }
 impl Borrow<PathSlice> for Vec<Tok<String>> {
   fn borrow(&self) -> &PathSlice { PathSlice::new(&self[..]) }
+}
+pub fn conv_bound<T: Into<U> + Clone, U>(bound: Bound<&T>) -> Bound<U> {
+  match bound {
+    Bound::Included(i) => Bound::Included(i.clone().into()),
+    Bound::Excluded(i) => Bound::Excluded(i.clone().into()),
+    Bound::Unbounded => Bound::Unbounded,
+  }
+}
+pub fn conv_range<'a, T: Into<U> + Clone + 'a, U: 'a>(
+  range: impl RangeBounds<T>
+) -> (Bound<U>, Bound<U>) {
+  (conv_bound(range.start_bound()), conv_bound(range.end_bound()))
 }
 
 /// A token path which may be empty. [VName] is the non-empty,
@@ -227,7 +257,7 @@ impl VName {
     let data: Vec<_> = items.into_iter().collect();
     if data.is_empty() { Err(EmptyNameError) } else { Ok(Self(data)) }
   }
-  pub fn deintern(items: impl IntoIterator<Item = TStr>) -> Result<Self, EmptyNameError> {
+  pub fn deintern(items: impl IntoIterator<Item = api::TStr>) -> Result<Self, EmptyNameError> {
     Self::new(items.into_iter().map(deintern))
   }
   /// Unwrap the enclosed vector
@@ -327,6 +357,9 @@ impl Sym {
   pub fn id(&self) -> NonZeroU64 { self.0.marker().get_id() }
   /// Extern the sym for editing
   pub fn to_vname(&self) -> VName { VName(self[..].to_vec()) }
+  pub fn deintern(marker: TStrv) -> Sym {
+    Self::from_tok(deintern(marker)).expect("Empty sequence found for serialized Sym")
+  }
 }
 impl fmt::Debug for Sym {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "Sym({self})") }

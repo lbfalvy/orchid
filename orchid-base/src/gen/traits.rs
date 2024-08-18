@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt;
 
-use orchid_api::atom::Atom;
+use crate::api;
 
 /// Representations of the Orchid expression tree that can describe basic
 /// language elements.

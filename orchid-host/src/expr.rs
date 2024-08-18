@@ -4,8 +4,8 @@ use std::sync::{Arc, RwLock};
 
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
-use orchid_api::expr::{Expr, ExprTicket};
 
+use crate::api;
 use crate::extension::{AtomHand, System};
 
 #[derive(Clone, Debug)]
@@ -16,20 +16,22 @@ pub struct RtExpr {
 impl RtExpr {
   pub fn as_atom(&self) -> Option<AtomHand> { todo!() }
   pub fn strong_count(&self) -> usize { todo!() }
-  pub fn id(&self) -> ExprTicket {
-    ExprTicket(
+  pub fn id(&self) -> api::ExprTicket {
+    api::ExprTicket(
       NonZeroU64::new(self.data.as_ref() as *const () as usize as u64)
-        .expect("this is a ref, it cannot be null")
+        .expect("this is a ref, it cannot be null"),
     )
   }
-  pub fn canonicalize(&self) -> ExprTicket {
+  pub fn canonicalize(&self) -> api::ExprTicket {
     if !self.is_canonical.swap(true, Ordering::Relaxed) {
       KNOWN_EXPRS.write().unwrap().entry(self.id()).or_insert_with(|| self.clone());
     }
     self.id()
   }
-  pub fn resolve(tk: ExprTicket) -> Option<Self> { KNOWN_EXPRS.read().unwrap().get(&tk).cloned() }
-  pub fn from_api(api: Expr, sys: &System) -> Self {
+  pub fn resolve(tk: api::ExprTicket) -> Option<Self> {
+    KNOWN_EXPRS.read().unwrap().get(&tk).cloned()
+  }
+  pub fn from_api(api: api::Expr, sys: &System) -> Self {
     Self { data: Arc::default(), is_canonical: Arc::default() }
   }
 }
@@ -46,5 +48,5 @@ impl Drop for RtExpr {
 }
 
 lazy_static! {
-  static ref KNOWN_EXPRS: RwLock<HashMap<ExprTicket, RtExpr>> = RwLock::default();
+  static ref KNOWN_EXPRS: RwLock<HashMap<api::ExprTicket, RtExpr>> = RwLock::default();
 }

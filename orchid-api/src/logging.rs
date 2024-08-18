@@ -5,7 +5,7 @@ use crate::proto::ExtHostNotif;
 #[derive(Clone, Debug, Coding)]
 pub enum LogStrategy {
   StdErr,
-  File(String)
+  File(String),
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]

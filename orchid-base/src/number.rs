@@ -4,6 +4,10 @@ use std::ops::Range;
 use ordered_float::NotNan;
 use rust_decimal::Decimal;
 
+use crate::error::{mk_err, OrcErr};
+use crate::intern;
+use crate::location::Pos;
+
 /// A number, either floating point or unsigned int, parsed by Orchid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Numeric {
@@ -46,6 +50,18 @@ pub struct NumError {
   pub range: Range<usize>,
   /// Reason
   pub kind: NumErrorKind,
+}
+
+pub fn num_to_err(NumError { kind, range }: NumError, offset: u32) -> OrcErr {
+  mk_err(
+    intern!(str: "Failed to parse number"),
+    match kind {
+      NumErrorKind::NaN => "NaN emerged during parsing",
+      NumErrorKind::InvalidDigit => "non-digit character encountered",
+      NumErrorKind::Overflow => "The number being described is too large or too accurate",
+    },
+    [Pos::Range(offset + range.start as u32..offset + range.end as u32).into()],
+  )
 }
 
 /// Parse a numbre literal out of text

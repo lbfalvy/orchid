@@ -18,8 +18,8 @@ pub struct SysDeclId(pub NonZeroU16);
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
 pub struct SysId(pub NonZeroU16);
 
-/// Details about a system provided by this library. This is included in the extension header,
-/// so it cannot rely on the interner. 
+/// Details about a system provided by this library. This is included in the
+/// extension header, so it cannot rely on the interner.
 #[derive(Debug, Clone, Coding)]
 pub struct SystemDecl {
   /// ID of the system, unique within the library
@@ -44,7 +44,7 @@ pub struct SystemDecl {
 /// essential that any resource associated with a system finds its system by the
 /// ID in a global map.
 #[derive(Clone, Debug, Coding, Hierarchy)]
-#[extends(HostExtReq)]
+#[extends(SysReq, HostExtReq)]
 pub struct NewSystem {
   /// ID of the system
   pub system: SysDeclId,
@@ -64,10 +64,17 @@ pub struct SystemInst {
   /// can process. The lexer will notify this system if it encounters one of
   /// these characters.9
   pub lex_filter: CharFilter,
-  pub parses_lines: Vec<TStr>,
+  pub line_types: Vec<TStr>,
   pub const_root: HashMap<TStr, MemberKind>,
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(HostExtNotif)]
 pub struct SystemDrop(pub SysId);
+
+#[derive(Clone, Debug, Coding, Hierarchy)]
+#[extends(HostExtReq)]
+#[extendable]
+pub enum SysReq {
+  NewSystem(NewSystem),
+}

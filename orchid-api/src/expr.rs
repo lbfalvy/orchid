@@ -3,8 +3,8 @@ use std::num::NonZeroU64;
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
-use crate::atom::{Atom, LocalAtom};
-use crate::error::ProjErr;
+use crate::atom::Atom;
+use crate::error::OrcError;
 use crate::interner::TStrv;
 use crate::location::Location;
 use crate::proto::{ExtHostNotif, ExtHostReq};
@@ -47,7 +47,7 @@ pub struct Release(pub SysId, pub ExprTicket);
 /// [Release].
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
 #[extends(ExprNotif, ExtHostNotif)]
-pub struct Relocate {
+pub struct Move {
   pub dec: SysId,
   pub inc: SysId,
   pub expr: ExprTicket,
@@ -77,7 +77,7 @@ pub enum Clause {
   /// Because the atom is newly constructed, it also must belong to this system.
   /// For convenience, [SysId::MAX] is also accepted as referring to this
   /// system.
-  NewAtom(LocalAtom),
+  NewAtom(Atom),
   /// An atom, specifically an atom that already exists. This form is only ever
   /// returned from [Inspect], and it's borrowed from the expression being
   /// inspected.
@@ -85,7 +85,7 @@ pub enum Clause {
   /// A reference to a constant
   Const(TStrv),
   /// A static runtime error.
-  Bottom(Vec<ProjErr>),
+  Bottom(Vec<OrcError>),
 }
 
 #[derive(Clone, Debug, Coding)]
@@ -120,5 +120,5 @@ pub enum ExprReq {
 pub enum ExprNotif {
   Acquire(Acquire),
   Release(Release),
-  Relocate(Relocate),
+  Move(Move),
 }

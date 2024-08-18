@@ -1,18 +1,17 @@
-use crate::interner::TStrv;
-use crate::location::Location;
 use std::num::NonZeroU64;
 use std::ops::Range;
+use std::sync::Arc;
 
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 use ordered_float::NotNan;
 
-use crate::atom::LocalAtom;
-use crate::error::ProjErr;
-use crate::expr::Expr;
-use crate::interner::TStr;
+use crate::error::OrcError;
+use crate::interner::{TStr, TStrv};
+use crate::location::Location;
 use crate::proto::HostExtReq;
 use crate::system::SysId;
+use crate::{Atom, Expr};
 
 /// A token tree from a lexer recursion request. Its lifetime is the lex call,
 /// the lexer can include it in its output or discard it by implication.
@@ -46,12 +45,14 @@ pub enum Token {
   /// line parser output
   Ph(Placeholder),
   /// A new atom
-  Atom(LocalAtom),
+  Atom(Atom),
   /// Anchor to insert a subtree
   Slot(TreeTicket),
   /// A static compile-time error returned by failing lexers if
   /// the rest of the source is likely still meaningful
-  Bottom(Vec<ProjErr>),
+  Bottom(Vec<OrcError>),
+  /// A comment
+  Comment(Arc<String>),
 }
 
 #[derive(Clone, Debug, Coding)]
@@ -84,10 +85,10 @@ pub struct Macro {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
 pub struct TreeId(pub NonZeroU64);
 
-
 #[derive(Clone, Debug, Coding)]
 pub struct Item {
   pub location: Location,
+  pub comments: Vec<(Arc<String>, Location)>,
   pub kind: ItemKind,
 }
 
@@ -95,13 +96,15 @@ pub struct Item {
 pub enum ItemKind {
   Member(Member),
   Raw(Vec<TokenTree>),
+  Export(TStr),
   Rule(Macro),
+  Import(CompName),
 }
 
 #[derive(Clone, Debug, Coding)]
 pub struct Member {
   pub name: TStr,
-  pub public: bool,
+  pub exported: bool,
   pub kind: MemberKind,
 }
 
@@ -116,6 +119,13 @@ pub enum MemberKind {
 pub struct Module {
   pub imports: Vec<TStrv>,
   pub items: Vec<Item>,
+}
+
+#[derive(Clone, Debug, Coding)]
+pub struct CompName {
+  pub path: Vec<TStr>,
+  pub name: Option<TStr>,
+  pub location: Location,
 }
 
 #[derive(Clone, Copy, Debug, Coding, Hierarchy)]

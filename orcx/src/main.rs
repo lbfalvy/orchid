@@ -1,10 +1,17 @@
-use std::{fs::File, io::Read, process::Command};
+use std::fs::File;
+use std::io::Read;
+use std::process::Command;
+use std::sync::Arc;
 
 use camino::Utf8PathBuf;
 use clap::{Parser, Subcommand};
 use itertools::Itertools;
-use orchid_base::{interner::intern, logging::{LogStrategy, Logger}};
-use orchid_host::{extension::{init_systems, Extension}, lex::lex, tree::fmt_tt_v};
+use orchid_base::interner::intern;
+use orchid_base::logging::{LogStrategy, Logger};
+use orchid_base::tree::ttv_fmt;
+use orchid_host::extension::{init_systems, Extension};
+use orchid_host::lex::lex;
+use orchid_host::subprocess::Subprocess;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about)]
@@ -19,25 +26,27 @@ pub struct Args {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-  Lex{
+  Lex {
     #[arg(short, long)]
-    file: Utf8PathBuf
+    file: Utf8PathBuf,
   },
 }
 
 fn main() {
   let args = Args::parse();
+  let logger = Logger::new(LogStrategy::StdErr);
   match args.command {
     Commands::Lex { file } => {
       let extensions = (args.extension.iter())
-        .map(|f| Extension::new(Command::new(f.as_os_str()), Logger::new(LogStrategy::StdErr)).unwrap())
+        .map(|f| Subprocess::new(Command::new(f.as_os_str()), logger.clone()).unwrap())
+        .map(|cmd| Extension::new_process(Arc::new(cmd), logger.clone()).unwrap())
         .collect_vec();
       let systems = init_systems(&args.system, &extensions).unwrap();
       let mut file = File::open(file.as_std_path()).unwrap();
       let mut buf = String::new();
       file.read_to_string(&mut buf).unwrap();
       let lexemes = lex(intern(&buf), &systems).unwrap();
-      println!("{}", fmt_tt_v(&lexemes))
-    }
+      println!("{}", ttv_fmt(&lexemes))
+    },
   }
 }

@@ -3,10 +3,9 @@ use std::sync::Arc;
 use orchid_base::interner::Tok;
 use orchid_extension::atom::{AtomDynfo, AtomicFeatures};
 use orchid_extension::fs::DeclFs;
-use orchid_extension::fun::Fun;
 use orchid_extension::system::{System, SystemCard};
 use orchid_extension::system_ctor::SystemCtor;
-use orchid_extension::tree::{cnst, module, root_mod, GenMemberKind};
+use orchid_extension::tree::{comments, fun, module, root_mod, GenMemberKind};
 
 use crate::number::num_atom::{Float, Int};
 use crate::string::str_atom::{IntStrAtom, StrAtom};
@@ -29,18 +28,14 @@ impl SystemCard for StdSystem {
 }
 impl System for StdSystem {
   fn lexers() -> Vec<orchid_extension::lexer::LexerObj> { vec![&StringLexer] }
+  fn parsers() -> Vec<orchid_extension::parser::ParserObj> { vec![] }
   fn vfs() -> DeclFs { DeclFs::Mod(&[]) }
   fn env() -> Vec<(Tok<String>, GenMemberKind)> {
-    vec![
-      root_mod("std", [], [
-        module(true, "string", [], [
-          cnst(true, "concat", Fun::new(|left: OrcString| {
-            Fun::new(move |right: OrcString| {
-              StrAtom::new(Arc::new(left.get_string().to_string() + &right.get_string()))
-            })
-          }))
-        ]),
-      ])
-    ]
+    vec![root_mod("std", [], [module(true, "string", [], [comments(
+      ["Concatenate two strings"],
+      fun(true, "concat", |left: OrcString, right: OrcString| {
+        StrAtom::new(Arc::new(left.get_string().to_string() + &right.get_string()))
+      }),
+    )])])]
   }
 }

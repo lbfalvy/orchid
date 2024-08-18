@@ -4,7 +4,7 @@ use std::sync::Arc;
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
-use crate::proto::{ExtHostNotif, ExtHostReq, HostExtReq};
+use crate::proto::{ExtHostReq, HostExtReq};
 
 /// Intern requests sent by the replica to the master. These requests are
 /// repeatable.
@@ -78,16 +78,6 @@ pub struct TStrv(pub NonZeroU64);
 pub struct Sweep;
 impl Request for Sweep {
   type Response = Retained;
-}
-
-/// A notification from the extension to the host, that the extension would benefit from a sweep
-#[derive(Clone, Debug, Coding, Hierarchy)]
-#[extends(ExtHostNotif)]
-pub struct AdviseSweep(SweepReason);
-
-#[derive(Clone, Debug, Coding)]
-pub enum SweepReason {
-  None
 }
 
 /// List of keys in this replica that couldn't be sweeped because local

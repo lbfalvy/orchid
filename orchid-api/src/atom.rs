@@ -1,18 +1,24 @@
+use std::num::NonZeroU64;
+
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
-use crate::error::ProjResult;
+use crate::error::OrcResult;
 use crate::expr::{Expr, ExprTicket};
 use crate::proto::{ExtHostReq, HostExtNotif, HostExtReq};
 use crate::system::SysId;
 
 pub type AtomData = Vec<u8>;
 
+/// Unique ID associated with atoms that have an identity
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
+pub struct AtomId(pub NonZeroU64);
+
 /// An atom owned by an implied system. Usually used in responses from a system.
 /// This has the same semantics as [Atom] except in that the owner is implied.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding)]
 pub struct LocalAtom {
-  pub drop: bool,
+  pub drop: Option<AtomId>,
   pub data: AtomData,
 }
 impl LocalAtom {
@@ -25,10 +31,10 @@ impl LocalAtom {
 pub struct Atom {
   /// Instance ID of the system that created the atom
   pub owner: SysId,
-  /// Indicates whether the owner should be notified when this atom is dropped.
+  /// Indicates how the owner should be notified when this atom is dropped.
   /// Construction is always explicit and atoms are never cloned.
   ///
-  /// Atoms with `drop == false` are also known as trivial, they can be
+  /// Atoms with `drop == None` are also known as trivial, they can be
   /// duplicated and stored with no regard to expression lifetimes. NOTICE
   /// that this only applies to the atom. If it's referenced with an
   /// [ExprTicket], the ticket itself can still expire.
@@ -36,7 +42,7 @@ pub struct Atom {
   /// Notice also that the atoms still expire when the system is dropped, and
   /// are not portable across instances of the same system, so this doesn't
   /// imply that the atom is serializable.
-  pub drop: bool,
+  pub drop: Option<AtomId>,
   /// Data stored in the atom. This could be a key into a map, or the raw data
   /// of the atom if it isn't too big.
   pub data: AtomData,
@@ -58,6 +64,20 @@ impl Request for CallRef {
 pub struct FinalCall(pub Atom, pub ExprTicket);
 impl Request for FinalCall {
   type Response = Expr;
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
+#[extends(AtomReq, HostExtReq)]
+pub struct SerializeAtom(pub Atom);
+impl Request for SerializeAtom {
+  type Response = (Vec<u8>, Vec<ExprTicket>);
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
+#[extends(HostExtReq)]
+pub struct DeserAtom(pub SysId, pub Vec<u8>, pub Vec<ExprTicket>);
+impl Request for DeserAtom {
+  type Response = Atom;
 }
 
 /// Determine whether two atoms are identical for the purposes of macro
@@ -94,7 +114,7 @@ pub enum NextStep {
 #[extends(AtomReq, HostExtReq)]
 pub struct Command(pub Atom);
 impl Request for Command {
-  type Response = ProjResult<NextStep>;
+  type Response = OrcResult<NextStep>;
 }
 
 /// Notification that an atom is being dropped because its associated expression
@@ -102,7 +122,7 @@ impl Request for Command {
 /// flag is false.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
 #[extends(HostExtNotif)]
-pub struct AtomDrop(pub Atom);
+pub struct AtomDrop(pub SysId, pub AtomId);
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
 #[extends(AtomReq, HostExtReq)]
@@ -122,6 +142,7 @@ pub enum AtomReq {
   Fwded(Fwded),
   Command(Command),
   AtomPrint(AtomPrint),
+  SerializeAtom(SerializeAtom),
 }
 impl AtomReq {
   /// Obtain the first [Atom] argument of the request. All requests in this
@@ -133,7 +154,8 @@ impl AtomReq {
       | Self::Command(Command(a))
       | Self::FinalCall(FinalCall(a, ..))
       | Self::Fwded(Fwded(a, ..))
-      | Self::AtomPrint(AtomPrint(a)) => a,
+      | Self::AtomPrint(AtomPrint(a))
+      | Self::SerializeAtom(SerializeAtom(a)) => a,
     }
   }
 }

@@ -1,7 +1,6 @@
-use orchid_api_traits::Decode;
 use std::io;
 
-use orchid_api_traits::Encode;
+use orchid_api_traits::{Decode, Encode};
 
 pub fn send_msg(write: &mut impl io::Write, msg: &[u8]) -> io::Result<()> {
   u32::try_from(msg.len()).unwrap().encode(write);

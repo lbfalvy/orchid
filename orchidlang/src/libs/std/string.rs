@@ -1,4 +1,4 @@
-//! `std::string` String processing
+(//! `std::string` String processing
 
 use std::fmt;
 use std::fmt::Write as _;

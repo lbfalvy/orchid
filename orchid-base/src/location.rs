@@ -5,12 +5,11 @@ use std::hash::Hash;
 use std::ops::Range;
 use std::sync::Arc;
 
-use orchid_api::location as api;
 use trait_set::trait_set;
 
 use crate::interner::{deintern, Tok};
 use crate::name::Sym;
-use crate::sym;
+use crate::{api, sym};
 
 trait_set! {
   pub trait GetSrc = FnMut(&Sym) -> Tok<String>;

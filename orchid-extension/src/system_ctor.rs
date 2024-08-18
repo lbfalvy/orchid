@@ -1,10 +1,10 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use orchid_api::system::{NewSystem, SysDeclId, SysId, SystemDecl};
 use orchid_base::boxed_iter::{box_empty, box_once, BoxedIter};
 use ordered_float::NotNan;
 
+use crate::api;
 use crate::other_system::{DynSystemHandle, SystemHandle};
 use crate::system::{DynSystem, System, SystemCard};
 
@@ -34,7 +34,7 @@ pub trait DepSat: Clone + Send + Sync + 'static {
 pub trait DepDef {
   type Sat: DepSat;
   fn report(names: &mut impl FnMut(&'static str));
-  fn create(take: &mut impl FnMut() -> SysId) -> Self::Sat;
+  fn create(take: &mut impl FnMut() -> api::SysId) -> Self::Sat;
 }
 
 impl<T: SystemCard> DepSat for SystemHandle<T> {
@@ -44,7 +44,7 @@ impl<T: SystemCard> DepSat for SystemHandle<T> {
 impl<T: SystemCard> DepDef for T {
   type Sat = SystemHandle<Self>;
   fn report(names: &mut impl FnMut(&'static str)) { names(T::Ctor::NAME) }
-  fn create(take: &mut impl FnMut() -> SysId) -> Self::Sat { SystemHandle::new(take()) }
+  fn create(take: &mut impl FnMut() -> api::SysId) -> Self::Sat { SystemHandle::new(take()) }
 }
 
 impl DepSat for () {
@@ -53,7 +53,7 @@ impl DepSat for () {
 
 impl DepDef for () {
   type Sat = ();
-  fn create(_: &mut impl FnMut() -> SysId) -> Self::Sat {}
+  fn create(_: &mut impl FnMut() -> api::SysId) -> Self::Sat {}
   fn report(_: &mut impl FnMut(&'static str)) {}
 }
 
@@ -66,20 +66,20 @@ pub trait SystemCtor: Send + Sync + 'static {
 }
 
 pub trait DynSystemCtor: Send + Sync + 'static {
-  fn decl(&self, id: SysDeclId) -> SystemDecl;
-  fn new_system(&self, new: &NewSystem) -> CtedObj;
+  fn decl(&self, id: api::SysDeclId) -> api::SystemDecl;
+  fn new_system(&self, new: &api::NewSystem) -> CtedObj;
 }
 
 impl<T: SystemCtor> DynSystemCtor for T {
-  fn decl(&self, id: SysDeclId) -> SystemDecl {
+  fn decl(&self, id: api::SysDeclId) -> api::SystemDecl {
     // Version is equivalent to priority for all practical purposes
     let priority = NotNan::new(T::VERSION).unwrap();
     // aggregate depends names
     let mut depends = Vec::new();
     T::Deps::report(&mut |n| depends.push(n.to_string()));
-    SystemDecl { name: T::NAME.to_string(), depends, id, priority }
+    api::SystemDecl { name: T::NAME.to_string(), depends, id, priority }
   }
-  fn new_system(&self, NewSystem { system: _, id: _, depends }: &NewSystem) -> CtedObj {
+  fn new_system(&self, api::NewSystem { system: _, id: _, depends }: &api::NewSystem) -> CtedObj {
     let mut ids = depends.iter().copied();
     let inst = Arc::new(T::inst().expect("Constructor did not create system"));
     let deps = T::Deps::create(&mut || ids.next().unwrap());
@@ -88,12 +88,12 @@ impl<T: SystemCtor> DynSystemCtor for T {
 }
 
 mod dep_set_tuple_impls {
-  use orchid_api::system::SysId;
   use orchid_base::box_chain;
   use orchid_base::boxed_iter::BoxedIter;
   use paste::paste;
 
   use super::{DepDef, DepSat};
+  use crate::api;
   use crate::system_ctor::DynSystemHandle;
 
   macro_rules! dep_set_tuple_impl {
@@ -126,7 +126,7 @@ mod dep_set_tuple_impls {
             $name ::report(names);
           )*
         }
-        fn create(take: &mut impl FnMut() -> SysId) -> Self::Sat {
+        fn create(take: &mut impl FnMut() -> api::SysId) -> Self::Sat {
           (
             $(
               $name ::create(take),

@@ -1,591 +1,266 @@
-//! Generic module tree structure
-//!
-//! Used by various stages of the pipeline with different parameters
-use std::fmt;
+use std::borrow::Borrow;
+use std::cell::RefCell;
+use std::fmt::{self, Display, Write};
+use std::iter;
+use std::marker::PhantomData;
+use std::ops::Range;
+use std::sync::Arc;
 
-use hashbrown::HashMap;
+use itertools::Itertools;
 use never::Never;
-use substack::Substack;
 use trait_set::trait_set;
 
-use crate::boxed_iter::BoxedIter;
-use crate::combine::Combine;
-use crate::interner::{intern, Tok};
-use crate::join::try_join_maps;
-use crate::name::{VName, VPath};
-use crate::sequence::Sequence;
-
-/// An umbrella trait for operations you can carry out on any part of the tree
-/// structure
-pub trait TreeTransforms: Sized {
-  /// Data held at the leaves of the tree
-  type Item;
-  /// Data associated with modules
-  type XMod;
-  /// Data associated with entries inside modules
-  type XEnt;
-  /// Recursive type to enable [TreeTransforms::map_data] to transform the whole
-  /// tree
-  type SelfType<T, U, V>: TreeTransforms<Item = T, XMod = U, XEnt = V>;
-
-  /// Implementation for [TreeTransforms::map_data]
-  fn map_data_rec<T, U, V>(
-    self,
-    item: &mut impl FnMut(Substack<Tok<String>>, Self::Item) -> T,
-    module: &mut impl FnMut(Substack<Tok<String>>, Self::XMod) -> U,
-    entry: &mut impl FnMut(Substack<Tok<String>>, Self::XEnt) -> V,
-    path: Substack<Tok<String>>,
-  ) -> Self::SelfType<T, U, V>;
-
-  /// Transform all the data in the tree without changing its structure
-  fn map_data<T, U, V>(
-    self,
-    mut item: impl FnMut(Substack<Tok<String>>, Self::Item) -> T,
-    mut module: impl FnMut(Substack<Tok<String>>, Self::XMod) -> U,
-    mut entry: impl FnMut(Substack<Tok<String>>, Self::XEnt) -> V,
-  ) -> Self::SelfType<T, U, V> {
-    self.map_data_rec(&mut item, &mut module, &mut entry, Substack::Bottom)
-  }
-
-  /// Visit all elements in the tree. This is like [TreeTransforms::search] but
-  /// without the early exit
-  ///
-  /// * init - can be used for reduce, otherwise pass `()`
-  /// * callback - a callback applied on every module.
-  ///   * [`Substack<Tok<String>>`] - the walked path
-  ///   * [Module] - the current module
-  ///   * `T` - data for reduce.
-  fn search_all<'a, T>(
-    &'a self,
-    init: T,
-    mut callback: impl FnMut(
-      Substack<Tok<String>>,
-      ModMemberRef<'a, Self::Item, Self::XMod, Self::XEnt>,
-      T,
-    ) -> T,
-  ) -> T {
-    let res =
-      self.search(init, |stack, member, state| Ok::<T, Never>(callback(stack, member, state)));
-    res.unwrap_or_else(|e| match e {})
-  }
-
-  /// Visit elements in the tree depth first with the provided function
-  ///
-  /// * init - can be used for reduce, otherwise pass `()`
-  /// * callback - a callback applied on every module. Can return [Err] to
-  ///   short-circuit the walk
-  ///   * [`Substack<Tok<String>>`] - the walked path
-  ///   * [Module] - the current module
-  ///   * `T` - data for reduce.
-  fn search<'a, T, E>(
-    &'a self,
-    init: T,
-    mut callback: impl FnMut(
-      Substack<Tok<String>>,
-      ModMemberRef<'a, Self::Item, Self::XMod, Self::XEnt>,
-      T,
-    ) -> Result<T, E>,
-  ) -> Result<T, E> {
-    self.search_rec(init, Substack::Bottom, &mut callback)
-  }
-
-  /// Internal version of [TreeTransforms::search_all]
-  fn search_rec<'a, T, E>(
-    &'a self,
-    state: T,
-    stack: Substack<Tok<String>>,
-    callback: &mut impl FnMut(
-      Substack<Tok<String>>,
-      ModMemberRef<'a, Self::Item, Self::XMod, Self::XEnt>,
-      T,
-    ) -> Result<T, E>,
-  ) -> Result<T, E>;
-}
-
-/// The member in a [ModEntry] which is associated with a name in a [Module]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ModMember<Item, XMod, XEnt> {
-  /// Arbitrary data
-  Item(Item),
-  /// A child module
-  Sub(Module<Item, XMod, XEnt>),
-}
-
-impl<Item, XMod, XEnt> TreeTransforms for ModMember<Item, XMod, XEnt> {
-  type Item = Item;
-  type XEnt = XEnt;
-  type XMod = XMod;
-  type SelfType<T, U, V> = ModMember<T, U, V>;
-
-  fn map_data_rec<T, U, V>(
-    self,
-    item: &mut impl FnMut(Substack<Tok<String>>, Item) -> T,
-    module: &mut impl FnMut(Substack<Tok<String>>, XMod) -> U,
-    entry: &mut impl FnMut(Substack<Tok<String>>, XEnt) -> V,
-    path: Substack<Tok<String>>,
-  ) -> Self::SelfType<T, U, V> {
-    match self {
-      Self::Item(it) => ModMember::Item(item(path, it)),
-      Self::Sub(sub) => ModMember::Sub(sub.map_data_rec(item, module, entry, path)),
-    }
-  }
-
-  fn search_rec<'a, T, E>(
-    &'a self,
-    state: T,
-    stack: Substack<Tok<String>>,
-    callback: &mut impl FnMut(
-      Substack<Tok<String>>,
-      ModMemberRef<'a, Item, XMod, XEnt>,
-      T,
-    ) -> Result<T, E>,
-  ) -> Result<T, E> {
-    match self {
-      Self::Item(it) => callback(stack, ModMemberRef::Item(it), state),
-      Self::Sub(m) => m.search_rec(state, stack, callback),
-    }
-  }
-}
-
-/// Reasons why merging trees might fail
-pub enum ConflictKind<Item: Combine, XMod: Combine, XEnt: Combine> {
-  /// Error during the merging of items
-  Item(Item::Error),
-  /// Error during the merging of module metadata
-  Module(XMod::Error),
-  /// Error during the merging of entry metadata
-  XEnt(XEnt::Error),
-  /// An item appeared in one tree where the other contained a submodule
-  ItemModule,
-}
-
-macro_rules! impl_for_conflict {
-  ($target:ty, ($($deps:tt)*), $for:ty, $body:tt) => {
-    impl<Item: Combine, XMod: Combine, XEnt: Combine> $target
-    for $for
-    where
-      Item::Error: $($deps)*,
-      XMod::Error: $($deps)*,
-      XEnt::Error: $($deps)*,
-    $body
-  };
-}
-
-impl_for_conflict!(Clone, (Clone), ConflictKind<Item, XMod, XEnt>, {
-  fn clone(&self) -> Self {
-    match self {
-      ConflictKind::Item(it_e) => ConflictKind::Item(it_e.clone()),
-      ConflictKind::Module(mod_e) => ConflictKind::Module(mod_e.clone()),
-      ConflictKind::XEnt(ent_e) => ConflictKind::XEnt(ent_e.clone()),
-      ConflictKind::ItemModule => ConflictKind::ItemModule,
-    }
-  }
-});
-
-impl_for_conflict!(fmt::Debug, (fmt::Debug), ConflictKind<Item, XMod, XEnt>, {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match self {
-      ConflictKind::Item(it_e) =>
-        f.debug_tuple("TreeCombineErr::Item").field(it_e).finish(),
-      ConflictKind::Module(mod_e) =>
-        f.debug_tuple("TreeCombineErr::Module").field(mod_e).finish(),
-      ConflictKind::XEnt(ent_e) =>
-        f.debug_tuple("TreeCombineErr::XEnt").field(ent_e).finish(),
-      ConflictKind::ItemModule => write!(f, "TreeCombineErr::Item2Module"),
-    }
-  }
-});
-
-/// Error produced when two trees cannot be merged
-pub struct TreeConflict<Item: Combine, XMod: Combine, XEnt: Combine> {
-  /// Which subtree caused the failure
-  pub path: VPath,
-  /// What type of failure occurred
-  pub kind: ConflictKind<Item, XMod, XEnt>,
-}
-impl<Item: Combine, XMod: Combine, XEnt: Combine> TreeConflict<Item, XMod, XEnt> {
-  fn new(kind: ConflictKind<Item, XMod, XEnt>) -> Self { Self { path: VPath::new([]), kind } }
-
-  fn push(self, seg: Tok<String>) -> Self {
-    Self { path: self.path.prefix([seg]), kind: self.kind }
-  }
-}
-
-impl_for_conflict!(Clone, (Clone), TreeConflict<Item, XMod, XEnt>, {
-  fn clone(&self) -> Self {
-    Self { path: self.path.clone(), kind: self.kind.clone() }
-  }
-});
-
-impl_for_conflict!(fmt::Debug, (fmt::Debug), TreeConflict<Item, XMod, XEnt>, {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.debug_struct("TreeConflict")
-      .field("path", &self.path)
-      .field("kind", &self.kind)
-      .finish()
-  }
-});
-
-impl<Item: Combine, XMod: Combine, XEnt: Combine> Combine for ModMember<Item, XMod, XEnt> {
-  type Error = TreeConflict<Item, XMod, XEnt>;
-
-  fn combine(self, other: Self) -> Result<Self, Self::Error> {
-    match (self, other) {
-      (Self::Item(i1), Self::Item(i2)) => match i1.combine(i2) {
-        Ok(i) => Ok(Self::Item(i)),
-        Err(e) => Err(TreeConflict::new(ConflictKind::Item(e))),
-      },
-      (Self::Sub(m1), Self::Sub(m2)) => m1.combine(m2).map(Self::Sub),
-      (..) => Err(TreeConflict::new(ConflictKind::ItemModule)),
-    }
-  }
-}
-
-/// Data about a name in a [Module]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModEntry<Item, XMod, XEnt> {
-  /// The submodule or item
-  pub member: ModMember<Item, XMod, XEnt>,
-  /// Additional fields
-  pub x: XEnt,
-}
-impl<Item: Combine, XMod: Combine, XEnt: Combine> Combine for ModEntry<Item, XMod, XEnt> {
-  type Error = TreeConflict<Item, XMod, XEnt>;
-  fn combine(self, other: Self) -> Result<Self, Self::Error> {
-    match self.x.combine(other.x) {
-      Err(e) => Err(TreeConflict::new(ConflictKind::XEnt(e))),
-      Ok(x) => Ok(Self { x, member: self.member.combine(other.member)? }),
-    }
-  }
-}
-impl<Item, XMod, XEnt> ModEntry<Item, XMod, XEnt> {
-  /// Returns the item in this entry if it contains one.
-  #[must_use]
-  pub fn item(&self) -> Option<&Item> {
-    match &self.member {
-      ModMember::Item(it) => Some(it),
-      ModMember::Sub(_) => None,
-    }
-  }
-}
-
-impl<Item, XMod, XEnt> TreeTransforms for ModEntry<Item, XMod, XEnt> {
-  type Item = Item;
-  type XEnt = XEnt;
-  type XMod = XMod;
-  type SelfType<T, U, V> = ModEntry<T, U, V>;
-
-  fn map_data_rec<T, U, V>(
-    self,
-    item: &mut impl FnMut(Substack<Tok<String>>, Item) -> T,
-    module: &mut impl FnMut(Substack<Tok<String>>, XMod) -> U,
-    entry: &mut impl FnMut(Substack<Tok<String>>, XEnt) -> V,
-    path: Substack<Tok<String>>,
-  ) -> Self::SelfType<T, U, V> {
-    ModEntry {
-      member: self.member.map_data_rec(item, module, entry, path.clone()),
-      x: entry(path, self.x),
-    }
-  }
-
-  fn search_rec<'a, T, E>(
-    &'a self,
-    state: T,
-    stack: Substack<Tok<String>>,
-    callback: &mut impl FnMut(
-      Substack<Tok<String>>,
-      ModMemberRef<'a, Item, XMod, XEnt>,
-      T,
-    ) -> Result<T, E>,
-  ) -> Result<T, E> {
-    self.member.search_rec(state, stack, callback)
-  }
-}
-impl<Item, XMod, XEnt: Default> ModEntry<Item, XMod, XEnt> {
-  /// Wrap a member directly with trivial metadata
-  pub fn wrap(member: ModMember<Item, XMod, XEnt>) -> Self { Self { member, x: XEnt::default() } }
-  /// Wrap an item directly with trivial metadata
-  pub fn leaf(item: Item) -> Self { Self::wrap(ModMember::Item(item)) }
-}
-impl<Item, XMod: Default, XEnt: Default> ModEntry<Item, XMod, XEnt> {
-  /// Create an empty submodule
-  pub fn empty() -> Self { Self::wrap(ModMember::Sub(Module::wrap([]))) }
-
-  /// Create a module
-  #[must_use]
-  pub fn tree<K: AsRef<str>>(arr: impl IntoIterator<Item = (K, Self)>) -> Self {
-    Self::wrap(ModMember::Sub(Module::wrap(arr.into_iter().map(|(k, v)| (intern(k.as_ref()), v)))))
-  }
-
-  /// Create a record in the list passed to [ModEntry#tree] which describes a
-  /// submodule. This mostly exists to deal with strange rustfmt block
-  /// breaking behaviour
-  pub fn tree_ent<K: AsRef<str>>(key: K, arr: impl IntoIterator<Item = (K, Self)>) -> (K, Self) {
-    (key, Self::tree(arr))
-  }
-
-  /// Namespace the tree with the list of names
-  ///
-  /// The unarray is used to trick rustfmt into breaking the sub-item
-  /// into a block without breaking anything else.
-  #[must_use]
-  pub fn ns(name: impl AsRef<str>, [mut end]: [Self; 1]) -> Self {
-    let elements = name.as_ref().split("::").collect::<Vec<_>>();
-    for name in elements.into_iter().rev() {
-      end = Self::tree([(name, end)]);
-    }
-    end
-  }
-
-  fn not_mod_panic<T>() -> T { panic!("Expected module but found leaf") }
-
-  /// Return the wrapped module. Panic if the entry wraps an item
-  pub fn unwrap_mod(self) -> Module<Item, XMod, XEnt> {
-    if let ModMember::Sub(m) = self.member { m } else { Self::not_mod_panic() }
-  }
-
-  /// Return the wrapped module. Panic if the entry wraps an item
-  pub fn unwrap_mod_ref(&self) -> &Module<Item, XMod, XEnt> {
-    if let ModMember::Sub(m) = &self.member { m } else { Self::not_mod_panic() }
-  }
-}
-
-/// A module, containing imports,
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Module<Item, XMod, XEnt> {
-  /// Submodules and items by name
-  pub entries: HashMap<Tok<String>, ModEntry<Item, XMod, XEnt>>,
-  /// Additional fields
-  pub x: XMod,
-}
+use crate::api;
+use crate::error::OrcErr;
+use crate::interner::{deintern, intern, Tok};
+use crate::name::{NameLike, VName};
+use crate::tokens::{OwnedPh, PARENS};
 
 trait_set! {
-  /// A filter applied to a module tree
-  pub trait Filter<'a, Item, XMod, XEnt> =
-    for<'b> Fn(&'b ModEntry<Item, XMod, XEnt>) -> bool + Clone + 'a
+  pub trait RecurCB<'a, A: AtomInTok, X> = Fn(TokTree<'a, A, X>) -> TokTree<'a, A, X>;
 }
 
-/// A line in a [Module]
-pub type Record<Item, XMod, XEnt> = (Tok<String>, ModEntry<Item, XMod, XEnt>);
-
-impl<Item, XMod, XEnt> Module<Item, XMod, XEnt> {
-  /// Returns child names for which the value matches a filter
-  #[must_use]
-  pub fn keys<'a>(
-    &'a self,
-    filter: impl for<'b> Fn(&'b ModEntry<Item, XMod, XEnt>) -> bool + 'a,
-  ) -> BoxedIter<Tok<String>> {
-    Box::new((self.entries.iter()).filter(move |(_, v)| filter(v)).map(|(k, _)| k.clone()))
-  }
-
-  /// Return the module at the end of the given path
-  pub fn walk_ref<'a: 'b, 'b>(
-    &'a self,
-    prefix: &'b [Tok<String>],
-    path: &'b [Tok<String>],
-    filter: impl Filter<'b, Item, XMod, XEnt>,
-  ) -> Result<&'a Self, WalkError<'b>> {
-    let mut module = self;
-    for (pos, step) in path.iter().enumerate() {
-      let kind = match module.entries.get(step) {
-        None => ErrKind::Missing,
-        Some(ent) if !filter(ent) => ErrKind::Filtered,
-        Some(ModEntry { member: ModMember::Item(_), .. }) => ErrKind::NotModule,
-        Some(ModEntry { member: ModMember::Sub(next), .. }) => {
-          module = next;
-          continue;
-        },
-      };
-      let options = Sequence::new(move || module.keys(filter.clone()));
-      return Err(WalkError { kind, prefix, path, pos, options });
-    }
-    Ok(module)
-  }
-
-  /// Return the member at the end of the given path
-  ///
-  /// # Panics
-  ///
-  /// if path is empty, since the reference cannot be forwarded that way
-  pub fn walk1_ref<'a: 'b, 'b>(
-    &'a self,
-    prefix: &'b [Tok<String>],
-    path: &'b [Tok<String>],
-    filter: impl Filter<'b, Item, XMod, XEnt>,
-  ) -> Result<(&'a ModEntry<Item, XMod, XEnt>, &'a Self), WalkError<'b>> {
-    let (last, parent) = path.split_last().expect("Path cannot be empty");
-    let pos = path.len() - 1;
-    let module = self.walk_ref(prefix, parent, filter.clone())?;
-    let err_kind = match &module.entries.get(last) {
-      Some(entry) if filter(entry) => return Ok((entry, module)),
-      Some(_) => ErrKind::Filtered,
-      None => ErrKind::Missing,
+pub fn recur<'a, A: AtomInTok, X>(
+  tt: TokTree<'a, A, X>,
+  f: &impl Fn(TokTree<'a, A, X>, &dyn RecurCB<'a, A, X>) -> TokTree<'a, A, X>,
+) -> TokTree<'a, A, X> {
+  f(tt, &|TokTree { range, tok }| {
+    let tok = match tok {
+      tok @ (Token::Atom(_) | Token::BR | Token::Bottom(_) | Token::Comment(_) | Token::NS) => tok,
+      tok @ (Token::Name(_) | Token::Ph(_) | Token::Slot(_) | Token::X(_)) => tok,
+      Token::LambdaHead(arg) =>
+        Token::LambdaHead(arg.into_iter().map(|tt| recur(tt, f)).collect_vec()),
+      Token::S(p, b) => Token::S(p, b.into_iter().map(|tt| recur(tt, f)).collect_vec()),
     };
-    let options = Sequence::new(move || module.keys(filter.clone()));
-    Err(WalkError { kind: err_kind, options, prefix, path, pos })
+    TokTree { range, tok }
+  })
+}
+
+pub trait AtomInTok: Display + Clone {
+  type Context: ?Sized;
+  fn from_api(atom: &api::Atom, pos: Range<u32>, ctx: &mut Self::Context) -> Self;
+  fn to_api(&self) -> api::Atom;
+}
+impl AtomInTok for Never {
+  type Context = Never;
+  fn from_api(_: &api::Atom, _: Range<u32>, _: &mut Self::Context) -> Self { panic!() }
+  fn to_api(&self) -> orchid_api::Atom { match *self {} }
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct TreeHandle<'a>(api::TreeTicket, PhantomData<&'a ()>);
+impl TreeHandle<'static> {
+  pub fn new(tt: api::TreeTicket) -> Self { TreeHandle(tt, PhantomData) }
+}
+impl<'a> TreeHandle<'a> {
+  pub fn ticket(self) -> api::TreeTicket { self.0 }
+}
+impl<'a> Display for TreeHandle<'a> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "Handle({})", self.0.0) }
+}
+
+#[derive(Clone, Debug)]
+pub struct TokTree<'a, A: AtomInTok, X> {
+  pub tok: Token<'a, A, X>,
+  pub range: Range<u32>,
+}
+impl<'a, A: AtomInTok, X> TokTree<'a, A, X> {
+  pub fn from_api(tt: &api::TokenTree, ctx: &mut A::Context) -> Self {
+    let tok = match &tt.token {
+      api::Token::Atom(a) => Token::Atom(A::from_api(a, tt.range.clone(), ctx)),
+      api::Token::BR => Token::BR,
+      api::Token::NS => Token::NS,
+      api::Token::Bottom(e) => Token::Bottom(e.iter().map(OrcErr::from_api).collect()),
+      api::Token::Lambda(arg) => Token::LambdaHead(ttv_from_api(arg, ctx)),
+      api::Token::Name(name) => Token::Name(deintern(*name)),
+      api::Token::Ph(ph) => Token::Ph(OwnedPh::from_api(ph.clone())),
+      api::Token::S(par, b) => Token::S(par.clone(), ttv_from_api(b, ctx)),
+      api::Token::Comment(c) => Token::Comment(c.clone()),
+      api::Token::Slot(id) => Token::Slot(TreeHandle::new(*id)),
+    };
+    Self { range: tt.range.clone(), tok }
   }
 
-  /// Walk from one node to another in a tree, asserting that the origin can see
-  /// the target.
-  ///
-  /// # Panics
-  ///
-  /// If the target is the root node
-  pub fn inner_walk<'a: 'b, 'b>(
-    &'a self,
-    origin: &[Tok<String>],
-    target: &'b [Tok<String>],
-    is_exported: impl for<'c> Fn(&'c ModEntry<Item, XMod, XEnt>) -> bool + Clone + 'b,
-  ) -> Result<(&'a ModEntry<Item, XMod, XEnt>, &'a Self), WalkError<'b>> {
-    let ignore_vis_len = 1 + origin.iter().zip(target).take_while(|(a, b)| a == b).count();
-    if target.len() <= ignore_vis_len {
-      return self.walk1_ref(&[], target, |_| true);
+  pub fn to_api(
+    &self,
+    do_extra: &mut impl FnMut(&X, Range<u32>) -> api::TokenTree,
+  ) -> api::TokenTree {
+    let token = match &self.tok {
+      Token::Atom(a) => api::Token::Atom(a.to_api()),
+      Token::BR => api::Token::BR,
+      Token::NS => api::Token::NS,
+      Token::Bottom(e) => api::Token::Bottom(e.iter().map(OrcErr::to_api).collect()),
+      Token::Comment(c) => api::Token::Comment(c.clone()),
+      Token::LambdaHead(arg) =>
+        api::Token::Lambda(arg.iter().map(|t| t.to_api(do_extra)).collect_vec()),
+      Token::Name(n) => api::Token::Name(n.marker()),
+      Token::Ph(ph) => api::Token::Ph(ph.to_api()),
+      Token::Slot(tt) => api::Token::Slot(tt.ticket()),
+      Token::S(p, b) => api::Token::S(p.clone(), b.iter().map(|t| t.to_api(do_extra)).collect()),
+      Token::X(x) => return do_extra(x, self.range.clone()),
+    };
+    api::TokenTree { range: self.range.clone(), token }
+  }
+}
+impl<'a, A: AtomInTok + Display, X: Display> Display for TokTree<'a, A, X> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.tok) }
+}
+
+pub fn ttv_from_api<A: AtomInTok, X>(
+  tokv: impl IntoIterator<Item: Borrow<api::TokenTree>>,
+  ctx: &mut A::Context,
+) -> Vec<TokTree<'static, A, X>> {
+  tokv.into_iter().map(|t| TokTree::<A, X>::from_api(t.borrow(), ctx)).collect()
+}
+
+pub fn ttv_to_api<'a, A: AtomInTok, X>(
+  tokv: impl IntoIterator<Item: Borrow<TokTree<'a, A, X>>>,
+  do_extra: &mut impl FnMut(&X, Range<u32>) -> api::TokenTree,
+) -> Vec<api::TokenTree> {
+  tokv
+    .into_iter()
+    .map(|tok| {
+      let tt: &TokTree<A, X> = tok.borrow();
+      tt.to_api(do_extra)
+    })
+    .collect_vec()
+}
+
+pub fn vname_tv<'a: 'b, 'b, A: AtomInTok + 'a, X: 'a>(
+  name: &'b VName,
+  ran: Range<u32>,
+) -> impl Iterator<Item = TokTree<'a, A, X>> + 'b {
+  let (head, tail) = name.split_first();
+  iter::once(Token::Name(head))
+    .chain(tail.iter().flat_map(|t| [Token::NS, Token::Name(t)]))
+    .map(move |t| t.at(ran.clone()))
+}
+
+pub fn wrap_tokv<'a, A: AtomInTok + 'a, X: 'a>(
+  items: Vec<TokTree<'a, A, X>>,
+  range: Range<u32>,
+) -> TokTree<'a, A, X> {
+  match items.len() {
+    1 => items.into_iter().next().unwrap(),
+    _ => Token::S(api::Paren::Round, items).at(range),
+  }
+}
+
+pub fn ph(s: &str) -> OwnedPh {
+  match s.strip_prefix("..") {
+    Some(v_tail) => {
+      let (mid, priority) = match v_tail.split_once(':') {
+        Some((h, t)) => (h, t.parse().expect("priority not an u8")),
+        None => (v_tail, 0),
+      };
+      let (name, nonzero) = match mid.strip_prefix(".$") {
+        Some(name) => (name, true),
+        None => (mid.strip_prefix('$').expect("Invalid placeholder"), false),
+      };
+      if name.starts_with("_") {
+        panic!("Names starting with an underscore indicate a single-name scalar placeholder")
+      }
+      OwnedPh {
+        name: intern(name),
+        kind: api::PlaceholderKind::Vector { nz: nonzero, prio: priority },
+      }
+    },
+    None => match s.strip_prefix("$_") {
+      Some(name) => OwnedPh { name: intern(name), kind: api::PlaceholderKind::Name },
+      None => match s.strip_prefix("$") {
+        None => panic!("Invalid placeholder"),
+        Some(name) => OwnedPh { name: intern(name), kind: api::PlaceholderKind::Scalar },
+      },
+    },
+  }
+}
+
+pub use api::Paren;
+
+#[derive(Clone, Debug)]
+pub enum Token<'a, A: AtomInTok, X> {
+  Comment(Arc<String>),
+  LambdaHead(Vec<TokTree<'a, A, X>>),
+  Name(Tok<String>),
+  NS,
+  BR,
+  S(Paren, Vec<TokTree<'a, A, X>>),
+  Atom(A),
+  Ph(OwnedPh),
+  Bottom(Vec<OrcErr>),
+  Slot(TreeHandle<'a>),
+  X(X),
+}
+impl<'a, A: AtomInTok, X> Token<'a, A, X> {
+  pub fn at(self, range: Range<u32>) -> TokTree<'a, A, X> { TokTree { range, tok: self } }
+}
+impl<'a, A: AtomInTok + Display, X: Display> Display for Token<'a, A, X> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    thread_local! {
+      static PAREN_LEVEL: RefCell<usize> = 0.into();
     }
-    let (ignore_vis_path, hidden_path) = target.split_at(ignore_vis_len);
-    let first_divergence = self.walk_ref(&[], ignore_vis_path, |_| true)?;
-    first_divergence.walk1_ref(ignore_vis_path, hidden_path, is_exported)
-  }
-
-  /// Wrap entry table in a module with trivial metadata
-  pub fn wrap(entries: impl IntoIterator<Item = Record<Item, XMod, XEnt>>) -> Self
-  where XMod: Default {
-    Self { entries: entries.into_iter().collect(), x: XMod::default() }
-  }
-}
-
-impl<Item, XMod, XEnt> TreeTransforms for Module<Item, XMod, XEnt> {
-  type Item = Item;
-  type XEnt = XEnt;
-  type XMod = XMod;
-  type SelfType<T, U, V> = Module<T, U, V>;
-
-  fn map_data_rec<T, U, V>(
-    self,
-    item: &mut impl FnMut(Substack<Tok<String>>, Item) -> T,
-    module: &mut impl FnMut(Substack<Tok<String>>, XMod) -> U,
-    entry: &mut impl FnMut(Substack<Tok<String>>, XEnt) -> V,
-    path: Substack<Tok<String>>,
-  ) -> Self::SelfType<T, U, V> {
-    Module {
-      x: module(path.clone(), self.x),
-      entries: (self.entries.into_iter())
-        .map(|(k, e)| (k.clone(), e.map_data_rec(item, module, entry, path.push(k))))
-        .collect(),
+    fn get_indent() -> usize { PAREN_LEVEL.with_borrow(|t| *t) }
+    fn with_indent<T>(f: impl FnOnce() -> T) -> T {
+      PAREN_LEVEL.with_borrow_mut(|t| *t += 1);
+      let r = f();
+      PAREN_LEVEL.with_borrow_mut(|t| *t -= 1);
+      r
     }
-  }
-
-  fn search_rec<'a, T, E>(
-    &'a self,
-    mut state: T,
-    stack: Substack<Tok<String>>,
-    callback: &mut impl FnMut(
-      Substack<Tok<String>>,
-      ModMemberRef<'a, Item, XMod, XEnt>,
-      T,
-    ) -> Result<T, E>,
-  ) -> Result<T, E> {
-    state = callback(stack.clone(), ModMemberRef::Mod(self), state)?;
-    for (key, value) in &self.entries {
-      state = value.search_rec(state, stack.push(key.clone()), callback)?;
-    }
-    Ok(state)
-  }
-}
-
-impl<Item: Combine, XMod: Combine, XEnt: Combine> Combine for Module<Item, XMod, XEnt> {
-  type Error = TreeConflict<Item, XMod, XEnt>;
-  fn combine(self, Self { entries, x }: Self) -> Result<Self, Self::Error> {
-    let entries =
-      try_join_maps(self.entries, entries, |k, l, r| l.combine(r).map_err(|e| e.push(k.clone())))?;
-    let x = (self.x.combine(x)).map_err(|e| TreeConflict::new(ConflictKind::Module(e)))?;
-    Ok(Self { x, entries })
-  }
-}
-
-impl<Item: fmt::Display, TExt: fmt::Display, XEnt: fmt::Display> fmt::Display
-  for Module<Item, TExt, XEnt>
-{
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "module {{")?;
-    for (name, ModEntry { member, x: extra }) in &self.entries {
-      match member {
-        ModMember::Sub(module) => write!(f, "\n{name} {extra} = {module}"),
-        ModMember::Item(item) => write!(f, "\n{name} {extra} = {item}"),
-      }?;
-    }
-    write!(f, "\n\n{}\n}}", &self.x)
-  }
-}
-
-/// A non-owning version of [ModMember]. Either an item-ref or a module-ref.
-pub enum ModMemberRef<'a, Item, XMod, XEnt> {
-  /// Leaf
-  Item(&'a Item),
-  /// Node
-  Mod(&'a Module<Item, XMod, XEnt>),
-}
-
-/// Possible causes why the path could not be walked
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ErrKind {
-  /// `require_exported` was set to `true` and a module wasn't exported
-  Filtered,
-  /// A module was not found
-  Missing,
-  /// The path leads into a leaf node
-  NotModule,
-}
-impl ErrKind {
-  pub const fn msg(&self) -> &'static str {
     match self {
-      Self::Filtered => "The path leads into a private module",
-      Self::Missing => "Nonexistent path",
-      Self::NotModule => "The path leads into a leaf",
+      Self::Atom(a) => f.write_str(&indent(&format!("{a}"), get_indent(), false)),
+      Self::BR => write!(f, "\n{}", "  ".repeat(get_indent())),
+      Self::Bottom(err) => write!(
+        f,
+        "Botttom({})",
+        err.iter().map(|e| format!("{}: {}", e.description, e.message)).join(", ")
+      ),
+      Self::Comment(c) => write!(f, "--[{c}]--"),
+      Self::LambdaHead(arg) => with_indent(|| write!(f, "\\ {} .", ttv_fmt(arg))),
+      Self::NS => f.write_str("::"),
+      Self::Name(n) => f.write_str(n),
+      Self::Ph(ph) => write!(f, "{ph}"),
+      Self::Slot(th) => write!(f, "{th}"),
+      Self::S(p, b) => {
+        let (lp, rp, _) = PARENS.iter().find(|(_, _, par)| par == p).unwrap();
+        f.write_char(*lp)?;
+        with_indent(|| f.write_str(&ttv_fmt(b)))?;
+        f.write_char(*rp)
+      },
+      Self::X(x) => write!(f, "{x}"),
     }
   }
 }
 
-#[derive(Clone)]
-/// All details about a failed tree-walk
-pub struct WalkError<'a> {
-  /// Failure mode
-  kind: ErrKind,
-  /// Path to the module where the walk started
-  prefix: &'a [Tok<String>],
-  /// Planned walk path
-  path: &'a [Tok<String>],
-  /// Index into walked path where the error occurred
-  pos: usize,
-  /// Alternatives to the failed steps
-  options: Sequence<'a, Tok<String>>,
+pub fn ttv_fmt<'a>(
+  ttv: impl IntoIterator<Item = &'a TokTree<'a, impl AtomInTok + 'a, impl Display + 'a>>,
+) -> String {
+  ttv.into_iter().join(" ")
 }
-impl<'a> WalkError<'a> {
-  /// Total length of the path represented by this error
-  #[must_use]
-  pub fn depth(&self) -> usize { self.prefix.len() + self.pos + 1 }
 
-  pub fn alternatives(&self) -> BoxedIter<Tok<String>> { self.options.iter() }
-
-  /// Get the total path including the step that caused the error
-  pub fn full_path(&self) -> VName {
-    VName::new((self.prefix.iter()).chain(self.path.iter().take(self.pos + 1)).cloned())
-      .expect("empty paths don't cause an error")
-  }
-
-  /// Construct an error for the very last item in a slice. This is often done
-  /// outside [super::tree] so it gets a function rather than exposing the
-  /// fields of [WalkError]
-  pub fn last(path: &'a [Tok<String>], kind: ErrKind, options: Sequence<'a, Tok<String>>) -> Self {
-    WalkError { kind, path, options, pos: path.len() - 1, prefix: &[] }
+pub fn indent(s: &str, lvl: usize, first: bool) -> String {
+  if first {
+    s.replace("\n", &("\n".to_string() + &"  ".repeat(lvl)))
+  } else if let Some((fst, rest)) = s.split_once('\n') {
+    fst.to_string() + "\n" + &indent(rest, lvl, true)
+  } else {
+    s.to_string()
   }
 }
-impl<'a> fmt::Debug for WalkError<'a> {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.debug_struct("WalkError")
-      .field("kind", &self.kind)
-      .field("prefix", &self.prefix)
-      .field("path", &self.path)
-      .field("pos", &self.pos)
-      .finish_non_exhaustive()
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn test_covariance() {
+    fn _f<'a>(x: Token<'static, Never, ()>) -> Token<'a, Never, ()> { x }
+  }
+
+  #[test]
+  fn fail_covariance() {
+    // this fails to compile
+    // fn _f<'a, 'b>(x: &'a mut &'static ()) -> &'a mut &'b () { x }
+    // this passes because it's covariant
+    fn _f<'a, 'b>(x: &'a fn() -> &'static ()) -> &'a fn() -> &'b () { x }
   }
 }

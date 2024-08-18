@@ -1,3 +1,5 @@
+use orchid_api as api;
+
 pub mod boxed_iter;
 pub mod clone;
 pub mod combine;
@@ -12,10 +14,11 @@ pub mod id_store;
 pub mod interner;
 pub mod join;
 pub mod location;
+pub mod logging;
 pub mod name;
 pub mod number;
+pub mod parse;
 pub mod reqnot;
 pub mod sequence;
 pub mod tokens;
 pub mod tree;
-pub mod logging;

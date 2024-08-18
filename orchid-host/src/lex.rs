@@ -1,24 +1,23 @@
 use std::num::NonZeroU64;
+use std::sync::Arc;
 
 use hashbrown::HashMap;
-use orchid_api::parser::SubLexed;
-use orchid_api::system::SysId;
-use orchid_api::tree::{Token, TokenTree, TreeTicket};
-use orchid_base::error::OwnedError;
+use orchid_base::error::{mk_err, OrcErr, OrcRes};
 use orchid_base::intern;
 use orchid_base::interner::{deintern, intern, Tok};
 use orchid_base::location::Pos;
+use orchid_base::parse::{name_char, name_start, op_char, unrep_space};
 use orchid_base::tokens::{OwnedPh, PARENS};
 
+use crate::api;
 use crate::extension::{AtomHand, System};
-use crate::results::{mk_err, OwnedResult};
-use crate::tree::{OwnedTok, OwnedTokTree};
+use crate::tree::{ParsTok, ParsTokTree};
 
 pub struct LexCtx<'a> {
   pub systems: &'a [System],
   pub source: &'a Tok<String>,
   pub tail: &'a str,
-  pub sub_trees: &'a mut HashMap<TreeTicket, OwnedTokTree>,
+  pub sub_trees: &'a mut HashMap<api::TreeTicket, ParsTokTree>,
 }
 impl<'a> LexCtx<'a> {
   pub fn push<'b>(&'b mut self, pos: u32) -> LexCtx<'b>
@@ -42,12 +41,12 @@ impl<'a> LexCtx<'a> {
     }
     false
   }
-  pub fn add_subtree(&mut self, subtree: OwnedTokTree) -> TreeTicket {
-    let next_idx = TreeTicket(NonZeroU64::new(self.sub_trees.len() as u64 + 1).unwrap());
+  pub fn add_subtree(&mut self, subtree: ParsTokTree) -> api::TreeTicket {
+    let next_idx = api::TreeTicket(NonZeroU64::new(self.sub_trees.len() as u64 + 1).unwrap());
     self.sub_trees.insert(next_idx, subtree);
     next_idx
   }
-  pub fn rm_subtree(&mut self, ticket: TreeTicket) -> OwnedTokTree {
+  pub fn rm_subtree(&mut self, ticket: api::TreeTicket) -> ParsTokTree {
     self.sub_trees.remove(&ticket).unwrap()
   }
   pub fn strip_char(&mut self, tgt: char) -> bool {
@@ -69,7 +68,7 @@ impl<'a> LexCtx<'a> {
   }
 }
 
-pub fn lex_once(ctx: &mut LexCtx) -> OwnedResult<OwnedTokTree> {
+pub fn lex_once(ctx: &mut LexCtx) -> OrcRes<ParsTokTree> {
   let start = ctx.get_pos();
   assert!(
     !ctx.tail.is_empty() && !ctx.tail.starts_with(unrep_space),
@@ -77,9 +76,9 @@ pub fn lex_once(ctx: &mut LexCtx) -> OwnedResult<OwnedTokTree> {
     Invocations of lex_tok should check for empty string"
   );
   let tok = if ctx.strip_prefix("\r\n") || ctx.strip_prefix("\r") || ctx.strip_prefix("\n") {
-    OwnedTok::BR
+    ParsTok::BR
   } else if ctx.strip_prefix("::") {
-    OwnedTok::NS
+    ParsTok::NS
   } else if ctx.strip_prefix("--[") {
     let (cmt, tail) = ctx.tail.split_once("]--").ok_or_else(|| {
       vec![mk_err(
@@ -89,11 +88,11 @@ pub fn lex_once(ctx: &mut LexCtx) -> OwnedResult<OwnedTokTree> {
       )]
     })?;
     ctx.set_tail(tail);
-    OwnedTok::Comment(cmt.to_string())
+    ParsTok::Comment(Arc::new(cmt.to_string()))
   } else if let Some(tail) = ctx.tail.strip_prefix("--").filter(|t| !t.starts_with(op_char)) {
     let end = tail.find(['\n', '\r']).map_or(tail.len(), |n| n - 1);
     ctx.push_pos(end as u32);
-    OwnedTok::Comment(tail[2..end].to_string())
+    ParsTok::Comment(Arc::new(tail[2..end].to_string()))
   } else if ctx.strip_char('\\') {
     let mut arg = Vec::new();
     ctx.trim_ws();
@@ -108,7 +107,7 @@ pub fn lex_once(ctx: &mut LexCtx) -> OwnedResult<OwnedTokTree> {
       arg.push(lex_once(ctx)?);
       ctx.trim_ws();
     }
-    OwnedTok::Lambda(arg)
+    ParsTok::LambdaHead(arg)
   } else if let Some((lp, rp, paren)) = PARENS.iter().find(|(lp, ..)| ctx.strip_char(*lp)) {
     let mut body = Vec::new();
     ctx.trim_ws();
@@ -123,31 +122,32 @@ pub fn lex_once(ctx: &mut LexCtx) -> OwnedResult<OwnedTokTree> {
       body.push(lex_once(ctx)?);
       ctx.trim_ws();
     }
-    OwnedTok::S(paren.clone(), body)
+    ParsTok::S(paren.clone(), body)
   } else {
     for sys in ctx.systems {
       let mut errors = Vec::new();
       if ctx.tail.starts_with(|c| sys.can_lex(c)) {
         let lexed = sys.lex(ctx.source.clone(), ctx.get_pos(), |pos| {
           let mut sub_ctx = ctx.push(pos);
-          let ott = lex_once(&mut sub_ctx).inspect_err(|e| errors.extend(e.iter().cloned())).ok()?;
-          Some(SubLexed { pos: sub_ctx.get_pos(), ticket: sub_ctx.add_subtree(ott) })
+          let ott =
+            lex_once(&mut sub_ctx).inspect_err(|e| errors.extend(e.iter().cloned())).ok()?;
+          Some(api::SubLexed { pos: sub_ctx.get_pos(), ticket: sub_ctx.add_subtree(ott) })
         });
         match lexed {
           Ok(None) if errors.is_empty() => continue,
           Ok(None) => return Err(errors),
-          Err(e) => return Err(e.into_iter().map(|e| OwnedError::from_api(&e)).collect()),
+          Err(e) => return Err(e.into_iter().map(|e| OrcErr::from_api(&e)).collect()),
           Ok(Some(lexed)) => {
             ctx.set_pos(lexed.pos);
-            return Ok(tt_to_owned(&lexed.expr, sys.id(), ctx))
+            return Ok(tt_to_owned(&lexed.expr, ctx));
           },
         }
       }
     }
     if ctx.tail.starts_with(name_start) {
-      OwnedTok::Name(intern(ctx.get_start_matches(name_char)))
+      ParsTok::Name(intern(ctx.get_start_matches(name_char)))
     } else if ctx.tail.starts_with(op_char) {
-      OwnedTok::Name(intern(ctx.get_start_matches(op_char)))
+      ParsTok::Name(intern(ctx.get_start_matches(op_char)))
     } else {
       return Err(vec![mk_err(
         intern!(str: "Unrecognized character"),
@@ -156,37 +156,29 @@ pub fn lex_once(ctx: &mut LexCtx) -> OwnedResult<OwnedTokTree> {
       )]);
     }
   };
-  Ok(OwnedTokTree { tok, range: start..ctx.get_pos() })
+  Ok(ParsTokTree { tok, range: start..ctx.get_pos() })
 }
 
-fn name_start(c: char) -> bool { c.is_alphabetic() || c == '_' }
-fn name_char(c: char) -> bool { name_start(c) || c.is_numeric() }
-fn op_char(c: char) -> bool { !name_char(c) && !c.is_whitespace() && !"()[]{}\\".contains(c) }
-fn unrep_space(c: char) -> bool { c.is_whitespace() && !"\r\n".contains(c) }
-
-fn tt_to_owned(api: &TokenTree, sys: SysId, ctx: &mut LexCtx<'_>) -> OwnedTokTree {
+fn tt_to_owned(api: &api::TokenTree, ctx: &mut LexCtx<'_>) -> ParsTokTree {
   let tok = match &api.token {
-    Token::Atom(atom) => OwnedTok::Atom(AtomHand::from_api(atom.clone().associate(sys))),
-    Token::Ph(ph) => OwnedTok::Ph(OwnedPh::from_api(ph.clone())),
-    Token::Bottom(err) => OwnedTok::Bottom(err.iter().map(OwnedError::from_api).collect()),
-    Token::Lambda(arg) => OwnedTok::Lambda(arg.iter().map(|t| tt_to_owned(t, sys, ctx)).collect()),
-    Token::Name(name) => OwnedTok::Name(deintern(*name)),
-    Token::S(p, b) => OwnedTok::S(p.clone(), b.iter().map(|t| tt_to_owned(t, sys, ctx)).collect()),
-    Token::Slot(id) => return ctx.rm_subtree(*id),
-    Token::BR => OwnedTok::BR,
-    Token::NS => OwnedTok::NS,
+    api::Token::Atom(atom) => ParsTok::Atom(AtomHand::from_api(atom.clone())),
+    api::Token::Ph(ph) => ParsTok::Ph(OwnedPh::from_api(ph.clone())),
+    api::Token::Bottom(err) => ParsTok::Bottom(err.iter().map(OrcErr::from_api).collect()),
+    api::Token::Lambda(arg) =>
+      ParsTok::LambdaHead(arg.iter().map(|t| tt_to_owned(t, ctx)).collect()),
+    api::Token::Name(name) => ParsTok::Name(deintern(*name)),
+    api::Token::S(p, b) => ParsTok::S(p.clone(), b.iter().map(|t| tt_to_owned(t, ctx)).collect()),
+    api::Token::Slot(id) => return ctx.rm_subtree(*id),
+    api::Token::BR => ParsTok::BR,
+    api::Token::NS => ParsTok::NS,
+    api::Token::Comment(c) => ParsTok::Comment(c.clone()),
   };
-  OwnedTokTree { range: api.range.clone(), tok }
+  ParsTokTree { range: api.range.clone(), tok }
 }
 
-pub fn lex(text: Tok<String>, systems: &[System]) -> OwnedResult<Vec<OwnedTokTree>> {
+pub fn lex(text: Tok<String>, systems: &[System]) -> OrcRes<Vec<ParsTokTree>> {
   let mut sub_trees = HashMap::new();
-  let mut ctx = LexCtx {
-    source: &text,
-    sub_trees: &mut sub_trees,
-    tail: &text[..],
-    systems,
-  };
+  let mut ctx = LexCtx { source: &text, sub_trees: &mut sub_trees, tail: &text[..], systems };
   let mut tokv = Vec::new();
   ctx.trim(unrep_space);
   while !ctx.tail.is_empty() {

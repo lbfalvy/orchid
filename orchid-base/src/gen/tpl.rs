@@ -1,7 +1,7 @@
 //! Various elemental components to build expression trees that all implement
 //! [GenClause].
 
-use orchid_api::atom::Atom;
+use crate::api;
 
 use super::traits::{GenClause, Generable};
 

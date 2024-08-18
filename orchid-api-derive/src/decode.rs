@@ -20,7 +20,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
 fn decode_fields(fields: &syn::Fields) -> pm2::TokenStream {
   match fields {
-    syn::Fields::Unit => quote! { },
+    syn::Fields::Unit => quote! {},
     syn::Fields::Named(_) => {
       let names = fields.iter().map(|f| f.ident.as_ref().unwrap());
       quote! { { #( #names: orchid_api_traits::Decode::decode(read), )* } }

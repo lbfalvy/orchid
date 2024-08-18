@@ -20,11 +20,6 @@ pub trait Decode {
 pub trait Encode {
   /// Append an instance of the struct to the buffer
   fn encode<W: Write + ?Sized>(&self, write: &mut W);
-  fn enc_vec(&self) -> Vec<u8> {
-    let mut vec = Vec::new();
-    self.encode(&mut vec);
-    vec
-  }
 }
 pub trait Coding: Encode + Decode + Clone {
   fn get_decoder<T>(map: impl Fn(Self) -> T + 'static) -> impl Fn(&mut dyn Read) -> T {
@@ -87,7 +82,7 @@ nonzero_impl!(std::num::NonZeroI32);
 nonzero_impl!(std::num::NonZeroI64);
 nonzero_impl!(std::num::NonZeroI128);
 
-impl<'a, T: Encode + 'a> Encode for &'a T {
+impl<'a, T: Encode + ?Sized> Encode for &'a T {
   fn encode<W: Write + ?Sized>(&self, write: &mut W) { (**self).encode(write) }
 }
 impl<T: Decode + FloatCore> Decode for NotNan<T> {

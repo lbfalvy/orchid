@@ -16,3 +16,9 @@ pub fn read_exact<R: Read + ?Sized>(read: &mut R, bytes: &'static [u8]) {
   read.read_exact(&mut data).expect("Failed to read bytes");
   assert_eq!(&data, bytes, "Wrong bytes")
 }
+
+pub fn enc_vec(enc: &impl Encode) -> Vec<u8> {
+  let mut vec = Vec::new();
+  enc.encode(&mut vec);
+  vec
+}

@@ -1,8 +1,10 @@
-use super::coding::{Coding, Encode};
+use crate::helpers::enc_vec;
+
+use super::coding::Coding;
 
 pub trait Request: Coding + Sized + Send + 'static {
   type Response: Coding + Send + 'static;
-  fn respond(&self, rep: Self::Response) -> Vec<u8> { rep.enc_vec() }
+  fn respond(&self, rep: Self::Response) -> Vec<u8> { enc_vec(&rep) }
 }
 
 pub trait Channel: 'static {
