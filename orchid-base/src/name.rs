@@ -93,7 +93,7 @@ impl<T: NameIndex> Index<T> for PathSlice {
 mod idx_impls {
   use std::ops;
 
-  use super::{NameIndex, PathSlice, conv_range};
+  use super::{conv_range, NameIndex, PathSlice};
   use crate::interner::Tok;
 
   impl NameIndex for u16 {
@@ -146,7 +146,7 @@ pub fn conv_bound<T: Into<U> + Clone, U>(bound: Bound<&T>) -> Bound<U> {
   }
 }
 pub fn conv_range<'a, T: Into<U> + Clone + 'a, U: 'a>(
-  range: impl RangeBounds<T>
+  range: impl RangeBounds<T>,
 ) -> (Bound<U>, Bound<U>) {
   (conv_bound(range.start_bound()), conv_bound(range.end_bound()))
 }

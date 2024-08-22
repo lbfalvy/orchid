@@ -8,7 +8,6 @@ use orchid_base::location::Pos;
 use orchid_base::name::Sym;
 use orchid_base::parse::{Comment, CompName};
 use orchid_base::tree::{ttv_from_api, TokTree, Token};
-use ordered_float::NotNan;
 
 use crate::api;
 use crate::expr::RtExpr;
@@ -29,7 +28,6 @@ pub enum ItemKind {
   Raw(Vec<ParsTokTree>),
   Member(Member),
   Export(Tok<String>),
-  Rule(Macro),
   Import(CompName),
 }
 
@@ -38,7 +36,6 @@ impl Item {
     let kind = match tree.kind {
       api::ItemKind::Raw(tokv) => ItemKind::Raw(ttv_from_api(tokv, &mut ())),
       api::ItemKind::Member(m) => ItemKind::Member(Member::from_api(m, sys)),
-      api::ItemKind::Rule(r) => ItemKind::Rule(Macro::from_api(r)),
       api::ItemKind::Import(i) => ItemKind::Import(CompName::from_api(i)),
       api::ItemKind::Export(e) => ItemKind::Export(deintern(e)),
     };
@@ -91,22 +88,6 @@ impl Module {
     Self {
       imports: m.imports.into_iter().map(|m| Sym::from_tok(deintern(m)).unwrap()).collect_vec(),
       items: m.items.into_iter().map(|i| Item::from_api(i, sys)).collect_vec(),
-    }
-  }
-}
-
-#[derive(Debug)]
-pub struct Macro {
-  pub priority: NotNan<f64>,
-  pub pattern: Vec<ParsTokTree>,
-  pub template: Vec<ParsTokTree>,
-}
-impl Macro {
-  pub fn from_api(m: api::Macro) -> Self {
-    Self {
-      priority: m.priority,
-      pattern: ttv_from_api(m.pattern, &mut ()),
-      template: ttv_from_api(m.template, &mut ()),
     }
   }
 }

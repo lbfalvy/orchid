@@ -75,8 +75,6 @@ pub enum Clause {
   /// the atom must be trivial. This is always a newly constructed atom, if you
   /// want to reference an existing atom, use the corresponding [ExprTicket].
   /// Because the atom is newly constructed, it also must belong to this system.
-  /// For convenience, [SysId::MAX] is also accepted as referring to this
-  /// system.
   NewAtom(Atom),
   /// An atom, specifically an atom that already exists. This form is only ever
   /// returned from [Inspect], and it's borrowed from the expression being

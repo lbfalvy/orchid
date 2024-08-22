@@ -8,7 +8,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use never::Never;
-use ordered_float::{FloatCore, NotNan};
+use ordered_float::NotNan;
 
 use crate::encode_enum;
 
@@ -29,10 +29,10 @@ pub trait Coding: Encode + Decode + Clone {
 impl<T: Encode + Decode + Clone> Coding for T {}
 
 macro_rules! num_impl {
-  ($number:ty, $size:expr) => {
+  ($number:ty) => {
     impl Decode for $number {
       fn decode<R: Read + ?Sized>(read: &mut R) -> Self {
-        let mut bytes = [0u8; $size];
+        let mut bytes = [0u8; (<$number>::BITS / 8) as usize];
         read.read_exact(&mut bytes).unwrap();
         <$number>::from_be_bytes(bytes)
       }
@@ -42,9 +42,6 @@ macro_rules! num_impl {
         write.write_all(&self.to_be_bytes()).expect("Could not write number")
       }
     }
-  };
-  ($number:ty) => {
-    num_impl!($number, (<$number>::BITS / 8) as usize);
   };
 }
 num_impl!(u128);
@@ -57,8 +54,6 @@ num_impl!(i64);
 num_impl!(i32);
 num_impl!(i16);
 num_impl!(i8);
-num_impl!(f64, 8);
-num_impl!(f32, 4);
 
 macro_rules! nonzero_impl {
   ($name:ty) => {
@@ -85,14 +80,26 @@ nonzero_impl!(std::num::NonZeroI128);
 impl<'a, T: Encode + ?Sized> Encode for &'a T {
   fn encode<W: Write + ?Sized>(&self, write: &mut W) { (**self).encode(write) }
 }
-impl<T: Decode + FloatCore> Decode for NotNan<T> {
-  fn decode<R: Read + ?Sized>(read: &mut R) -> Self {
-    NotNan::new(T::decode(read)).expect("Float was NaN")
-  }
+macro_rules! float_impl {
+  ($t:ty, $size:expr) => {
+    impl Decode for NotNan<$t> {
+      fn decode<R: Read + ?Sized>(read: &mut R) -> Self {
+        let mut bytes = [0u8; $size];
+        read.read_exact(&mut bytes).unwrap();
+        NotNan::new(<$t>::from_be_bytes(bytes)).expect("Float was NaN")
+      }
+    }
+    impl Encode for NotNan<$t> {
+      fn encode<W: Write + ?Sized>(&self, write: &mut W) {
+        write.write_all(&self.as_ref().to_be_bytes()).expect("Could not write number")
+      }
+    }
+  };
 }
-impl<T: Encode + FloatCore> Encode for NotNan<T> {
-  fn encode<W: Write + ?Sized>(&self, write: &mut W) { self.as_ref().encode(write) }
-}
+
+float_impl!(f64, 8);
+float_impl!(f32, 4);
+
 impl Decode for String {
   fn decode<R: Read + ?Sized>(read: &mut R) -> Self {
     let len = u64::decode(read).try_into().unwrap();

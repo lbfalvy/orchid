@@ -1,7 +1,7 @@
 mod atom;
 pub use atom::{
-  Atom, AtomData, AtomDrop, AtomId, AtomPrint, AtomReq, AtomSame, CallRef, Command, FinalCall, Fwd,
-  Fwded, LocalAtom, NextStep, DeserAtom, SerializeAtom
+  Atom, AtomData, AtomDrop, AtomId, AtomPrint, AtomReq, AtomSame, CallRef, Command, DeserAtom,
+  FinalCall, Fwd, Fwded, LocalAtom, NextStep, SerializeAtom,
 };
 mod error;
 pub use error::{ErrId, ErrLocation, OrcError, OrcResult};
@@ -25,11 +25,11 @@ pub use proto::{
   HostExtNotif, HostExtReq, HostHeader, HostMsgSet, Ping,
 };
 mod system;
-pub use system::{SysReq, NewSystem, SysDeclId, SysId, SystemDecl, SystemDrop, SystemInst};
+pub use system::{NewSystem, SysDeclId, SysId, SysReq, SystemDecl, SystemDrop, SystemInst};
 mod tree;
 pub use tree::{
-  CompName, GetMember, Item, ItemKind, Macro, Member, MemberKind, Module, Paren, Placeholder,
-  PlaceholderKind, Token, TokenTree, TreeId, TreeTicket,
+  CompName, GetMember, Item, ItemKind, Member, MemberKind, Module, Paren, Token, TokenTree, TreeId,
+  TreeTicket,
 };
 mod vfs;
 pub use vfs::{EagerVfs, GetVfs, Loaded, VfsId, VfsRead, VfsReq};

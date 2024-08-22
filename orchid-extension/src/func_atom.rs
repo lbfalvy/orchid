@@ -1,4 +1,3 @@
-use orchid_base::interner::Tok;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io;
@@ -9,6 +8,7 @@ use lazy_static::lazy_static;
 use never::Never;
 use orchid_api_traits::Encode;
 use orchid_base::error::OrcRes;
+use orchid_base::interner::Tok;
 use orchid_base::name::Sym;
 use trait_set::trait_set;
 
@@ -27,12 +27,12 @@ pub trait ExprFunc<I, O>: Clone + Send + Sync + 'static {
   fn apply(&self, v: Vec<ExprHandle>) -> OrcRes<GenExpr>;
 }
 
-lazy_static!{
+lazy_static! {
   static ref FUNS: Mutex<HashMap<Sym, (u8, Arc<dyn FunCB>)>> = Mutex::default();
 }
 
 #[derive(Clone)]
-pub(crate) struct Fun{
+pub(crate) struct Fun {
   path: Sym,
   args: Vec<ExprHandle>,
   arity: u8,
@@ -64,8 +64,8 @@ impl OwnedAtom for Fun {
     if new_args.len() == self.arity.into() {
       (self.fun)(new_args).to_expr()
     } else {
-      Self {
-        args: new_args, arity: self.arity, fun: self.fun.clone(), path: self.path.clone() }.to_expr()
+      Self { args: new_args, arity: self.arity, fun: self.fun.clone(), path: self.path.clone() }
+        .to_expr()
     }
   }
   fn call(self, arg: ExprHandle) -> GenExpr { self.call_ref(arg) }
@@ -83,10 +83,10 @@ impl OwnedAtom for Fun {
 
 mod expr_func_derives {
   use orchid_base::error::OrcRes;
-  use crate::func_atom::GenExpr;
+
   use super::ExprFunc;
-  use crate::conv::{TryFromExpr, ToExpr};
-  use crate::func_atom::ExprHandle;
+  use crate::conv::{ToExpr, TryFromExpr};
+  use crate::func_atom::{ExprHandle, GenExpr};
 
   macro_rules! expr_func_derive {
     ($arity: tt, $($t:ident),*) => {
@@ -106,15 +106,15 @@ mod expr_func_derives {
       }
     };
   }
-  expr_func_derive!(1,  A);
-  expr_func_derive!(2,  A, B);
-  expr_func_derive!(3,  A, B, C);
-  expr_func_derive!(4,  A, B, C, D);
-  expr_func_derive!(5,  A, B, C, D, E);
-  expr_func_derive!(6,  A, B, C, D, E, F);
-  expr_func_derive!(7,  A, B, C, D, E, F, G);
-  expr_func_derive!(8,  A, B, C, D, E, F, G, H);
-  expr_func_derive!(9,  A, B, C, D, E, F, G, H, I);
+  expr_func_derive!(1, A);
+  expr_func_derive!(2, A, B);
+  expr_func_derive!(3, A, B, C);
+  expr_func_derive!(4, A, B, C, D);
+  expr_func_derive!(5, A, B, C, D, E);
+  expr_func_derive!(6, A, B, C, D, E, F);
+  expr_func_derive!(7, A, B, C, D, E, F, G);
+  expr_func_derive!(8, A, B, C, D, E, F, G, H);
+  expr_func_derive!(9, A, B, C, D, E, F, G, H, I);
   expr_func_derive!(10, A, B, C, D, E, F, G, H, I, J);
   expr_func_derive!(11, A, B, C, D, E, F, G, H, I, J, K);
   expr_func_derive!(12, A, B, C, D, E, F, G, H, I, J, K, L);

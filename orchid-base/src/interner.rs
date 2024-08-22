@@ -7,7 +7,7 @@ use std::{fmt, hash};
 
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools as _;
-use orchid_api_traits::{Encode, Decode, Request};
+use orchid_api_traits::{Decode, Encode, Request};
 
 use crate::api;
 use crate::reqnot::{DynRequester, Requester};
@@ -59,9 +59,7 @@ impl<T: Interned + Encode> Encode for Tok<T> {
   fn encode<W: std::io::Write + ?Sized>(&self, write: &mut W) { self.data.encode(write) }
 }
 impl<T: Interned + Decode> Decode for Tok<T> {
-  fn decode<R: std::io::Read + ?Sized>(read: &mut R) -> Self {
-      intern(&T::decode(read))
-  }
+  fn decode<R: std::io::Read + ?Sized>(read: &mut R) -> Self { intern(&T::decode(read)) }
 }
 
 pub trait Interned: Eq + hash::Hash + Clone + Internable<Interned = Self> {

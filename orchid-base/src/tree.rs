@@ -12,9 +12,9 @@ use trait_set::trait_set;
 
 use crate::api;
 use crate::error::OrcErr;
-use crate::interner::{deintern, intern, Tok};
+use crate::interner::{deintern, Tok};
 use crate::name::{NameLike, VName};
-use crate::tokens::{OwnedPh, PARENS};
+use crate::tokens::PARENS;
 
 trait_set! {
   pub trait RecurCB<'a, A: AtomInTok, X> = Fn(TokTree<'a, A, X>) -> TokTree<'a, A, X>;
@@ -27,7 +27,7 @@ pub fn recur<'a, A: AtomInTok, X>(
   f(tt, &|TokTree { range, tok }| {
     let tok = match tok {
       tok @ (Token::Atom(_) | Token::BR | Token::Bottom(_) | Token::Comment(_) | Token::NS) => tok,
-      tok @ (Token::Name(_) | Token::Ph(_) | Token::Slot(_) | Token::X(_)) => tok,
+      tok @ (Token::Name(_) | Token::Slot(_) | Token::X(_)) => tok,
       Token::LambdaHead(arg) =>
         Token::LambdaHead(arg.into_iter().map(|tt| recur(tt, f)).collect_vec()),
       Token::S(p, b) => Token::S(p, b.into_iter().map(|tt| recur(tt, f)).collect_vec()),
@@ -73,7 +73,6 @@ impl<'a, A: AtomInTok, X> TokTree<'a, A, X> {
       api::Token::Bottom(e) => Token::Bottom(e.iter().map(OrcErr::from_api).collect()),
       api::Token::Lambda(arg) => Token::LambdaHead(ttv_from_api(arg, ctx)),
       api::Token::Name(name) => Token::Name(deintern(*name)),
-      api::Token::Ph(ph) => Token::Ph(OwnedPh::from_api(ph.clone())),
       api::Token::S(par, b) => Token::S(par.clone(), ttv_from_api(b, ctx)),
       api::Token::Comment(c) => Token::Comment(c.clone()),
       api::Token::Slot(id) => Token::Slot(TreeHandle::new(*id)),
@@ -94,7 +93,6 @@ impl<'a, A: AtomInTok, X> TokTree<'a, A, X> {
       Token::LambdaHead(arg) =>
         api::Token::Lambda(arg.iter().map(|t| t.to_api(do_extra)).collect_vec()),
       Token::Name(n) => api::Token::Name(n.marker()),
-      Token::Ph(ph) => api::Token::Ph(ph.to_api()),
       Token::Slot(tt) => api::Token::Slot(tt.ticket()),
       Token::S(p, b) => api::Token::S(p.clone(), b.iter().map(|t| t.to_api(do_extra)).collect()),
       Token::X(x) => return do_extra(x, self.range.clone()),
@@ -146,35 +144,6 @@ pub fn wrap_tokv<'a, A: AtomInTok + 'a, X: 'a>(
   }
 }
 
-pub fn ph(s: &str) -> OwnedPh {
-  match s.strip_prefix("..") {
-    Some(v_tail) => {
-      let (mid, priority) = match v_tail.split_once(':') {
-        Some((h, t)) => (h, t.parse().expect("priority not an u8")),
-        None => (v_tail, 0),
-      };
-      let (name, nonzero) = match mid.strip_prefix(".$") {
-        Some(name) => (name, true),
-        None => (mid.strip_prefix('$').expect("Invalid placeholder"), false),
-      };
-      if name.starts_with("_") {
-        panic!("Names starting with an underscore indicate a single-name scalar placeholder")
-      }
-      OwnedPh {
-        name: intern(name),
-        kind: api::PlaceholderKind::Vector { nz: nonzero, prio: priority },
-      }
-    },
-    None => match s.strip_prefix("$_") {
-      Some(name) => OwnedPh { name: intern(name), kind: api::PlaceholderKind::Name },
-      None => match s.strip_prefix("$") {
-        None => panic!("Invalid placeholder"),
-        Some(name) => OwnedPh { name: intern(name), kind: api::PlaceholderKind::Scalar },
-      },
-    },
-  }
-}
-
 pub use api::Paren;
 
 #[derive(Clone, Debug)]
@@ -186,7 +155,6 @@ pub enum Token<'a, A: AtomInTok, X> {
   BR,
   S(Paren, Vec<TokTree<'a, A, X>>),
   Atom(A),
-  Ph(OwnedPh),
   Bottom(Vec<OrcErr>),
   Slot(TreeHandle<'a>),
   X(X),
@@ -218,7 +186,6 @@ impl<'a, A: AtomInTok + Display, X: Display> Display for Token<'a, A, X> {
       Self::LambdaHead(arg) => with_indent(|| write!(f, "\\ {} .", ttv_fmt(arg))),
       Self::NS => f.write_str("::"),
       Self::Name(n) => f.write_str(n),
-      Self::Ph(ph) => write!(f, "{ph}"),
       Self::Slot(th) => write!(f, "{th}"),
       Self::S(p, b) => {
         let (lp, rp, _) = PARENS.iter().find(|(_, _, par)| par == p).unwrap();

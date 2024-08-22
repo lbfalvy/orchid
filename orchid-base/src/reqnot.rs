@@ -14,7 +14,8 @@ pub struct ReplyToken;
 
 trait_set! {
   pub trait SendFn<T: MsgSet> = for<'a> FnMut(&'a [u8], ReqNot<T>) + DynClone + Send + 'static;
-  pub trait ReqFn<T: MsgSet> = FnMut(RequestHandle<T>) -> ReplyToken + DynClone + Send + Sync + 'static;
+  pub trait ReqFn<T: MsgSet> =
+    FnMut(RequestHandle<T>) -> ReplyToken + DynClone + Send + Sync + 'static;
   pub trait NotifFn<T: MsgSet> =
     for<'a> FnMut(<T::In as Channel>::Notif, ReqNot<T>) + DynClone + Send + Sync + 'static;
 }

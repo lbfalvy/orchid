@@ -127,7 +127,7 @@ fn extension_main_logic(data: ExtensionData) {
         };
         let mut tia_ctx = TIACtxImpl{
           lazy: &mut lazy_mems,
-          ctx: ctx.clone(),
+          sys: ctx.clone(),
           basepath: &[],
           path: Substack::Bottom,
         };
@@ -156,9 +156,12 @@ fn extension_main_logic(data: ExtensionData) {
           Some(MemberRecord::Gen(path, cb)) => (path, cb),
         };
         let tree = cb.build(path.clone());
-        let ctx = SysCtx::new(*sys_id, &sys.cted, &logger, req.reqnot());
-        let reply_tree = tree.into_api(&mut TIACtxImpl{ ctx: ctx.clone(), lazy, path: Substack::Bottom, basepath: &path });
-        req.handle(get_tree, &reply_tree)
+        req.handle(get_tree, &tree.into_api(&mut TIACtxImpl{
+            sys: SysCtx::new(*sys_id, &sys.cted, &logger, req.reqnot()),
+            path: Substack::Bottom,
+            basepath: &path,
+            lazy,
+        }))
       }
       api::HostExtReq::VfsReq(api::VfsReq::GetVfs(get_vfs@api::GetVfs(sys_id))) => {
         let systems_g = systems.lock().unwrap();

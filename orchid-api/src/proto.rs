@@ -146,7 +146,7 @@ impl MsgSet for HostMsgSet {
 #[cfg(test)]
 mod tests {
   use orchid_api_traits::enc_vec;
-use ordered_float::NotNan;
+  use ordered_float::NotNan;
   use system::{SysDeclId, SystemDecl};
 
   use super::*;

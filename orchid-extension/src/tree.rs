@@ -8,8 +8,7 @@ use itertools::Itertools;
 use orchid_base::interner::{intern, Tok};
 use orchid_base::location::Pos;
 use orchid_base::name::Sym;
-use orchid_base::tree::{ttv_to_api, TokTree, Token};
-use ordered_float::NotNan;
+use orchid_base::tree::{TokTree, Token};
 use substack::Substack;
 use trait_set::trait_set;
 
@@ -28,13 +27,6 @@ pub fn do_extra(f: &AtomFactory, r: Range<u32>, ctx: SysCtx) -> api::TokenTree {
   api::TokenTree { range: r, token: api::Token::Atom(f.clone().build(ctx)) }
 }
 
-#[derive(Clone)]
-pub struct GenMacro {
-  pub pattern: Vec<GenTokTree<'static>>,
-  pub priority: NotNan<f64>,
-  pub template: Vec<GenTokTree<'static>>,
-}
-
 pub struct GenItem {
   pub item: GenItemKind,
   pub comments: Vec<(String, Pos)>,
@@ -43,11 +35,6 @@ pub struct GenItem {
 impl GenItem {
   pub fn into_api(self, ctx: &mut impl TreeIntoApiCtx) -> api::Item {
     let kind = match self.item {
-      GenItemKind::Rule(m) => api::ItemKind::Rule(api::Macro {
-        pattern: ttv_to_api(m.pattern, &mut |f, r| do_extra(f, r, ctx.sys())),
-        priority: m.priority,
-        template: ttv_to_api(m.template, &mut |f, r| do_extra(f, r, ctx.sys())),
-      }),
       GenItemKind::Raw(item) => api::ItemKind::Raw(Vec::from_iter(
         item.into_iter().map(|t| t.to_api(&mut |f, r| do_extra(f, r, ctx.sys()))),
       )),
@@ -84,20 +71,8 @@ pub fn root_mod(
 }
 pub fn fun<I, O>(exported: bool, name: &str, xf: impl ExprFunc<I, O>) -> GenItem {
   let fac = LazyMemberFactory::new(move |sym| GenMemberKind::Const(Fun::new(sym, xf).to_expr()));
-  let mem = GenMember{ exported, name: intern(name), kind: GenMemberKind::Lazy(fac) };
+  let mem = GenMember { exported, name: intern(name), kind: GenMemberKind::Lazy(fac) };
   GenItemKind::Member(mem).at(Pos::Inherit)
-}
-pub fn rule(
-  priority: f64,
-  pat: impl IntoIterator<Item = GenTokTree<'static>>,
-  tpl: impl IntoIterator<Item = GenTokTree<'static>>,
-) -> GenItem {
-  GenItemKind::Rule(GenMacro {
-    pattern: pat.into_iter().collect(),
-    priority: NotNan::new(priority).expect("Rule created with NaN prio"),
-    template: tpl.into_iter().collect(),
-  })
-  .at(Pos::Inherit)
 }
 
 pub fn comments<'a>(cmts: impl IntoIterator<Item = &'a str>, mut val: GenItem) -> GenItem {
@@ -122,7 +97,6 @@ impl Clone for LazyMemberFactory {
 pub enum GenItemKind {
   Member(GenMember),
   Raw(Vec<GenTokTree<'static>>),
-  Rule(GenMacro),
 }
 impl GenItemKind {
   pub fn at(self, position: Pos) -> GenItem {
@@ -140,7 +114,7 @@ impl GenMember {
     api::Member {
       name: self.name.marker(),
       exported: self.exported,
-      kind: self.kind.into_api(&mut ctx.push_path(self.name))
+      kind: self.kind.into_api(&mut ctx.push_path(self.name)),
     }
   }
 }
@@ -170,20 +144,20 @@ pub trait TreeIntoApiCtx {
 }
 
 pub struct TIACtxImpl<'a, 'b> {
-  pub ctx: SysCtx,
+  pub sys: SysCtx,
   pub basepath: &'a [Tok<String>],
   pub path: Substack<'a, Tok<String>>,
   pub lazy: &'b mut HashMap<api::TreeId, MemberRecord>,
 }
 
 impl<'a, 'b> TreeIntoApiCtx for TIACtxImpl<'a, 'b> {
-  fn sys(&self) -> SysCtx { self.ctx.clone() }
+  fn sys(&self) -> SysCtx { self.sys.clone() }
   fn push_path(&mut self, seg: Tok<String>) -> impl TreeIntoApiCtx {
     TIACtxImpl {
-      ctx: self.ctx.clone(),
+      sys: self.sys.clone(),
       lazy: self.lazy,
       basepath: self.basepath,
-      path: self.path.push(seg)
+      path: self.path.push(seg),
     }
   }
   fn with_lazy(&mut self, fac: LazyMemberFactory) -> api::TreeId {

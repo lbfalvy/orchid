@@ -7,7 +7,7 @@ use orchid_base::intern;
 use orchid_base::interner::{deintern, intern, Tok};
 use orchid_base::location::Pos;
 use orchid_base::parse::{name_char, name_start, op_char, unrep_space};
-use orchid_base::tokens::{OwnedPh, PARENS};
+use orchid_base::tokens::PARENS;
 
 use crate::api;
 use crate::extension::{AtomHand, System};
@@ -162,7 +162,6 @@ pub fn lex_once(ctx: &mut LexCtx) -> OrcRes<ParsTokTree> {
 fn tt_to_owned(api: &api::TokenTree, ctx: &mut LexCtx<'_>) -> ParsTokTree {
   let tok = match &api.token {
     api::Token::Atom(atom) => ParsTok::Atom(AtomHand::from_api(atom.clone())),
-    api::Token::Ph(ph) => ParsTok::Ph(OwnedPh::from_api(ph.clone())),
     api::Token::Bottom(err) => ParsTok::Bottom(err.iter().map(OrcErr::from_api).collect()),
     api::Token::Lambda(arg) =>
       ParsTok::LambdaHead(arg.iter().map(|t| tt_to_owned(t, ctx)).collect()),

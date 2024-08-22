@@ -9,4 +9,3 @@ edition = "2021"
 ordered-float = "4.2.0"
 orchid-api-traits = { version = "0.1.0", path = "../orchid-api-traits" }
 orchid-api-derive = { version = "0.1.0", path = "../orchid-api-derive" }
-derive_more = "0.99.17"

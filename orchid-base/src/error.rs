@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 
+use crate::api;
 use crate::interner::{deintern, Tok};
 use crate::location::Pos;
-use crate::api;
 
 /// A point of interest in resolving the error, such as the point where
 /// processing got stuck, a command that is likely to be incorrect

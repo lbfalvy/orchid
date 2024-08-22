@@ -64,7 +64,11 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
   fn drop(&self, AtomCtx(_, id, ctx): AtomCtx) {
     with_atom(id.unwrap(), |a| a.remove().dyn_free(ctx))
   }
-  fn serialize(&self, AtomCtx(_, id, ctx): AtomCtx<'_>, write: &mut dyn Write) -> Vec<api::ExprTicket> {
+  fn serialize(
+    &self,
+    AtomCtx(_, id, ctx): AtomCtx<'_>,
+    write: &mut dyn Write,
+  ) -> Vec<api::ExprTicket> {
     let id = id.unwrap();
     id.encode(write);
     with_atom(id, |a| a.dyn_serialize(ctx, write)).into_iter().map(|t| t.into_tk()).collect_vec()
@@ -182,7 +186,8 @@ impl<T: OwnedAtom> DynOwnedAtom for T {
     self.same(ctx, other_self)
   }
   fn dyn_handle_req(&self, sys: SysCtx, req: &mut dyn Read, write: &mut dyn Write) {
-    let pack = RequestPack::<T, dyn Write>{ req: <Self as AtomCard>::Req::decode(req), write, sys };
+    let pack =
+      RequestPack::<T, dyn Write> { req: <Self as AtomCard>::Req::decode(req), write, sys };
     self.handle_req(pack)
   }
   fn dyn_command(self: Box<Self>, ctx: SysCtx) -> OrcRes<Option<GenExpr>> { self.command(ctx) }

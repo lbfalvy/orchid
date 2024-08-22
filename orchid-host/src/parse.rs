@@ -7,12 +7,13 @@ use orchid_base::intern;
 use orchid_base::interner::Tok;
 use orchid_base::location::Pos;
 use orchid_base::parse::{
-  expect_end, expect_tok, line_items, parse_multiname, strip_fluff, try_pop_no_fluff, Comment, CompName, Snippet
+  expect_end, line_items, parse_multiname, strip_fluff, try_pop_no_fluff, Comment, CompName,
+  Snippet,
 };
 use orchid_base::tree::{Paren, TokTree, Token};
 
 use crate::extension::{AtomHand, System};
-use crate::tree::{Item, ItemKind, Macro, Member, MemberKind, Module, ParsTokTree};
+use crate::tree::{Item, ItemKind, Member, MemberKind, Module, ParsTokTree};
 
 type ParsSnippet<'a> = Snippet<'a, 'static, AtomHand, Never>;
 
@@ -115,26 +116,21 @@ pub fn parse_item_2(
   } else if discr == intern!(str: "const") {
     let (name, val) = parse_const(tail)?;
     ItemKind::Member(Member::new(exported, name, MemberKind::Const(val)))
-  } else if discr == intern!(str: "macro") {
-    ItemKind::Rule(parse_macro(tail)?)
   } else if let Some(sys) = ctx.systems().find(|s| s.can_parse(discr.clone())) {
     let line = sys.parse(tail.to_vec())?;
-    return parse_items(ctx, Snippet::new(tail.prev(), &line))
+    return parse_items(ctx, Snippet::new(tail.prev(), &line));
   } else {
     let ext_lines = ctx.systems().flat_map(System::line_types).join(", ");
     return Err(vec![mk_err(
       intern!(str: "Unrecognized line type"),
       format!("Line types are: const, mod, macro, grammar, {ext_lines}"),
-      [Pos::Range(tail.prev().range.clone()).into()]
-    )])
+      [Pos::Range(tail.prev().range.clone()).into()],
+    )]);
   };
   Ok(vec![Item { comments, pos: Pos::Range(tail.pos()), kind }])
 }
 
-pub fn parse_module(
-  ctx: &impl ParseCtx,
-  tail: ParsSnippet,
-) -> OrcRes<(Tok<String>, Module)> {
+pub fn parse_module(ctx: &impl ParseCtx, tail: ParsSnippet) -> OrcRes<(Tok<String>, Module)> {
   let (name, tail) = match try_pop_no_fluff(tail)? {
     (TokTree { tok: Token::Name(n), .. }, tail) => (n.clone(), tail),
     (tt, _) =>
@@ -178,10 +174,4 @@ pub fn parse_const(tail: ParsSnippet) -> OrcRes<(Tok<String>, Vec<ParsTokTree>)>
   };
   try_pop_no_fluff(tail)?;
   Ok((name, tail.iter().flat_map(strip_fluff).collect_vec()))
-}
-
-pub fn parse_macro(tail: ParsSnippet) -> OrcRes<Macro> {
-  let tail = expect_tok(tail, intern!(str: "prio"))?;
-  let (prio, tail) = ((), ());
-  todo!();
 }

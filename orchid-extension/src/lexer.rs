@@ -55,17 +55,12 @@ pub trait Lexer: Send + Sync + Sized + Default + 'static {
 
 pub trait DynLexer: Send + Sync + 'static {
   fn char_filter(&self) -> &'static [RangeInclusive<char>];
-  fn lex<'a>(&self, tail: &'a str, ctx: &'a LexContext<'a>)
-  -> OrcRes<(&'a str, GenTokTree<'a>)>;
+  fn lex<'a>(&self, tail: &'a str, ctx: &'a LexContext<'a>) -> OrcRes<(&'a str, GenTokTree<'a>)>;
 }
 
 impl<T: Lexer> DynLexer for T {
   fn char_filter(&self) -> &'static [RangeInclusive<char>] { T::CHAR_FILTER }
-  fn lex<'a>(
-    &self,
-    tail: &'a str,
-    ctx: &'a LexContext<'a>,
-  ) -> OrcRes<(&'a str, GenTokTree<'a>)> {
+  fn lex<'a>(&self, tail: &'a str, ctx: &'a LexContext<'a>) -> OrcRes<(&'a str, GenTokTree<'a>)> {
     T::lex(tail, ctx)
   }
 }

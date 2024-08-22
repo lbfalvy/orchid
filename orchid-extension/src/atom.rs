@@ -63,7 +63,7 @@ impl<A: Atomic + AtomicFeaturesImpl<A::Variant> + ?Sized> AtomicFeatures for A {
 }
 
 pub fn get_info<A: AtomCard>(
-  sys: &(impl DynSystemCard + ?Sized)
+  sys: &(impl DynSystemCard + ?Sized),
 ) -> (api::AtomId, &'static dyn AtomDynfo) {
   atom_info_for(sys, TypeId::of::<A>()).unwrap_or_else(|| {
     panic!("Atom {} not associated with system {}", type_name::<A>(), sys.name())
@@ -195,10 +195,10 @@ pub trait ReqPck<T: AtomCard + ?Sized>: Sized {
   }
 }
 
-pub(crate) struct RequestPack<'a, T: AtomCard + ?Sized, W: Write + ?Sized>{
+pub(crate) struct RequestPack<'a, T: AtomCard + ?Sized, W: Write + ?Sized> {
   pub req: T::Req,
   pub write: &'a mut W,
-  pub sys: SysCtx
+  pub sys: SysCtx,
 }
 
 impl<'a, T: AtomCard + ?Sized, W: Write + ?Sized> ReqPck<T> for RequestPack<'a, T, W> {

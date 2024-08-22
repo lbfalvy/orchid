@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
-use ordered_float::NotNan;
 
 use crate::error::OrcError;
 use crate::interner::{TStr, TStrv};
@@ -41,9 +40,6 @@ pub enum Token {
   BR,
   /// ( Round parens ), [ Square brackets ] or { Curly braces }
   S(Paren, Vec<TokenTree>),
-  /// A placeholder in a macro. This variant is forbidden everywhere outside
-  /// line parser output
-  Ph(Placeholder),
   /// A new atom
   Atom(Atom),
   /// Anchor to insert a subtree
@@ -55,31 +51,11 @@ pub enum Token {
   Comment(Arc<String>),
 }
 
-#[derive(Clone, Debug, Coding)]
-pub struct Placeholder {
-  pub name: TStr,
-  pub kind: PlaceholderKind,
-}
-
-#[derive(Clone, Debug, Coding)]
-pub enum PlaceholderKind {
-  Scalar,
-  Name,
-  Vector { nz: bool, prio: u8 },
-}
-
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding)]
 pub enum Paren {
   Round,
   Square,
   Curly,
-}
-
-#[derive(Clone, Debug, Coding)]
-pub struct Macro {
-  pub pattern: Vec<TokenTree>,
-  pub priority: NotNan<f64>,
-  pub template: Vec<TokenTree>,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
@@ -97,7 +73,6 @@ pub enum ItemKind {
   Member(Member),
   Raw(Vec<TokenTree>),
   Export(TStr),
-  Rule(Macro),
   Import(CompName),
 }
 

@@ -1,0 +1,22 @@
+{
+  "languages": {
+    "Rust": {
+      "language_servers": ["rust-analyzer", "..."]
+    }
+  },
+  "wrap_guides": [100],
+  "lsp": {
+    "rust-analyzer": {
+      "binary": {
+        "path": "C:\\Users\\z004yk5r\\.cargo\\bin\\rust-analyzer.exe"
+      },
+      "initialization_options": {
+        "checkOnSave": {
+          "command": "clippy"
+        }
+      }
+    }
+  },
+  "tab_size": 2,
+  "rust-analyzer": {}
+}

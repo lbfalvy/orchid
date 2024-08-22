@@ -25,5 +25,3 @@ pub fn hierarchy(input: TokenStream) -> TokenStream { hierarchy::derive(input) }
 pub fn coding(input: TokenStream) -> TokenStream {
   decode(input.clone()).into_iter().chain(encode(input)).collect()
 }
-// TODO: Figure out how serialize/deserialize can be elegantly implemented
-// consider adding a context argument to encode/decode that can just be forwarded

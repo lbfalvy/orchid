@@ -1,4 +1,3 @@
-use orchid_base::intern;
 use std::collections::VecDeque;
 use std::num::NonZero;
 use std::ops::{Deref, Range};
@@ -14,12 +13,12 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use orchid_api_traits::{enc_vec, Decode, Request};
 use orchid_base::char_filter::char_filter_match;
-use orchid_base::clone;
 use orchid_base::error::{errv_from_apiv, mk_err, OrcRes};
 use orchid_base::interner::{deintern, intern, Tok};
 use orchid_base::logging::Logger;
 use orchid_base::reqnot::{ReqNot, Requester as _};
 use orchid_base::tree::{ttv_from_api, AtomInTok};
+use orchid_base::{clone, intern};
 use ordered_float::NotNan;
 use substack::{Stackframe, Substack};
 
@@ -114,7 +113,7 @@ impl fmt::Display for AtomHand {
 /// - send a message
 /// - wait for a message to arrive
 /// - wait for the extension to stop after exit (this is the implicit Drop)
-/// 
+///
 /// There are no ordering guarantees about these
 pub trait ExtensionPort: Send + Sync {
   fn send(&self, msg: &[u8]);
@@ -135,9 +134,7 @@ pub struct ExtensionData {
   logger: Logger,
 }
 impl Drop for ExtensionData {
-  fn drop(&mut self) {
-    self.reqnot.notify(api::HostExtNotif::Exit);
-  }
+  fn drop(&mut self) { self.reqnot.notify(api::HostExtNotif::Exit); }
 }
 
 fn acq_expr(sys: api::SysId, extk: api::ExprTicket) {
@@ -156,7 +153,6 @@ fn rel_expr(sys: api::SysId, extk: api::ExprTicket) {
 #[derive(Clone)]
 pub struct Extension(Arc<ExtensionData>);
 impl Extension {
-  
   pub fn new_process(port: Arc<dyn ExtensionPort>, logger: Logger) -> io::Result<Self> {
     port.send(&enc_vec(&api::HostHeader { log_strategy: logger.strat() }));
     let header_reply = port.receive().expect("Extension exited immediately");
@@ -187,7 +183,7 @@ impl Extension {
             api::IntReq::ExternStr(si) => req.handle(si, &deintern(si.0).arc()),
             api::IntReq::ExternStrv(vi) =>
               req.handle(vi, &Arc::new(deintern(vi.0).iter().map(|t| t.marker()).collect_vec())),
-          }
+          },
           api::ExtHostReq::Fwd(fw @ api::Fwd(atom, _body)) => {
             let sys = System::resolve(atom.owner).unwrap();
             req.handle(fw, &sys.reqnot().request(api::Fwded(fw.0.clone(), fw.1.clone())))
@@ -199,23 +195,23 @@ impl Extension {
             req_in.send(ReqPair(sl.clone(), rep_in)).unwrap();
             req.handle(sl, &rep_out.recv().unwrap())
           },
-          api::ExtHostReq::ExprReq(api::ExprReq::Inspect(ins@api::Inspect(tk))) => {
+          api::ExtHostReq::ExprReq(api::ExprReq::Inspect(ins @ api::Inspect(tk))) => {
             let expr = RtExpr::resolve(*tk);
-            req.handle(ins, &api::Details{
+            req.handle(ins, &api::Details {
               refcount: 1,
-              expr: api::Expr{
+              expr: api::Expr {
                 location: api::Location::None,
                 clause: api::Clause::Bottom(vec![
                   mk_err(
-                    intern!(str: "Unsupported"), 
-                    "Inspecting clauses is unsupported at the moment", 
-                    []
+                    intern!(str: "Unsupported"),
+                    "Inspecting clauses is unsupported at the moment",
+                    [],
                   )
-                  .to_api()
-                ])
-              }
+                  .to_api(),
+                ]),
+              },
             })
-          }
+          },
         },
       ),
       systems: eh.systems.into_iter().map(|decl| SystemCtor { decl, ext: weak.clone() }).collect(),
@@ -223,12 +219,14 @@ impl Extension {
     let weak = Arc::downgrade(&ret);
     thread::Builder::new()
       .name(format!("host-end:{}", eh.name))
-      .spawn::<_, Option<()>>(move || loop {
-        // thread will exit if either the peer exits or the extension object is dropped.
-        // It holds a strong reference to the port so the port's destructor will not be called
-        // until the 
-        let msg = port.receive()?;
-        weak.upgrade()?.reqnot.receive(msg);
+      .spawn::<_, Option<()>>(move || {
+        loop {
+          // thread will exit if either the peer exits or the extension object is dropped.
+          // It holds a strong reference to the port so the port's destructor will not be
+          // called until the
+          let msg = port.receive()?;
+          weak.upgrade()?.reqnot.receive(msg);
+        }
       })
       .unwrap();
     Ok(Self(ret))

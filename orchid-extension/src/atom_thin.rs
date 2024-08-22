@@ -49,7 +49,7 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
     req: &mut dyn std::io::Read,
     write: &mut dyn Write,
   ) {
-    let pack = RequestPack::<T, dyn Write>{ req: Decode::decode(req), write, sys };
+    let pack = RequestPack::<T, dyn Write> { req: Decode::decode(req), write, sys };
     T::decode(&mut &buf[..]).handle_req(pack)
   }
   fn same(&self, AtomCtx(buf, _, ctx): AtomCtx, a2: &api::Atom) -> bool {
@@ -58,7 +58,7 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
   fn command(&self, AtomCtx(buf, _, ctx): AtomCtx<'_>) -> OrcRes<Option<GenExpr>> {
     T::decode(&mut &buf[..]).command(ctx)
   }
-  fn serialize(&self, AtomCtx(buf, _, _): AtomCtx<'_>, write: &mut dyn Write) -> Vec<ExprTicket> {
+  fn serialize(&self, AtomCtx(buf, ..): AtomCtx<'_>, write: &mut dyn Write) -> Vec<ExprTicket> {
     T::decode(&mut &buf[..]).encode(write);
     Vec::new()
   }
@@ -72,7 +72,9 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
   }
 }
 
-pub trait ThinAtom: AtomCard<Data = Self> + Atomic<Variant = ThinVariant> + Coding + Send + Sync + 'static {
+pub trait ThinAtom:
+  AtomCard<Data = Self> + Atomic<Variant = ThinVariant> + Coding + Send + Sync + 'static
+{
   #[allow(unused_variables)]
   fn call(&self, arg: ExprHandle) -> GenExpr { bot(err_not_callable()) }
   #[allow(unused_variables)]

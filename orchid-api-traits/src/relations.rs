@@ -1,6 +1,5 @@
-use crate::helpers::enc_vec;
-
 use super::coding::Coding;
+use crate::helpers::enc_vec;
 
 pub trait Request: Coding + Sized + Send + 'static {
   type Response: Coding + Send + 'static;

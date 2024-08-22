@@ -143,16 +143,17 @@ pub fn expect_end(snip: Snippet<'_, '_, impl AtomInTok, impl Sized>) -> OrcRes<(
 }
 
 pub fn expect_tok<'a, 'b, A: AtomInTok, X: fmt::Display>(
-  snip: Snippet<'a, 'b, A, X>, tok: Tok<String>
+  snip: Snippet<'a, 'b, A, X>,
+  tok: Tok<String>,
 ) -> OrcRes<Snippet<'a, 'b, A, X>> {
   let (head, tail) = try_pop_no_fluff(snip)?;
   match &head.tok {
     Token::Name(n) if *n == tok => Ok(tail),
     t => Err(vec![mk_err(
-      intern!(str: "Expected specific keyword"), 
+      intern!(str: "Expected specific keyword"),
       format!("Expected {tok} but found {t}"),
-      [Pos::Range(head.range.clone()).into()]
-    )])
+      [Pos::Range(head.range.clone()).into()],
+    )]),
   }
 }
 
@@ -277,9 +278,9 @@ impl CompName {
 
 #[cfg(test)]
 mod test {
-    use never::Never;
+  use never::Never;
 
-    use super::Snippet;
+  use super::Snippet;
 
   fn _covary_snip_a<'a, 'b>(x: Snippet<'static, 'b, Never, ()>) -> Snippet<'a, 'b, Never, ()> { x }
   fn _covary_snip_b<'a, 'b>(x: Snippet<'a, 'static, Never, ()>) -> Snippet<'a, 'b, Never, ()> { x }

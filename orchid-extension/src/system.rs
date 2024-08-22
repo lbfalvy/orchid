@@ -34,7 +34,9 @@ pub trait DynSystemCard: Send + Sync + 'static {
 /// Atoms supported by this package which may appear in all extensions.
 /// The indices of these are bitwise negated, such that the MSB of an atom index
 /// marks whether it belongs to this package (0) or the importer (1)
-fn general_atoms() -> &'static [Option<&'static dyn AtomDynfo>] { &[/*Some(Fun::INFO)*/] }
+fn general_atoms() -> &'static [Option<&'static dyn AtomDynfo>] {
+  &[/*Some(Fun::INFO)*/]
+}
 
 pub fn atom_info_for(
   sys: &(impl DynSystemCard + ?Sized),
