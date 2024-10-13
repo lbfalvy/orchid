@@ -11,19 +11,23 @@ use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use orchid_api_traits::{enc_vec, Decode, Request};
+use orchid_api::TStrv;
+use orchid_api_traits::Request;
 use orchid_base::char_filter::char_filter_match;
-use orchid_base::error::{errv_from_apiv, mk_err, OrcRes};
+use orchid_base::error::{OrcErrv, OrcRes};
 use orchid_base::interner::{deintern, intern, Tok};
 use orchid_base::logging::Logger;
+use orchid_base::macros::{mtreev_from_api, mtreev_to_api};
+use orchid_base::parse::Comment;
 use orchid_base::reqnot::{ReqNot, Requester as _};
-use orchid_base::tree::{ttv_from_api, AtomInTok};
-use orchid_base::{clone, intern};
+use orchid_base::tree::{ttv_from_api, AtomTok};
+use orchid_base::clone;
 use ordered_float::NotNan;
 use substack::{Stackframe, Substack};
 
 use crate::api;
-use crate::expr::RtExpr;
+use crate::expr::Expr;
+use crate::macros::macro_recur;
 use crate::tree::{Member, ParsTokTree};
 
 #[derive(Debug, destructure)]
@@ -76,7 +80,7 @@ impl AtomHand {
       Self::create_new(atom)
     }
   }
-  pub fn call(self, arg: RtExpr) -> api::Expr {
+  pub fn call(self, arg: Expr) -> api::Expression {
     let owner_sys = self.0.owner.clone();
     let reqnot = owner_sys.reqnot();
     let ticket = owner_sys.give_expr(arg.canonicalize(), || arg);
@@ -85,20 +89,13 @@ impl AtomHand {
       Err(hand) => reqnot.request(api::CallRef(hand.api_ref(), ticket)),
     }
   }
-  pub fn same(&self, other: &AtomHand) -> bool {
-    let owner = self.0.owner.id();
-    if other.0.owner.id() != owner {
-      return false;
-    }
-    self.0.owner.reqnot().request(api::AtomSame(self.0.api_ref(), other.0.api_ref()))
-  }
-  pub fn req(&self, req: Vec<u8>) -> Vec<u8> {
-    self.0.owner.reqnot().request(api::Fwded(self.0.api_ref(), req))
+  pub fn req(&self, key: TStrv, req: Vec<u8>) -> Option<Vec<u8>> {
+    self.0.owner.reqnot().request(api::Fwded(self.0.api_ref(), key, req))
   }
   pub fn api_ref(&self) -> api::Atom { self.0.api_ref() }
   pub fn print(&self) -> String { self.0.owner.reqnot().request(api::AtomPrint(self.0.api_ref())) }
 }
-impl AtomInTok for AtomHand {
+impl AtomTok for AtomHand {
   type Context = ();
   fn from_api(atom: &orchid_api::Atom, _: Range<u32>, (): &mut Self::Context) -> Self {
     Self::from_api(atom.clone())
@@ -118,6 +115,7 @@ impl fmt::Display for AtomHand {
 pub trait ExtensionPort: Send + Sync {
   fn send(&self, msg: &[u8]);
   fn receive(&self) -> Option<Vec<u8>>;
+  fn header(&self) -> &api::ExtensionHeader;
 }
 
 /// Data held about an Extension. This is refcounted within [Extension]. It's
@@ -139,7 +137,7 @@ impl Drop for ExtensionData {
 
 fn acq_expr(sys: api::SysId, extk: api::ExprTicket) {
   (System::resolve(sys).expect("Expr acq'd by invalid system"))
-    .give_expr(extk, || RtExpr::resolve(extk).expect("Invalid expr acq'd"));
+    .give_expr(extk, || Expr::resolve(extk).expect("Invalid expr acq'd"));
 }
 
 fn rel_expr(sys: api::SysId, extk: api::ExprTicket) {
@@ -154,10 +152,11 @@ fn rel_expr(sys: api::SysId, extk: api::ExprTicket) {
 pub struct Extension(Arc<ExtensionData>);
 impl Extension {
   pub fn new_process(port: Arc<dyn ExtensionPort>, logger: Logger) -> io::Result<Self> {
-    port.send(&enc_vec(&api::HostHeader { log_strategy: logger.strat() }));
-    let header_reply = port.receive().expect("Extension exited immediately");
-    let eh = api::ExtensionHeader::decode(&mut &header_reply[..]);
+    let eh = port.header();
     let ret = Arc::new_cyclic(|weak: &Weak<ExtensionData>| ExtensionData {
+      systems: (eh.systems.iter().cloned())
+        .map(|decl| SystemCtor { decl, ext: weak.clone() })
+        .collect(),
       logger,
       port: port.clone(),
       reqnot: ReqNot::new(
@@ -175,46 +174,43 @@ impl Extension {
           },
           api::ExtHostNotif::Log(api::Log(str)) => weak.upgrade().unwrap().logger.log(str),
         }),
-        |req| match req.req() {
-          api::ExtHostReq::Ping(ping) => req.handle(ping, &()),
+        |hand, req| match req {
+          api::ExtHostReq::Ping(ping) => hand.handle(&ping, &()),
           api::ExtHostReq::IntReq(intreq) => match intreq {
-            api::IntReq::InternStr(s) => req.handle(s, &intern(&**s.0).marker()),
-            api::IntReq::InternStrv(v) => req.handle(v, &intern(&*v.0).marker()),
-            api::IntReq::ExternStr(si) => req.handle(si, &deintern(si.0).arc()),
+            api::IntReq::InternStr(s) => hand.handle(&s, &intern(&**s.0).marker()),
+            api::IntReq::InternStrv(v) => hand.handle(&v, &intern(&*v.0).marker()),
+            api::IntReq::ExternStr(si) => hand.handle(&si, &deintern(si.0).arc()),
             api::IntReq::ExternStrv(vi) =>
-              req.handle(vi, &Arc::new(deintern(vi.0).iter().map(|t| t.marker()).collect_vec())),
+              hand.handle(&vi, &Arc::new(deintern(vi.0).iter().map(|t| t.marker()).collect_vec())),
           },
-          api::ExtHostReq::Fwd(fw @ api::Fwd(atom, _body)) => {
+          api::ExtHostReq::Fwd(ref fw @ api::Fwd(ref atom, ref key, ref body)) => {
             let sys = System::resolve(atom.owner).unwrap();
-            req.handle(fw, &sys.reqnot().request(api::Fwded(fw.0.clone(), fw.1.clone())))
+            hand.handle(fw, &sys.reqnot().request(api::Fwded(fw.0.clone(), *key, body.clone())))
+          },
+          api::ExtHostReq::SysFwd(ref fw @ api::SysFwd(id, ref body)) => {
+            let sys = System::resolve(id).unwrap();
+            hand.handle(fw, &sys.request(body.clone()))
           },
           api::ExtHostReq::SubLex(sl) => {
             let (rep_in, rep_out) = sync_channel(0);
             let lex_g = LEX_RECUR.lock().unwrap();
             let req_in = lex_g.get(&sl.id).expect("Sublex for nonexistent lexid");
             req_in.send(ReqPair(sl.clone(), rep_in)).unwrap();
-            req.handle(sl, &rep_out.recv().unwrap())
+            hand.handle(&sl, &rep_out.recv().unwrap())
           },
-          api::ExtHostReq::ExprReq(api::ExprReq::Inspect(ins @ api::Inspect(tk))) => {
-            let expr = RtExpr::resolve(*tk);
-            req.handle(ins, &api::Details {
-              refcount: 1,
-              expr: api::Expr {
-                location: api::Location::None,
-                clause: api::Clause::Bottom(vec![
-                  mk_err(
-                    intern!(str: "Unsupported"),
-                    "Inspecting clauses is unsupported at the moment",
-                    [],
-                  )
-                  .to_api(),
-                ]),
-              },
+          api::ExtHostReq::ExprReq(api::ExprReq::Inspect(ins @ api::Inspect { target })) => {
+            let expr = Expr::resolve(target).expect("Invalid ticket");
+            hand.handle(&ins, &api::Inspected {
+              refcount: expr.strong_count() as u32,
+              location: expr.pos().to_api(),
+              kind: expr.to_api(),
             })
           },
+          api::ExtHostReq::RunMacros(ref rm @ api::RunMacros{ ref run_id, ref query }) => {
+            hand.handle(rm, &macro_recur(*run_id, mtreev_from_api(query)).map(|x| mtreev_to_api(&x)))
+          }
         },
       ),
-      systems: eh.systems.into_iter().map(|decl| SystemCtor { decl, ext: weak.clone() }).collect(),
     });
     let weak = Arc::downgrade(&ret);
     thread::Builder::new()
@@ -263,7 +259,11 @@ impl SystemCtor {
       id,
     }));
     let root = (sys_inst.const_root.into_iter())
-      .map(|(k, v)| Member::from_api(api::Member { exported: true, name: k, kind: v }, &data))
+      .map(|(k, v)| Member::from_api(
+        api::Member { name: k, kind: v },
+        Substack::Bottom.push(deintern(k)),
+        &data
+      ))
       .collect_vec();
     data.0.const_root.set(root).unwrap();
     inst_g.insert(id, data.clone());
@@ -281,7 +281,7 @@ pub struct ReqPair<R: Request>(R, pub SyncSender<R::Response>);
 
 #[derive(destructure)]
 pub struct SystemInstData {
-  exprs: RwLock<HashMap<api::ExprTicket, (AtomicU32, RtExpr)>>,
+  exprs: RwLock<HashMap<api::ExprTicket, (AtomicU32, Expr)>>,
   ext: Extension,
   decl_id: api::SysDeclId,
   lex_filter: api::CharFilter,
@@ -303,11 +303,7 @@ impl System {
   pub fn id(&self) -> api::SysId { self.id }
   fn resolve(id: api::SysId) -> Option<System> { SYSTEM_INSTS.read().unwrap().get(&id).cloned() }
   fn reqnot(&self) -> &ReqNot<api::HostMsgSet> { &self.0.ext.0.reqnot }
-  fn give_expr(
-    &self,
-    ticket: api::ExprTicket,
-    get_expr: impl FnOnce() -> RtExpr,
-  ) -> api::ExprTicket {
+  fn give_expr(&self, ticket: api::ExprTicket, get_expr: impl FnOnce() -> Expr) -> api::ExprTicket {
     match self.0.exprs.write().unwrap().entry(ticket) {
       Entry::Occupied(mut oe) => {
         oe.get_mut().0.fetch_add(1, Ordering::Relaxed);
@@ -356,11 +352,21 @@ impl System {
   pub fn line_types(&self) -> impl Iterator<Item = Tok<String>> + '_ {
     self.line_types.iter().cloned()
   }
-  pub fn parse(&self, line: Vec<ParsTokTree>) -> OrcRes<Vec<ParsTokTree>> {
+  pub fn parse(
+    &self,
+    line: Vec<ParsTokTree>,
+    exported: bool,
+    comments: Vec<Comment>,
+  ) -> OrcRes<Vec<ParsTokTree>> {
     let line = line.iter().map(|t| t.to_api(&mut |n, _| match *n {})).collect_vec();
-    let parsed = (self.reqnot().request(api::ParseLine { sys: self.id(), line }))
-      .map_err(|e| errv_from_apiv(e.iter()))?;
+    let comments = comments.iter().map(Comment::to_api).collect_vec();
+    let parsed =
+      (self.reqnot().request(api::ParseLine { exported, sys: self.id(), comments, line }))
+        .map_err(|e| OrcErrv::from_api(&e))?;
     Ok(ttv_from_api(parsed, &mut ()))
+  }
+  pub fn request(&self, req: Vec<u8>) -> Vec<u8> {
+    self.reqnot().request(api::SysFwded(self.id(), req))
   }
 }
 impl fmt::Debug for System {

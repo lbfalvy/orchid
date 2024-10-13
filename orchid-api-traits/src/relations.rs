@@ -3,7 +3,11 @@ use crate::helpers::enc_vec;
 
 pub trait Request: Coding + Sized + Send + 'static {
   type Response: Coding + Send + 'static;
-  fn respond(&self, rep: Self::Response) -> Vec<u8> { enc_vec(&rep) }
+}
+
+pub fn respond<R: Request>(_: &R, rep: R::Response) -> Vec<u8> { enc_vec(&rep) }
+pub fn respond_with<R: Request>(r: &R, f: impl FnOnce(&R) -> R::Response) -> Vec<u8> {
+  respond(r, f(r))
 }
 
 pub trait Channel: 'static {

@@ -477,9 +477,9 @@ checksum = "c96aba5aa877601bb3f6dd6a63a969e1f82e60646e81e71b14496995e9853c91"
 
 [[package]]
 name = "num-traits"
-version = "0.2.18"
+version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da0df0e5185db44f69b44f26786fe401b6c293d1907744beaa7fa62b2e5a517a"
+checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
 ]
@@ -515,6 +515,7 @@ dependencies = [
 name = "orchid-api-traits"
 version = "0.1.0"
 dependencies = [
+ "itertools",
  "never",
  "ordered-float",
 ]
@@ -529,6 +530,7 @@ dependencies = [
  "itertools",
  "lazy_static",
  "never",
+ "num-traits",
  "orchid-api",
  "orchid-api-derive",
  "orchid-api-traits",
@@ -571,12 +573,14 @@ dependencies = [
  "itertools",
  "lazy_static",
  "never",
+ "num-traits",
  "orchid-api",
  "orchid-api-traits",
  "orchid-base",
  "ordered-float",
  "paste",
  "substack",
+ "trait-set",
 ]
 
 [[package]]
@@ -925,9 +929,9 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "substack"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffccc3d80f0a489de67aa74ff31ab852abb973e1c6dacf3704889e00ca544e7f"
+checksum = "26ce98c74d8476dd7b8515495625bc1bd4449b50f4926ac030964976e035ed53"
 
 [[package]]
 name = "syn"

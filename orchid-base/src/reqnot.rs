@@ -1,3 +1,5 @@
+use std::any::Any;
+use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::ops::{BitAnd, Deref};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -5,17 +7,24 @@ use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::{mem, thread};
 
+use derive_destructure::destructure;
 use dyn_clone::{clone_box, DynClone};
 use hashbrown::HashMap;
 use orchid_api_traits::{Channel, Coding, Decode, Encode, MsgSet, Request};
 use trait_set::trait_set;
 
-pub struct ReplyToken;
+pub struct Receipt;
+impl Receipt {
+  pub fn off_thread(name: String, cb: impl FnOnce() -> Self + Send + 'static) -> Self {
+    thread::Builder::new().name(name).spawn(cb).unwrap();
+    Self
+  }
+}
 
 trait_set! {
   pub trait SendFn<T: MsgSet> = for<'a> FnMut(&'a [u8], ReqNot<T>) + DynClone + Send + 'static;
   pub trait ReqFn<T: MsgSet> =
-    FnMut(RequestHandle<T>) -> ReplyToken + DynClone + Send + Sync + 'static;
+    FnMut(RequestHandle<T>, <T::In as Channel>::Req) -> Receipt + DynClone + Send + Sync + 'static;
   pub trait NotifFn<T: MsgSet> =
     for<'a> FnMut(<T::In as Channel>::Notif, ReqNot<T>) + DynClone + Send + Sync + 'static;
 }
@@ -24,28 +33,38 @@ fn get_id(message: &[u8]) -> (u64, &[u8]) {
   (u64::from_be_bytes(message[..8].to_vec().try_into().unwrap()), &message[8..])
 }
 
-pub struct RequestHandle<T: MsgSet> {
-  id: u64,
-  message: <T::In as Channel>::Req,
-  parent: ReqNot<T>,
+pub trait ReqHandlish {
+  fn defer_drop(&self, val: impl Any + 'static);
+}
+
+#[derive(destructure)]
+pub struct RequestHandle<MS: MsgSet> {
+  defer_drop: RefCell<Vec<Box<dyn Any>>>,
   fulfilled: AtomicBool,
+  id: u64,
+  parent: ReqNot<MS>,
 }
 impl<MS: MsgSet + 'static> RequestHandle<MS> {
+  fn new(parent: ReqNot<MS>, id: u64) -> Self {
+    Self { defer_drop: RefCell::default(), fulfilled: false.into(), parent, id }
+  }
   pub fn reqnot(&self) -> ReqNot<MS> { self.parent.clone() }
-  pub fn req(&self) -> &<MS::In as Channel>::Req { &self.message }
-  fn respond(&self, response: &impl Encode) -> ReplyToken {
+  pub fn handle<U: Request>(&self, _: &U, rep: &U::Response) -> Receipt { self.respond(rep) }
+  pub fn will_handle_as<U: Request>(&self, _: &U) -> ReqTypToken<U> { ReqTypToken(PhantomData) }
+  pub fn handle_as<U: Request>(&self, _: ReqTypToken<U>, rep: &U::Response) -> Receipt {
+    self.respond(rep)
+  }
+  pub fn respond(&self, response: &impl Encode) -> Receipt {
     assert!(!self.fulfilled.swap(true, Ordering::Relaxed), "Already responded to {}", self.id);
     let mut buf = (!self.id).to_be_bytes().to_vec();
     response.encode(&mut buf);
     let mut send = clone_box(&*self.reqnot().0.lock().unwrap().send);
     (send)(&buf, self.parent.clone());
-    ReplyToken
+    Receipt
   }
-  pub fn handle<T: Request>(&self, _: &T, rep: &T::Response) -> ReplyToken { self.respond(rep) }
-  pub fn will_handle_as<T: Request>(&self, _: &T) -> ReqTypToken<T> { ReqTypToken(PhantomData) }
-  pub fn handle_as<T: Request>(&self, _token: ReqTypToken<T>, rep: &T::Response) -> ReplyToken {
-    self.respond(rep)
-  }
+}
+impl<MS: MsgSet> ReqHandlish for RequestHandle<MS> {
+  fn defer_drop(&self, val: impl Any) { self.defer_drop.borrow_mut().push(Box::new(val)) }
 }
 impl<MS: MsgSet> Drop for RequestHandle<MS> {
   fn drop(&mut self) {
@@ -55,10 +74,6 @@ impl<MS: MsgSet> Drop for RequestHandle<MS> {
 }
 
 pub struct ReqTypToken<T>(PhantomData<T>);
-
-pub fn respond_with<R: Request>(r: &R, f: impl FnOnce(&R) -> R::Response) -> Vec<u8> {
-  r.respond(f(r))
-}
 
 pub struct ReqNotData<T: MsgSet> {
   id: u64,
@@ -104,8 +119,11 @@ impl<T: MsgSet> ReqNot<T> {
       let message = <T::In as Channel>::Req::decode(&mut &payload[..]);
       let mut req = clone_box(&*g.req);
       mem::drop(g);
-      let handle = RequestHandle { id, message, fulfilled: false.into(), parent: self.clone() };
-      thread::Builder::new().name(format!("request {id}")).spawn(move || req(handle)).unwrap();
+      let rn = self.clone();
+      thread::Builder::new()
+        .name(format!("request {id}"))
+        .spawn(move || req(RequestHandle::new(rn, id), message))
+        .unwrap();
     }
   }
 
@@ -208,12 +226,12 @@ mod test {
     let receiver = ReqNot::<TestMsgSet>::new(
       |_, _| panic!("Should not send anything"),
       clone!(received; move |notif, _| *received.lock().unwrap() = Some(notif)),
-      |_| panic!("Not receiving a request"),
+      |_, _| panic!("Not receiving a request"),
     );
     let sender = ReqNot::<TestMsgSet>::new(
       clone!(receiver; move |d, _| receiver.receive(d.to_vec())),
       |_, _| panic!("Should not receive notif"),
-      |_| panic!("Should not receive request"),
+      |_, _| panic!("Should not receive request"),
     );
     sender.notify(3);
     assert_eq!(*received.lock().unwrap(), Some(3));
@@ -230,7 +248,7 @@ mod test {
         move |d, _| receiver.lock().unwrap().as_ref().unwrap().receive(d.to_vec())
       },
       |_, _| panic!("Should not receive notif"),
-      |_| panic!("Should not receive request"),
+      |_, _| panic!("Should not receive request"),
     ));
     *receiver.lock().unwrap() = Some(ReqNot::new(
       {
@@ -238,9 +256,9 @@ mod test {
         move |d, _| sender.receive(d.to_vec())
       },
       |_, _| panic!("Not receiving notifs"),
-      |req| {
-        assert_eq!(req.req(), &TestReq(5));
-        req.respond(&6u8)
+      |hand, req| {
+        assert_eq!(req, TestReq(5));
+        hand.respond(&6u8)
       },
     ));
     let response = sender.request(TestReq(5));

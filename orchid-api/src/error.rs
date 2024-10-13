@@ -3,8 +3,7 @@ use std::sync::Arc;
 
 use orchid_api_derive::Coding;
 
-use crate::interner::TStr;
-use crate::location::Location;
+use crate::{Location, TStr};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
 pub struct ErrId(pub NonZeroU16);

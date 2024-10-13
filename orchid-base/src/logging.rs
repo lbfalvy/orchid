@@ -14,7 +14,7 @@ impl Logger {
   pub fn log(&self, msg: impl AsRef<str>) { writeln!(self, "{}", msg.as_ref()) }
   pub fn strat(&self) -> api::LogStrategy { self.0.clone() }
   pub fn log_buf(&self, event: impl AsRef<str>, buf: &[u8]) {
-    if !std::env::var("ORCHID_LOG_BUFFERS").unwrap().is_empty() {
+    if std::env::var("ORCHID_LOG_BUFFERS").is_ok_and(|v| !v.is_empty()) {
       writeln!(self, "{}: [{}]", event.as_ref(), buf.iter().map(|b| format!("{b:02x}")).join(" "))
     }
   }

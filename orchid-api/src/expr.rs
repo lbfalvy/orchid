@@ -3,12 +3,7 @@ use std::num::NonZeroU64;
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
-use crate::atom::Atom;
-use crate::error::OrcError;
-use crate::interner::TStrv;
-use crate::location::Location;
-use crate::proto::{ExtHostNotif, ExtHostReq};
-use crate::system::SysId;
+use crate::{Atom, ExtHostNotif, ExtHostReq, Location, OrcError, SysId, TStrv};
 
 /// An arbitrary ID associated with an expression on the host side. Incoming
 /// tickets always come with some lifetime guarantee, which can be extended with
@@ -57,11 +52,11 @@ pub struct Move {
 /// [crate::atom::Call] or [crate::atom::CallRef], or a constant in the
 /// [crate::tree::Tree].
 #[derive(Clone, Debug, Coding)]
-pub enum Clause {
+pub enum ExpressionKind {
   /// Apply the lhs as a function to the rhs
-  Call(Box<Expr>, Box<Expr>),
+  Call(Box<Expression>, Box<Expression>),
   /// Lambda function. The number operates as an argument name
-  Lambda(u64, Box<Expr>),
+  Lambda(u64, Box<Expression>),
   /// Binds the argument passed to the lambda with the same ID in the same
   /// template
   Arg(u64),
@@ -70,16 +65,12 @@ pub enum Clause {
   Slot(ExprTicket),
   /// The lhs must be fully processed before the rhs can be processed.
   /// Equivalent to Haskell's function of the same name
-  Seq(Box<Expr>, Box<Expr>),
+  Seq(Box<Expression>, Box<Expression>),
   /// Insert a new atom in the tree. When the clause is used in the const tree,
   /// the atom must be trivial. This is always a newly constructed atom, if you
   /// want to reference an existing atom, use the corresponding [ExprTicket].
   /// Because the atom is newly constructed, it also must belong to this system.
   NewAtom(Atom),
-  /// An atom, specifically an atom that already exists. This form is only ever
-  /// returned from [Inspect], and it's borrowed from the expression being
-  /// inspected.
-  Atom(ExprTicket, Atom),
   /// A reference to a constant
   Const(TStrv),
   /// A static runtime error.
@@ -87,22 +78,35 @@ pub enum Clause {
 }
 
 #[derive(Clone, Debug, Coding)]
-pub struct Expr {
-  pub clause: Clause,
+pub struct Expression {
+  pub kind: ExpressionKind,
   pub location: Location,
 }
 
 #[derive(Clone, Debug, Coding)]
-pub struct Details {
-  pub expr: Expr,
+pub enum InspectedKind {
+  Atom(Atom),
+  Bottom(Vec<OrcError>),
+  Opaque,
+}
+
+#[derive(Clone, Debug, Coding)]
+pub struct Inspected {
+  pub kind: InspectedKind,
+  pub location: Location,
   pub refcount: u32,
 }
 
+/// Obtain information about an expression. Used to act upon arguments by
+/// resolving shallowly and operating on the atom, but also usable for
+/// reflection
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
 #[extends(ExprReq, ExtHostReq)]
-pub struct Inspect(pub ExprTicket);
+pub struct Inspect {
+  pub target: ExprTicket,
+}
 impl Request for Inspect {
-  type Response = Details;
+  type Response = Inspected;
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]

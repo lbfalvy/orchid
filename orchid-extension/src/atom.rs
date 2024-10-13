@@ -3,44 +3,42 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::ops::{Deref, Range};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use dyn_clone::{clone_box, DynClone};
-use never::Never;
-use orchid_api::ExprTicket;
-use orchid_api_traits::{enc_vec, Coding, Decode, Request};
+use orchid_api_traits::{enc_vec, Coding, Decode, Encode, Request};
 use orchid_base::error::{mk_err, OrcErr, OrcRes};
 use orchid_base::intern;
 use orchid_base::location::Pos;
+use orchid_base::name::Sym;
 use orchid_base::reqnot::Requester;
-use orchid_base::tree::AtomInTok;
+use orchid_base::tree::AtomTok;
 use trait_set::trait_set;
 
 use crate::api;
 // use crate::error::{ProjectError, ProjectResult};
-use crate::expr::{ExprHandle, GenClause, GenExpr, OwnedExpr};
+use crate::expr::{Expr, ExprData, ExprHandle, ExprKind};
 use crate::system::{atom_info_for, downcast_atom, DynSystemCard, SysCtx};
 
 pub trait AtomCard: 'static + Sized {
   type Data: Clone + Coding + Sized;
-  type Req: Coding;
 }
 
 pub trait AtomicVariant {}
 pub trait Atomic: 'static + Sized {
   type Variant: AtomicVariant;
   type Data: Clone + Coding + Sized;
-  type Req: Coding;
+  fn reg_reqs() -> MethodSet<Self>;
 }
 impl<A: Atomic> AtomCard for A {
   type Data = <Self as Atomic>::Data;
-  type Req = <Self as Atomic>::Req;
 }
 
 pub trait AtomicFeatures: Atomic {
   fn factory(self) -> AtomFactory;
   type Info: AtomDynfo;
-  const INFO: &'static Self::Info;
+  fn info() -> Self::Info;
+  fn dynfo() -> Box<dyn AtomDynfo>;
 }
 pub trait ToAtom {
   fn to_atom_factory(self) -> AtomFactory;
@@ -54,17 +52,18 @@ impl ToAtom for AtomFactory {
 pub trait AtomicFeaturesImpl<Variant: AtomicVariant> {
   fn _factory(self) -> AtomFactory;
   type _Info: AtomDynfo;
-  const _INFO: &'static Self::_Info;
+  fn _info() -> Self::_Info;
 }
-impl<A: Atomic + AtomicFeaturesImpl<A::Variant> + ?Sized> AtomicFeatures for A {
+impl<A: Atomic + AtomicFeaturesImpl<A::Variant>> AtomicFeatures for A {
   fn factory(self) -> AtomFactory { self._factory() }
   type Info = <Self as AtomicFeaturesImpl<A::Variant>>::_Info;
-  const INFO: &'static Self::Info = Self::_INFO;
+  fn info() -> Self::Info { Self::_info() }
+  fn dynfo() -> Box<dyn AtomDynfo> { Box::new(Self::info()) }
 }
 
 pub fn get_info<A: AtomCard>(
   sys: &(impl DynSystemCard + ?Sized),
-) -> (api::AtomId, &'static dyn AtomDynfo) {
+) -> (api::AtomId, Box<dyn AtomDynfo>) {
   atom_info_for(sys, TypeId::of::<A>()).unwrap_or_else(|| {
     panic!("Atom {} not associated with system {}", type_name::<A>(), sys.name())
   })
@@ -72,34 +71,47 @@ pub fn get_info<A: AtomCard>(
 
 #[derive(Clone)]
 pub struct ForeignAtom<'a> {
-  pub expr: Option<ExprHandle>,
-  pub char_marker: PhantomData<&'a ()>,
+  pub expr: Option<Arc<ExprHandle>>,
+  pub _life: PhantomData<&'a ()>,
   pub ctx: SysCtx,
   pub atom: api::Atom,
   pub pos: Pos,
 }
 impl<'a> ForeignAtom<'a> {
-  pub fn oex_opt(self) -> Option<OwnedExpr> {
-    self.expr.map(|handle| {
-      let gen_expr = GenExpr { pos: self.pos, clause: GenClause::Atom(handle.tk, self.atom) };
-      OwnedExpr { handle, val: OnceLock::from(Box::new(gen_expr)) }
-    })
+  pub fn oex_opt(self) -> Option<Expr> {
+    let (handle, pos) = (self.expr.as_ref()?.clone(), self.pos.clone());
+    let data = ExprData { pos, kind: ExprKind::Atom(ForeignAtom { _life: PhantomData, ..self }) };
+    Some(Expr { handle: Some(handle), val: OnceLock::from(data) })
   }
 }
 impl ForeignAtom<'static> {
-  pub fn oex(self) -> OwnedExpr { self.oex_opt().unwrap() }
+  pub fn oex(self) -> Expr { self.oex_opt().unwrap() }
+  pub(crate) fn new(handle: Arc<ExprHandle>, atom: api::Atom, pos: Pos) -> Self {
+    ForeignAtom { _life: PhantomData, atom, ctx: handle.ctx.clone(), expr: Some(handle), pos }
+  }
+  pub fn request<M: AtomMethod>(&self, m: M) -> Option<M::Response> {
+    let rep = self.ctx.reqnot.request(api::Fwd(
+      self.atom.clone(),
+      Sym::parse(M::NAME).unwrap().tok().marker(),
+      enc_vec(&m)
+    ))?;
+    Some(M::Response::decode(&mut &rep[..]))
+  }
 }
 impl<'a> fmt::Display for ForeignAtom<'a> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "{}::{:?}", if self.expr.is_some() { "Clause" } else { "Tok" }, self.atom)
   }
 }
-impl<'a> AtomInTok for ForeignAtom<'a> {
+impl<'a> fmt::Debug for ForeignAtom<'a> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "ForeignAtom({self})") }
+}
+impl<'a> AtomTok for ForeignAtom<'a> {
   type Context = SysCtx;
   fn from_api(atom: &api::Atom, pos: Range<u32>, ctx: &mut Self::Context) -> Self {
     Self {
       atom: atom.clone(),
-      char_marker: PhantomData,
+      _life: PhantomData,
       ctx: ctx.clone(),
       expr: None,
       pos: Pos::Range(pos),
@@ -108,7 +120,7 @@ impl<'a> AtomInTok for ForeignAtom<'a> {
   fn to_api(&self) -> orchid_api::Atom { self.atom.clone() }
 }
 
-pub struct NotTypAtom(pub Pos, pub OwnedExpr, pub &'static dyn AtomDynfo);
+pub struct NotTypAtom(pub Pos, pub Expr, pub Box<dyn AtomDynfo>);
 impl NotTypAtom {
   pub fn mk_err(&self) -> OrcErr {
     mk_err(
@@ -119,26 +131,86 @@ impl NotTypAtom {
   }
 }
 
+pub trait AtomMethod: Request {
+  const NAME: &str;
+}
+pub trait Supports<M: AtomMethod>: AtomCard {
+  fn handle(&self, ctx: SysCtx, req: M) -> <M as Request>::Response;
+}
+
+trait_set! {
+  trait AtomReqCb<A> = Fn(&A, SysCtx, &mut dyn Read, &mut dyn Write) + Send + Sync
+}
+
+pub struct AtomReqHandler<A: AtomCard> {
+  key: Sym,
+  cb: Box<dyn AtomReqCb<A>>,
+}
+
+pub struct MethodSet<A: AtomCard> {
+  handlers: Vec<AtomReqHandler<A>>,
+}
+impl<A: AtomCard> MethodSet<A> {
+  pub fn new() -> Self { Self{ handlers: vec![] } }
+
+  pub fn handle<M: AtomMethod>(mut self) -> Self where A: Supports<M> {
+    self.handlers.push(AtomReqHandler {
+      key: Sym::parse(M::NAME).expect("AtomMethod::NAME cannoot be empty"),
+      cb: Box::new(move |
+        a: &A,
+        ctx: SysCtx,
+        req: &mut dyn Read,
+        rep: &mut dyn Write
+      | {
+        Supports::<M>::handle(a, ctx, M::decode(req)).encode(rep);
+      })
+    });
+    self
+  }
+
+  pub(crate) fn dispatch(
+    &self, atom: &A, ctx: SysCtx, key: Sym, req: &mut dyn Read, rep: &mut dyn Write
+  ) -> bool {
+    match self.handlers.iter().find(|h| h.key == key) {
+      None => false,
+      Some(handler) => {
+        (handler.cb)(atom, ctx, req, rep);
+        true
+      },
+    }
+  }
+}
+
+impl<A: AtomCard> Default for MethodSet<A> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone)]
 pub struct TypAtom<'a, A: AtomicFeatures> {
   pub data: ForeignAtom<'a>,
   pub value: A::Data,
 }
 impl<A: AtomicFeatures> TypAtom<'static, A> {
-  pub fn downcast(expr: ExprHandle) -> Result<Self, NotTypAtom> {
-    match OwnedExpr::new(expr).foreign_atom() {
-      Err(oe) => Err(NotTypAtom(oe.get_data().pos.clone(), oe, A::INFO)),
+  pub fn downcast(expr: Arc<ExprHandle>) -> Result<Self, NotTypAtom> {
+    match Expr::new(expr).foreign_atom() {
+      Err(oe) => Err(NotTypAtom(oe.get_data().pos.clone(), oe, Box::new(A::info()))),
       Ok(atm) => match downcast_atom::<A>(atm) {
-        Err(fa) => Err(NotTypAtom(fa.pos.clone(), fa.oex(), A::INFO)),
+        Err(fa) => Err(NotTypAtom(fa.pos.clone(), fa.oex(), Box::new(A::info()))),
         Ok(tatom) => Ok(tatom),
       },
     }
   }
 }
 impl<'a, A: AtomicFeatures> TypAtom<'a, A> {
-  pub fn request<R: Coding + Into<A::Req> + Request>(&self, req: R) -> R::Response {
-    R::Response::decode(
-      &mut &self.data.ctx.reqnot.request(api::Fwd(self.data.atom.clone(), enc_vec(&req)))[..],
+  pub fn request<M: AtomMethod>(&self, req: M) -> M::Response where A: Supports<M> {
+    M::Response::decode(
+      &mut &self.data.ctx.reqnot.request(api::Fwd(
+        self.data.atom.clone(),
+        Sym::parse(M::NAME).unwrap().tok().marker(),
+        enc_vec(&req)
+      )).unwrap()[..]
     )
   }
 }
@@ -153,14 +225,13 @@ pub trait AtomDynfo: Send + Sync + 'static {
   fn tid(&self) -> TypeId;
   fn name(&self) -> &'static str;
   fn decode(&self, ctx: AtomCtx<'_>) -> Box<dyn Any>;
-  fn call(&self, ctx: AtomCtx<'_>, arg: api::ExprTicket) -> GenExpr;
-  fn call_ref(&self, ctx: AtomCtx<'_>, arg: api::ExprTicket) -> GenExpr;
-  fn same(&self, ctx: AtomCtx<'_>, other: &api::Atom) -> bool;
+  fn call(&self, ctx: AtomCtx<'_>, arg: api::ExprTicket) -> Expr;
+  fn call_ref(&self, ctx: AtomCtx<'_>, arg: api::ExprTicket) -> Expr;
   fn print(&self, ctx: AtomCtx<'_>) -> String;
-  fn handle_req(&self, ctx: AtomCtx<'_>, req: &mut dyn Read, rep: &mut dyn Write);
-  fn command(&self, ctx: AtomCtx<'_>) -> OrcRes<Option<GenExpr>>;
-  fn serialize(&self, ctx: AtomCtx<'_>, write: &mut dyn Write) -> Vec<ExprTicket>;
-  fn deserialize(&self, ctx: SysCtx, data: &[u8], refs: &[ExprTicket]) -> api::Atom;
+  fn handle_req(&self, ctx: AtomCtx<'_>, key: Sym, req: &mut dyn Read, rep: &mut dyn Write) -> bool;
+  fn command(&self, ctx: AtomCtx<'_>) -> OrcRes<Option<Expr>>;
+  fn serialize(&self, ctx: AtomCtx<'_>, write: &mut dyn Write) -> Vec<api::ExprTicket>;
+  fn deserialize(&self, ctx: SysCtx, data: &[u8], refs: &[api::ExprTicket]) -> api::Atom;
   fn drop(&self, ctx: AtomCtx<'_>);
 }
 
@@ -177,6 +248,12 @@ impl AtomFactory {
 impl Clone for AtomFactory {
   fn clone(&self) -> Self { AtomFactory(clone_box(&*self.0)) }
 }
+impl fmt::Debug for AtomFactory {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "AtomFactory") }
+}
+impl fmt::Display for AtomFactory {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "AtomFactory") }
+}
 
 pub fn err_not_callable() -> OrcErr {
   mk_err(intern!(str: "This atom is not callable"), "Attempted to apply value as function", [])
@@ -184,27 +261,4 @@ pub fn err_not_callable() -> OrcErr {
 
 pub fn err_not_command() -> OrcErr {
   mk_err(intern!(str: "This atom is not a command"), "Settled on an inactionable value", [])
-}
-
-pub trait ReqPck<T: AtomCard + ?Sized>: Sized {
-  type W: Write + ?Sized;
-  fn unpack<'a>(self) -> (T::Req, &'a mut Self::W, SysCtx)
-  where Self: 'a;
-  fn never(self)
-  where T: AtomCard<Req = Never> {
-  }
-}
-
-pub(crate) struct RequestPack<'a, T: AtomCard + ?Sized, W: Write + ?Sized> {
-  pub req: T::Req,
-  pub write: &'a mut W,
-  pub sys: SysCtx,
-}
-
-impl<'a, T: AtomCard + ?Sized, W: Write + ?Sized> ReqPck<T> for RequestPack<'a, T, W> {
-  type W = W;
-  fn unpack<'b>(self) -> (<T as AtomCard>::Req, &'b mut Self::W, SysCtx)
-  where 'a: 'b {
-    (self.req, self.write, self.sys)
-  }
 }

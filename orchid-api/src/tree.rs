@@ -4,13 +4,11 @@ use std::sync::Arc;
 
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
+use ordered_float::NotNan;
 
-use crate::error::OrcError;
-use crate::interner::{TStr, TStrv};
-use crate::location::Location;
-use crate::proto::HostExtReq;
-use crate::system::SysId;
-use crate::{Atom, Expr};
+use crate::{
+  Atom, Expression, HostExtReq, Location, MacroBlock, OrcError, Placeholder, SysId, TStr, TStrv,
+};
 
 /// A token tree from a lexer recursion request. Its lifetime is the lex call,
 /// the lexer can include it in its output or discard it by implication.
@@ -31,7 +29,7 @@ pub struct TokenTree {
 #[derive(Clone, Debug, Coding)]
 pub enum Token {
   /// Lambda function head, from the opening \ until the beginning of the body.
-  Lambda(Vec<TokenTree>),
+  LambdaHead(Vec<TokenTree>),
   /// A name segment or an operator.
   Name(TStr),
   /// ::
@@ -49,9 +47,13 @@ pub enum Token {
   Bottom(Vec<OrcError>),
   /// A comment
   Comment(Arc<String>),
+  /// Placeholder
+  Ph(Placeholder),
+  /// Macro block head
+  Macro(Option<NotNan<f64>>),
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Coding)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Coding)]
 pub enum Paren {
   Round,
   Square,
@@ -64,43 +66,40 @@ pub struct TreeId(pub NonZeroU64);
 #[derive(Clone, Debug, Coding)]
 pub struct Item {
   pub location: Location,
-  pub comments: Vec<(Arc<String>, Location)>,
+  pub comments: Vec<Comment>,
   pub kind: ItemKind,
 }
 
 #[derive(Clone, Debug, Coding)]
 pub enum ItemKind {
   Member(Member),
-  Raw(Vec<TokenTree>),
+  Macro(MacroBlock),
   Export(TStr),
-  Import(CompName),
+  Import(TStrv),
+}
+
+#[derive(Clone, Debug, Coding)]
+pub struct Comment {
+  pub text: TStr,
+  pub location: Location,
 }
 
 #[derive(Clone, Debug, Coding)]
 pub struct Member {
   pub name: TStr,
-  pub exported: bool,
   pub kind: MemberKind,
 }
 
 #[derive(Clone, Debug, Coding)]
 pub enum MemberKind {
-  Const(Expr),
+  Const(Expression),
   Module(Module),
   Lazy(TreeId),
 }
 
 #[derive(Clone, Debug, Coding)]
 pub struct Module {
-  pub imports: Vec<TStrv>,
   pub items: Vec<Item>,
-}
-
-#[derive(Clone, Debug, Coding)]
-pub struct CompName {
-  pub path: Vec<TStr>,
-  pub name: Option<TStr>,
-  pub location: Location,
 }
 
 #[derive(Clone, Copy, Debug, Coding, Hierarchy)]

@@ -20,7 +20,7 @@ impl Lexer for NumLexer {
       Ok(Numeric::Float(f)) => Float(f).factory(),
       Ok(Numeric::Uint(uint)) => Int(uint.try_into().unwrap()).factory(),
       Ok(Numeric::Decimal(dec)) => Float(NotNan::new(dec.try_into().unwrap()).unwrap()).factory(),
-      Err(e) => return Err(vec![num_to_err(e, ctx.pos(all))]),
+      Err(e) => return Err(num_to_err(e, ctx.pos(all)).into()),
     };
     Ok((tail, GenTok::X(fac).at(ctx.pos(all)..ctx.pos(tail))))
   }

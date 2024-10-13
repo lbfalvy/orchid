@@ -1,15 +1,16 @@
 //! Structures that show where code or semantic elements came from
 
+use crate::match_mapping;
 use std::fmt;
 use std::hash::Hash;
 use std::ops::Range;
-use std::sync::Arc;
 
 use trait_set::trait_set;
 
-use crate::interner::{deintern, Tok};
+use orchid_api_traits::{ApiEquiv, FromApi, ToApi};
+use crate::interner::{deintern, intern, Tok};
 use crate::name::Sym;
-use crate::{api, sym};
+use crate::{api, intern, sym};
 
 trait_set! {
   pub trait GetSrc = FnMut(&Sym) -> Tok<String>;
@@ -18,6 +19,7 @@ trait_set! {
 #[derive(Debug, Clone)]
 pub enum Pos {
   None,
+  SlotTarget,
   /// Used in functions to denote the generated code that carries on the
   /// location of the call. Not allowed in the const tree.
   Inherit,
@@ -28,24 +30,6 @@ pub enum Pos {
   Range(Range<u32>),
 }
 impl Pos {
-  pub fn to_api(&self) -> api::Location {
-    match self {
-      Self::Inherit => api::Location::Inherit,
-      Self::None => api::Location::None,
-      Self::Range(r) => api::Location::Range(r.clone()),
-      Self::Gen(cgi) => api::Location::Gen(cgi.to_api()),
-      Self::SourceRange(sr) => api::Location::SourceRange(sr.to_api()),
-    }
-  }
-  pub fn from_api(loc: &api::Location) -> Self {
-    match loc {
-      api::Location::Inherit => Self::Inherit,
-      api::Location::None => Self::None,
-      api::Location::Range(r) => Self::Range(r.clone()),
-      api::Location::Gen(cgi) => CodeGenInfo::from_api(cgi).location(),
-      api::Location::SourceRange(sr) => SourceRange::from_api(sr).location(),
-    }
-  }
   pub fn pretty_print(&self, get_src: &mut impl GetSrc) -> String {
     match self {
       Self::Gen(g) => g.to_string(),
@@ -53,6 +37,32 @@ impl Pos {
       // Can't pretty print partial and meta-location
       other => format!("{other:?}"),
     }
+  }
+}
+impl ApiEquiv for Pos {
+  type Api = api::Location;
+}
+impl FromApi for Pos {
+  type Ctx = ();
+  fn from_api(api: &Self::Api, ctx: &mut Self::Ctx) -> Self {
+    match_mapping!(api, api::Location => Pos {
+      None, Inherit, SlotTarget,
+      Range(r.clone()),
+      Gen(cgi => CodeGenInfo::from_api(cgi, &mut ())),
+      SourceRange(sr => CodeGenInfo::from_api(sr, &mut ()))
+    })
+  }
+}
+
+impl ToApi for Pos {
+  type Ctx = ();
+  fn to_api(&self, ctx: &mut Self::Ctx) -> Self::Api {
+    match_mapping!(self, Pos => Self::Api {
+      None, Inherit, SlotTarget,
+      Range(r.clone()),
+      Gen(cgi.to_api(ctx)),
+      SourceRange(sr.to_api(ctx)),
+    })
   }
 }
 
@@ -67,12 +77,6 @@ impl SourceRange {
   pub fn new(range: &Range<u32>, path: &Sym) -> Self {
     Self { range: range.clone(), path: path.clone() }
   }
-  pub fn to_api(&self) -> api::SourceRange {
-    api::SourceRange { path: self.path.tok().marker(), range: self.range.clone() }
-  }
-  pub fn from_api(sr: &api::SourceRange) -> Self {
-    Self { path: Sym::from_tok(deintern(sr.path)).unwrap(), range: sr.range.clone() }
-  }
   /// Create a dud [SourceRange] for testing. Its value is unspecified and
   /// volatile.
   pub fn mock() -> Self { Self { range: 0..1, path: sym!(test) } }
@@ -85,7 +89,7 @@ impl SourceRange {
   /// 0-based index of last byte + 1
   pub fn end(&self) -> u32 { self.range.end }
   /// Syntactic location
-  pub fn location(&self) -> Pos { Pos::SourceRange(self.clone()) }
+  pub fn pos(&self) -> Pos { Pos::SourceRange(self.clone()) }
   /// Transform the numeric byte range
   pub fn map_range(&self, map: impl FnOnce(Range<u32>) -> Range<u32>) -> Self {
     Self { range: map(self.range()), path: self.path() }
@@ -99,6 +103,24 @@ impl SourceRange {
       (false, _) => format!("{sl}:{sc}..{el}:{ec}"),
     }
   }
+  pub fn zw(path: Sym, pos: u32) -> Self {
+    Self { path, range: pos..pos }
+  }
+}
+impl ApiEquiv for SourceRange {
+  type Api = api::SourceRange;
+}
+impl FromApi for SourceRange {
+  type Ctx = ();
+  fn from_api(api: &Self::Api, ctx: &mut Self::Ctx) -> Self {
+    Self { path: Sym::from_api(&api.path, ctx), range: api.range.clone() }
+  }
+}
+impl ToApi for SourceRange {
+  type Ctx = ();
+  fn to_api(&self, ctx: &mut Self::Ctx) -> Self::Api {
+    api::SourceRange { path: self.path.to_api(ctx), range: self.range.clone() }
+  }
 }
 
 /// Information about a code generator attached to the generated code
@@ -107,26 +129,17 @@ pub struct CodeGenInfo {
   /// formatted like a Rust namespace
   pub generator: Sym,
   /// Unformatted user message with relevant circumstances and parameters
-  pub details: Arc<String>,
+  pub details: Tok<String>,
 }
 impl CodeGenInfo {
   /// A codegen marker with no user message and parameters
-  pub fn no_details(generator: Sym) -> Self { Self { generator, details: Arc::new(String::new()) } }
+  pub fn no_details(generator: Sym) -> Self { Self { generator, details: intern!(str: "") } }
   /// A codegen marker with a user message or parameters
   pub fn details(generator: Sym, details: impl AsRef<str>) -> Self {
-    Self { generator, details: Arc::new(details.as_ref().to_string()) }
+    Self { generator, details: intern(details.as_ref()) }
   }
   /// Syntactic location
-  pub fn location(&self) -> Pos { Pos::Gen(self.clone()) }
-  pub fn to_api(&self) -> api::CodeGenInfo {
-    api::CodeGenInfo { generator: self.generator.tok().marker(), details: self.details.to_string() }
-  }
-  pub fn from_api(cgi: &api::CodeGenInfo) -> Self {
-    Self {
-      generator: Sym::from_tok(deintern(cgi.generator)).unwrap(),
-      details: Arc::new(cgi.details.clone()),
-    }
-  }
+  pub fn pos(&self) -> Pos { Pos::Gen(self.clone()) }
 }
 impl fmt::Debug for CodeGenInfo {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "CodeGenInfo({self})") }
@@ -135,6 +148,24 @@ impl fmt::Display for CodeGenInfo {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "generated by {}", self.generator)?;
     if !self.details.is_empty() { write!(f, ", details: {}", self.details) } else { write!(f, ".") }
+  }
+}
+impl ApiEquiv for CodeGenInfo {
+  type Api = api::CodeGenInfo;
+}
+impl FromApi for CodeGenInfo {
+  type Ctx = ();
+  fn from_api(api: &Self::Api, ctx: &mut Self::Ctx) -> Self {
+    Self {
+      generator: Sym::from_api(&api.generator, ctx),
+      details: Tok::from_api(&api.details, ctx),
+    }
+  }
+}
+impl ToApi for CodeGenInfo {
+  type Ctx = ();
+  fn to_api(&self, ctx: &mut Self::Ctx) -> Self::Api {
+    api::CodeGenInfo { generator: self.generator.to_api(ctx), details: self.details.to_api(ctx) }
   }
 }
 

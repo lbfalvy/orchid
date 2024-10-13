@@ -27,7 +27,7 @@ fn main() -> io::Result<ExitCode> {
   let args = Args::parse();
   match args.command {
     Commands::CheckApiRefs => walk_wsp(&mut |_| Ok(true), &mut |file| {
-      if file.path().extension() == Some(OsStr::new("rs")) || file.file_name() == "lib.rs" {
+      if file.path().extension() == Some(OsStr::new("rs")) && file.file_name() != "lib.rs" {
         let mut contents = String::new();
         File::open(file.path())?.read_to_string(&mut contents)?;
         for (l, line) in contents.lines().enumerate() {

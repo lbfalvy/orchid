@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
+use never::Never;
 use orchid_base::interner::Tok;
 use orchid_extension::atom::{AtomDynfo, AtomicFeatures};
+use orchid_extension::entrypoint::ExtReq;
 use orchid_extension::fs::DeclFs;
 use orchid_extension::system::{System, SystemCard};
 use orchid_extension::system_ctor::SystemCtor;
-use orchid_extension::tree::{comments, fun, module, root_mod, GenMemberKind};
+use orchid_extension::tree::{comments, fun, module, root_mod, MemKind};
 
 use crate::number::num_atom::{Float, Int};
 use crate::string::str_atom::{IntStrAtom, StrAtom};
@@ -23,14 +25,17 @@ impl SystemCtor for StdSystem {
 }
 impl SystemCard for StdSystem {
   type Ctor = Self;
-  const ATOM_DEFS: &'static [Option<&'static dyn AtomDynfo>] =
-    &[Some(Int::INFO), Some(Float::INFO), Some(StrAtom::INFO), Some(IntStrAtom::INFO)];
+  type Req = Never;
+  fn atoms() -> impl IntoIterator<Item = Option<Box<dyn AtomDynfo>>> {
+    [Some(Int::dynfo()), Some(Float::dynfo()), Some(StrAtom::dynfo()), Some(IntStrAtom::dynfo())]
+  }
 }
 impl System for StdSystem {
+  fn request(_: ExtReq, req: Self::Req) -> orchid_base::reqnot::Receipt { match req {} }
   fn lexers() -> Vec<orchid_extension::lexer::LexerObj> { vec![&StringLexer] }
   fn parsers() -> Vec<orchid_extension::parser::ParserObj> { vec![] }
   fn vfs() -> DeclFs { DeclFs::Mod(&[]) }
-  fn env() -> Vec<(Tok<String>, GenMemberKind)> {
+  fn env() -> Vec<(Tok<String>, MemKind)> {
     vec![root_mod("std", [], [module(true, "string", [], [comments(
       ["Concatenate two strings"],
       fun(true, "concat", |left: OrcString, right: OrcString| {

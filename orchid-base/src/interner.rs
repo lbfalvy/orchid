@@ -3,13 +3,14 @@ use std::hash::BuildHasher as _;
 use std::num::NonZeroU64;
 use std::ops::{Deref, DerefMut};
 use std::sync::{atomic, Arc, Mutex, MutexGuard};
-use std::{fmt, hash};
+use std::{fmt, hash, mem};
 
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools as _;
 use orchid_api_traits::{Decode, Encode, Request};
 
 use crate::api;
+use orchid_api_traits::{ApiEquiv, FromApi, ToApi};
 use crate::reqnot::{DynRequester, Requester};
 
 /// Clippy crashes while verifying `Tok: Sized` without this and I cba to create
@@ -62,7 +63,7 @@ impl<T: Interned + Decode> Decode for Tok<T> {
   fn decode<R: std::io::Read + ?Sized>(read: &mut R) -> Self { intern(&T::decode(read)) }
 }
 
-pub trait Interned: Eq + hash::Hash + Clone + Internable<Interned = Self> {
+pub trait Interned: Eq + hash::Hash + Clone + fmt::Debug + Internable<Interned = Self> {
   type Marker: InternMarker<Interned = Self> + Sized;
   fn intern(
     self: Arc<Self>,
@@ -71,7 +72,7 @@ pub trait Interned: Eq + hash::Hash + Clone + Internable<Interned = Self> {
   fn bimap(interner: &mut TypedInterners) -> &mut Bimap<Self>;
 }
 
-pub trait Internable {
+pub trait Internable: fmt::Debug {
   type Interned: Interned;
   fn get_owned(&self) -> Arc<Self::Interned>;
 }
@@ -96,7 +97,6 @@ impl Interned for String {
   }
   fn bimap(interners: &mut TypedInterners) -> &mut Bimap<Self> { &mut interners.strings }
 }
-
 impl InternMarker for api::TStr {
   type Interned = String;
   fn resolve(
@@ -108,15 +108,25 @@ impl InternMarker for api::TStr {
   fn get_id(self) -> NonZeroU64 { self.0 }
   fn from_id(id: NonZeroU64) -> Self { Self(id) }
 }
-
 impl Internable for str {
   type Interned = String;
   fn get_owned(&self) -> Arc<Self::Interned> { Arc::new(self.to_string()) }
 }
-
 impl Internable for String {
   type Interned = String;
   fn get_owned(&self) -> Arc<Self::Interned> { Arc::new(self.to_string()) }
+}
+
+impl ApiEquiv for Tok<String> {
+  type Api = api::TStr;
+}
+impl ToApi for Tok<String> {
+  type Ctx = ();
+  fn to_api(&self, _: &mut Self::Ctx) -> Self::Api { self.marker() }
+}
+impl FromApi for Tok<String> {
+  type Ctx = ();
+  fn from_api(api: &Self::Api, _: &mut Self::Ctx) -> Self { deintern(*api) }
 }
 
 impl Interned for Vec<Tok<String>> {
@@ -129,7 +139,6 @@ impl Interned for Vec<Tok<String>> {
   }
   fn bimap(interners: &mut TypedInterners) -> &mut Bimap<Self> { &mut interners.vecs }
 }
-
 impl InternMarker for api::TStrv {
   type Interned = Vec<Tok<String>>;
   fn resolve(
@@ -143,29 +152,36 @@ impl InternMarker for api::TStrv {
   fn get_id(self) -> NonZeroU64 { self.0 }
   fn from_id(id: NonZeroU64) -> Self { Self(id) }
 }
-
 impl Internable for [Tok<String>] {
   type Interned = Vec<Tok<String>>;
   fn get_owned(&self) -> Arc<Self::Interned> { Arc::new(self.to_vec()) }
 }
-
 impl Internable for Vec<Tok<String>> {
   type Interned = Vec<Tok<String>>;
   fn get_owned(&self) -> Arc<Self::Interned> { Arc::new(self.to_vec()) }
 }
-
 impl Internable for Vec<api::TStr> {
   type Interned = Vec<Tok<String>>;
   fn get_owned(&self) -> Arc<Self::Interned> {
     Arc::new(self.iter().map(|ts| deintern(*ts)).collect())
   }
 }
-
 impl Internable for [api::TStr] {
   type Interned = Vec<Tok<String>>;
   fn get_owned(&self) -> Arc<Self::Interned> {
     Arc::new(self.iter().map(|ts| deintern(*ts)).collect())
   }
+}
+impl ApiEquiv for Tok<Vec<Tok<String>>> {
+  type Api = api::TStrv;
+}
+impl ToApi for Tok<Vec<Tok<String>>> {
+  type Ctx = ();
+  fn to_api(&self, _: &mut Self::Ctx) -> Self::Api { self.marker() }
+}
+impl FromApi for Tok<Vec<Tok<String>>> {
+  type Ctx = ();
+  fn from_api(api: &Self::Api, _: &mut Self::Ctx) -> Self { deintern(*api) }
 }
 
 /// The number of references held to any token by the interner.
@@ -262,8 +278,10 @@ pub fn init_replica(req: impl DynRequester<Transfer = api::IntReq> + 'static) {
 }
 
 pub fn intern<T: Interned>(t: &(impl Internable<Interned = T> + ?Sized)) -> Tok<T> {
-  let mut g = interner();
   let data = t.get_owned();
+  let mut g = interner();
+  let job = format!("{t:?} in {}", if g.master.is_some() { "replica" } else { "master" });
+  eprintln!("Interning {job}");
   let typed = T::bimap(&mut g.interners);
   if let Some(tok) = typed.by_value(&data) {
     return tok;
@@ -275,6 +293,8 @@ pub fn intern<T: Interned>(t: &(impl Internable<Interned = T> + ?Sized)) -> Tok<
   };
   let tok = Tok::new(data, marker);
   T::bimap(&mut g.interners).insert(tok.clone());
+  mem::drop(g);
+  eprintln!("Interned {job}");
   tok
 }
 

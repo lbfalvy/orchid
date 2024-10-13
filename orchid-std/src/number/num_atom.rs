@@ -1,10 +1,9 @@
-use never::Never;
 use orchid_api_derive::Coding;
 use orchid_base::error::OrcRes;
-use orchid_extension::atom::{AtomFactory, Atomic, AtomicFeatures, ReqPck, ToAtom, TypAtom};
+use orchid_extension::atom::{AtomFactory, MethodSet, Atomic, AtomicFeatures, ToAtom, TypAtom};
 use orchid_extension::atom_thin::{ThinAtom, ThinVariant};
 use orchid_extension::conv::TryFromExpr;
-use orchid_extension::expr::ExprHandle;
+use orchid_extension::expr::Expr;
 use ordered_float::NotNan;
 
 #[derive(Clone, Debug, Coding)]
@@ -12,13 +11,13 @@ pub struct Int(pub i64);
 impl Atomic for Int {
   type Variant = ThinVariant;
   type Data = Self;
-  type Req = Never;
+  fn reg_reqs() -> MethodSet<Self> {
+    MethodSet::new()
+  }
 }
-impl ThinAtom for Int {
-  fn handle_req(&self, pck: impl ReqPck<Self>) { pck.never() }
-}
+impl ThinAtom for Int {}
 impl TryFromExpr for Int {
-  fn try_from_expr(expr: ExprHandle) -> OrcRes<Self> {
+  fn try_from_expr(expr: Expr) -> OrcRes<Self> {
     TypAtom::<Int>::try_from_expr(expr).map(|t| t.value)
   }
 }
@@ -28,13 +27,11 @@ pub struct Float(pub NotNan<f64>);
 impl Atomic for Float {
   type Variant = ThinVariant;
   type Data = Self;
-  type Req = Never;
+  fn reg_reqs() -> MethodSet<Self> { MethodSet::new() }
 }
-impl ThinAtom for Float {
-  fn handle_req(&self, pck: impl ReqPck<Self>) { pck.never() }
-}
+impl ThinAtom for Float {}
 impl TryFromExpr for Float {
-  fn try_from_expr(expr: ExprHandle) -> OrcRes<Self> {
+  fn try_from_expr(expr: Expr) -> OrcRes<Self> {
     TypAtom::<Float>::try_from_expr(expr).map(|t| t.value)
   }
 }
@@ -44,10 +41,10 @@ pub enum Numeric {
   Float(NotNan<f64>),
 }
 impl TryFromExpr for Numeric {
-  fn try_from_expr(expr: ExprHandle) -> OrcRes<Self> {
-    Int::try_from_expr(expr.clone()).map(|t| Numeric::Int(t.0)).or_else(|e| {
-      Float::try_from_expr(expr).map(|t| Numeric::Float(t.0)).map_err(|e2| [e, e2].concat())
-    })
+  fn try_from_expr(expr: Expr) -> OrcRes<Self> {
+    Int::try_from_expr(expr.clone())
+      .map(|t| Numeric::Int(t.0))
+      .or_else(|e| Float::try_from_expr(expr).map(|t| Numeric::Float(t.0)).map_err(|e2| e + e2))
   }
 }
 impl ToAtom for Numeric {

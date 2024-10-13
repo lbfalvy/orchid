@@ -4,7 +4,7 @@ use std::sync::Arc;
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
-use crate::proto::{ExtHostReq, HostExtReq};
+use crate::{ExtHostReq, HostExtReq};
 
 /// Intern requests sent by the replica to the master. These requests are
 /// repeatable.

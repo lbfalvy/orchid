@@ -1,11 +1,11 @@
 use itertools::Itertools;
-use orchid_base::error::{mk_err, OrcErr, OrcRes};
+use orchid_base::error::{mk_err, mk_errv, OrcErr, OrcRes};
 use orchid_base::interner::intern;
 use orchid_base::location::Pos;
 use orchid_base::tree::{vname_tv, wrap_tokv};
 use orchid_base::{intern, vname};
 use orchid_extension::atom::AtomicFeatures;
-use orchid_extension::lexer::{err_lexer_na, LexContext, Lexer};
+use orchid_extension::lexer::{err_not_applicable, LexContext, Lexer};
 use orchid_extension::tree::{GenTok, GenTokTree};
 
 use super::str_atom::IntStrAtom;
@@ -96,33 +96,31 @@ pub struct StringLexer;
 impl Lexer for StringLexer {
   const CHAR_FILTER: &'static [std::ops::RangeInclusive<char>] = &['"'..='"'];
   fn lex<'a>(all: &'a str, ctx: &'a LexContext<'a>) -> OrcRes<(&'a str, GenTokTree<'a>)> {
-    let mut tail = all.strip_prefix('"').ok_or_else(err_lexer_na)?;
-    let mut parts = Vec::<GenTokTree<'a>>::new();
+    let mut tail = all.strip_prefix('"').ok_or_else(err_not_applicable)?;
+    let mut ret = GenTok::X(IntStrAtom::from(intern!(str: "")).factory()).at(ctx.tok_ran(0, all));
     let mut cur = String::new();
     let mut errors = vec![];
-    let commit_str =
-      |str: &mut String, tail: &str, err: &mut Vec<OrcErr>, parts: &mut Vec<GenTokTree<'a>>| {
-        let str_val = parse_string(str)
-          .inspect_err(|e| err.push(e.clone().into_proj(ctx.pos(tail) - str.len() as u32)))
-          .unwrap_or_default();
-        let tok = GenTok::X(IntStrAtom::from(intern(&*str_val)).factory());
-        parts.push(tok.at(ctx.tok_ran(str.len() as u32, tail)));
-        *str = String::new();
-      };
+    let str_to_gen = |str: &mut String, tail: &str, err: &mut Vec<OrcErr>| {
+      let str_val = parse_string(&str.split_off(0))
+        .inspect_err(|e| err.push(e.clone().into_proj(ctx.pos(tail) - str.len() as u32)))
+        .unwrap_or_default();
+      GenTok::X(IntStrAtom::from(intern(&*str_val)).factory())
+        .at(ctx.tok_ran(str.len() as u32, tail))
+    };
+    let add_frag = |prev: GenTokTree<'a>, new: GenTokTree<'a>| {
+      let range = prev.range.start..new.range.end;
+      wrap_tokv(vname_tv(&vname!(std::string::concat), new.range.end).chain([prev, new]), range)
+    };
     loop {
       if let Some(rest) = tail.strip_prefix('"') {
-        commit_str(&mut cur, tail, &mut errors, &mut parts);
-        return Ok((rest, wrap_tokv(parts, ctx.pos(all)..ctx.pos(rest))));
+        return Ok((rest, add_frag(ret, str_to_gen(&mut cur, tail, &mut errors))));
       } else if let Some(rest) = tail.strip_prefix('$') {
-        commit_str(&mut cur, tail, &mut errors, &mut parts);
-        parts.push(GenTok::Name(intern!(str: "++")).at(ctx.tok_ran(1, rest)));
-        parts.extend(vname_tv(&vname!(std::string::convert), ctx.tok_ran(1, rest)));
+        ret = add_frag(ret, str_to_gen(&mut cur, tail, &mut errors));
         let (new_tail, tree) = ctx.recurse(rest)?;
         tail = new_tail;
-        parts.push(tree);
+        ret = add_frag(ret, tree);
       } else if tail.starts_with('\\') {
-        // parse_string will deal with it, we just have to make sure we skip the next
-        // char
+        // parse_string will deal with it, we just have to skip the next char
         tail = &tail[2..];
       } else {
         let mut ch = tail.chars();
@@ -131,12 +129,9 @@ impl Lexer for StringLexer {
           tail = ch.as_str();
         } else {
           let range = ctx.pos(all)..ctx.pos("");
-          commit_str(&mut cur, tail, &mut errors, &mut parts);
-          return Err(vec![mk_err(
-            intern!(str: "No string end"),
-            "String never terminated with \"",
-            [Pos::Range(range.clone()).into()],
-          )]);
+          return Err(mk_errv(intern!(str: "No string end"), "String never terminated with \"", [
+            Pos::Range(range.clone()).into(),
+          ]));
         }
       }
     }

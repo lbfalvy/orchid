@@ -1,7 +1,8 @@
 {
   "languages": {
     "Rust": {
-      "language_servers": ["rust-analyzer", "..."]
+      "language_servers": ["rust-analyzer", "..."],
+      "formatter": "language_server"
     }
   },
   "wrap_guides": [100],
@@ -11,8 +12,11 @@
         "path": "C:\\Users\\z004yk5r\\.cargo\\bin\\rust-analyzer.exe"
       },
       "initialization_options": {
-        "checkOnSave": {
+        "check": {
           "command": "clippy"
+        },
+        "rustfmt": {
+          "extraArgs": ["+nightly"]
         }
       }
     }
