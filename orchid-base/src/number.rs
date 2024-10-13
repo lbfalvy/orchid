@@ -3,6 +3,7 @@ use std::ops::Range;
 
 use ordered_float::NotNan;
 use rust_decimal::Decimal;
+use num_traits::ToPrimitive;
 
 use crate::error::{mk_err, OrcErr};
 use crate::intern;
@@ -21,6 +22,16 @@ pub enum Numeric {
 impl Numeric {
   pub fn decimal(num: i64, scale: u32) -> Self { Self::Decimal(Decimal::new(num, scale)) }
   pub fn float(value: f64) -> Self { Self::Float(NotNan::new(value).unwrap()) }
+  pub fn to_f64(self) -> NotNan<f64> {
+    match self {
+      Self::Float(f) => f,
+      Self::Decimal(d) => {
+        let f = d.to_f64().expect("This is apparently always possible");
+        NotNan::new(f).expect("decimal was nan")
+      },
+      Self::Uint(i) => NotNan::new(i as f64).expect("int cannot be NaN"),
+    }
+  }
 }
 
 /// Rasons why [parse_num] might fail. See [NumError].

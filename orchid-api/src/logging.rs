@@ -1,6 +1,6 @@
 use orchid_api_derive::{Coding, Hierarchy};
 
-use crate::proto::ExtHostNotif;
+use crate::ExtHostNotif;
 
 #[derive(Clone, Debug, Coding)]
 pub enum LogStrategy {

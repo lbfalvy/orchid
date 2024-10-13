@@ -6,16 +6,16 @@ use std::{mem, process, thread};
 
 use hashbrown::HashMap;
 use itertools::Itertools;
-use orchid_api::DeserAtom;
+use orchid_api::ExtMsgSet;
 use orchid_api_traits::{enc_vec, Decode, Encode};
 use orchid_base::char_filter::{char_filter_match, char_filter_union, mk_char_filter};
 use orchid_base::clone;
-use orchid_base::error::errv_to_apiv;
 use orchid_base::interner::{deintern, init_replica, sweep_replica};
 use orchid_base::logging::Logger;
+use orchid_base::macros::{mtreev_from_api, mtreev_to_api};
 use orchid_base::name::{PathSlice, Sym};
-use orchid_base::parse::Snippet;
-use orchid_base::reqnot::{ReqNot, Requester};
+use orchid_base::parse::{Comment, Snippet};
+use orchid_base::reqnot::{ReqHandlish, ReqNot, RequestHandle, Requester};
 use orchid_base::tree::{ttv_from_api, ttv_to_api};
 use substack::Substack;
 
@@ -23,11 +23,15 @@ use crate::api;
 use crate::atom::{AtomCtx, AtomDynfo};
 use crate::atom_owned::OBJ_STORE;
 use crate::fs::VirtFS;
-use crate::lexer::{err_cascade, err_lexer_na, LexContext};
+use crate::lexer::{err_cascade, err_not_applicable, LexContext};
+use crate::macros::{apply_rule, RuleCtx};
 use crate::msg::{recv_parent_msg, send_parent_msg};
 use crate::system::{atom_by_idx, SysCtx};
 use crate::system_ctor::{CtedObj, DynSystemCtor};
 use crate::tree::{do_extra, GenTok, GenTokTree, LazyMemberFactory, TIACtxImpl};
+
+pub type ExtReq = RequestHandle<ExtMsgSet>;
+pub type ExtReqNot = ReqNot<ExtMsgSet>;
 
 pub struct ExtensionData {
   pub name: &'static str,
@@ -56,7 +60,7 @@ pub fn with_atom_record<T>(
   get_sys_ctx: &impl Fn(api::SysId, ReqNot<api::ExtMsgSet>) -> SysCtx,
   reqnot: ReqNot<api::ExtMsgSet>,
   atom: &api::Atom,
-  cb: impl FnOnce(&'static dyn AtomDynfo, SysCtx, api::AtomId, &[u8]) -> T,
+  cb: impl FnOnce(Box<dyn AtomDynfo>, SysCtx, api::AtomId, &[u8]) -> T,
 ) -> T {
   let mut data = &atom.data[..];
   let ctx = get_sys_ctx(atom.owner, reqnot);
@@ -107,12 +111,12 @@ fn extension_main_logic(data: ExtensionData) {
       api::HostExtNotif::AtomDrop(api::AtomDrop(sys_id, atom)) =>
         OBJ_STORE.get(atom.0).unwrap().remove().dyn_free(mk_ctx(sys_id, reqnot)),
     }),
-    clone!(systems, logger; move |req| match req.req() {
-      api::HostExtReq::Ping(ping@api::Ping) => req.handle(ping, &()),
-      api::HostExtReq::Sweep(sweep@api::Sweep) => req.handle(sweep, &sweep_replica()),
+    clone!(systems, logger; move |hand, req| match req {
+      api::HostExtReq::Ping(ping@api::Ping) => hand.handle(&ping, &()),
+      api::HostExtReq::Sweep(sweep@api::Sweep) => hand.handle(&sweep, &sweep_replica()),
       api::HostExtReq::SysReq(api::SysReq::NewSystem(new_sys)) => {
         let i = decls.iter().enumerate().find(|(_, s)| s.id == new_sys.system).unwrap().0;
-        let cted = data.systems[i].new_system(new_sys);
+        let cted = data.systems[i].new_system(&new_sys);
         let mut vfses = HashMap::new();
         let lex_filter = cted.inst().dyn_lexers().iter().fold(api::CharFilter(vec![]), |cf, lx| {
           let lxcf = mk_char_filter(lx.char_filter().iter().cloned());
@@ -123,7 +127,7 @@ fn extension_main_logic(data: ExtensionData) {
           cted: cted.clone(),
           id: new_sys.id,
           logger: logger.clone(),
-          reqnot: req.reqnot()
+          reqnot: hand.reqnot()
         };
         let mut tia_ctx = TIACtxImpl{
           lazy: &mut lazy_mems,
@@ -140,7 +144,7 @@ fn extension_main_logic(data: ExtensionData) {
           cted,
           lazy_members: lazy_mems
         });
-        req.handle(new_sys, &api::SystemInst {
+        hand.handle(&new_sys, &api::SystemInst {
           lex_filter,
           const_root,
           line_types: vec![]
@@ -148,16 +152,16 @@ fn extension_main_logic(data: ExtensionData) {
       }
       api::HostExtReq::GetMember(get_tree@api::GetMember(sys_id, tree_id)) => {
         let mut systems_g = systems.lock().unwrap();
-        let sys = systems_g.get_mut(sys_id).expect("System not found");
+        let sys = systems_g.get_mut(&sys_id).expect("System not found");
         let lazy = &mut sys.lazy_members;
-        let (path, cb) = match lazy.insert(*tree_id, MemberRecord::Res) {
+        let (path, cb) = match lazy.insert(tree_id, MemberRecord::Res) {
           None => panic!("Tree for ID not found"),
           Some(MemberRecord::Res) => panic!("This tree has already been transmitted"),
           Some(MemberRecord::Gen(path, cb)) => (path, cb),
         };
         let tree = cb.build(path.clone());
-        req.handle(get_tree, &tree.into_api(&mut TIACtxImpl{
-            sys: SysCtx::new(*sys_id, &sys.cted, &logger, req.reqnot()),
+        hand.handle(&get_tree, &tree.into_api(&mut TIACtxImpl{
+            sys: SysCtx::new(sys_id, &sys.cted, &logger, hand.reqnot()),
             path: Substack::Bottom,
             basepath: &path,
             lazy,
@@ -165,100 +169,124 @@ fn extension_main_logic(data: ExtensionData) {
       }
       api::HostExtReq::VfsReq(api::VfsReq::GetVfs(get_vfs@api::GetVfs(sys_id))) => {
         let systems_g = systems.lock().unwrap();
-        req.handle(get_vfs, &systems_g[sys_id].declfs)
+        hand.handle(&get_vfs, &systems_g[&sys_id].declfs)
+      }
+      api::HostExtReq::SysReq(api::SysReq::SysFwded(fwd)) => {
+        let api::SysFwded(sys_id, payload) = fwd;
+        let ctx = mk_ctx(sys_id, hand.reqnot());
+        let sys = ctx.cted.inst();
+        sys.dyn_request(hand, payload)
       }
       api::HostExtReq::VfsReq(api::VfsReq::VfsRead(vfs_read)) => {
-        let api::VfsRead(sys_id, vfs_id, path) = vfs_read;
+        let api::VfsRead(sys_id, vfs_id, path) = &vfs_read;
         let systems_g = systems.lock().unwrap();
         let path = path.iter().map(|t| deintern(*t)).collect_vec();
-        req.handle(vfs_read, &systems_g[sys_id].vfses[vfs_id].load(PathSlice::new(&path)))
+        hand.handle(&vfs_read, &systems_g[sys_id].vfses[vfs_id].load(PathSlice::new(&path)))
       }
-      api::HostExtReq::ParserReq(api::ParserReq::LexExpr(lex)) => {
-        let api::LexExpr{ sys, text, pos, id } = *lex;
+      api::HostExtReq::LexExpr(lex @ api::LexExpr{ sys, text, pos, id }) => {
         let systems_g = systems.lock().unwrap();
         let lexers = systems_g[&sys].cted.inst().dyn_lexers();
         mem::drop(systems_g);
         let text = deintern(text);
-        let ctx = LexContext { sys, id, pos, reqnot: req.reqnot(), text: &text };
+        let ctx = LexContext { sys, id, pos, reqnot: hand.reqnot(), text: &text };
         let trigger_char = text.chars().nth(pos as usize).unwrap();
         for lx in lexers.iter().filter(|l| char_filter_match(l.char_filter(), trigger_char)) {
           match lx.lex(&text[pos as usize..], &ctx) {
-            Err(e) if e.iter().any(|e| *e == err_lexer_na()) => continue,
+            Err(e) if e.any(|e| *e == err_not_applicable()) => continue,
             Err(e) => {
-              let errv = errv_to_apiv(e.iter().filter(|e| **e == err_cascade()));
-              return req.handle(lex, &if errv.is_empty() { None } else { Some(Err(errv))})
+              let eopt = e.keep_only(|e| *e != err_cascade()).map(|e| Err(e.to_api()));
+              return hand.handle(&lex, &eopt)
             },
             Ok((s, expr)) => {
-              let ctx = mk_ctx(sys, req.reqnot());
+              let ctx = mk_ctx(sys, hand.reqnot());
               let expr = expr.to_api(&mut |f, r| do_extra(f, r, ctx.clone()));
               let pos = (text.len() - s.len()) as u32;
-              return req.handle(lex, &Some(Ok(api::LexedExpr{ pos, expr })))
+              return hand.handle(&lex, &Some(Ok(api::LexedExpr{ pos, expr })))
             }
           }
         }
         writeln!(logger, "Got notified about n/a character '{trigger_char}'");
-        req.handle(lex, &None)
+        hand.handle(&lex, &None)
       },
-      api::HostExtReq::ParserReq(api::ParserReq::ParseLine(pline@api::ParseLine{ sys, line })) => {
-        let mut ctx = mk_ctx(*sys, req.reqnot());
+      api::HostExtReq::ParseLine(pline) => {
+        let api::ParseLine{ exported, comments, sys, line } = &pline;
+        let mut ctx = mk_ctx(*sys, hand.reqnot());
         let parsers = ctx.cted.inst().dyn_parsers();
+        let comments = comments.iter().map(Comment::from_api).collect();
         let line: Vec<GenTokTree> = ttv_from_api(line, &mut ctx);
         let snip = Snippet::new(line.first().expect("Empty line"), &line);
         let (head, tail) = snip.pop_front().unwrap();
         let name = if let GenTok::Name(n) = &head.tok { n } else { panic!("No line head") };
         let parser = parsers.iter().find(|p| p.line_head() == **name).expect("No parser candidate");
-        let o_line = match parser.parse(tail) {
-          Err(e) => Err(errv_to_apiv(e.iter())),
+        let o_line = match parser.parse(*exported, comments, tail) {
+          Err(e) => Err(e.to_api()),
           Ok(t) => Ok(ttv_to_api(t, &mut |f, range| {
             api::TokenTree{ range, token: api::Token::Atom(f.clone().build(ctx.clone())) }
           })),
         };
-        req.handle(pline, &o_line)
+        hand.handle(&pline, &o_line)
       }
       api::HostExtReq::AtomReq(atom_req) => {
         let atom = atom_req.get_atom();
-        with_atom_record(&mk_ctx, req.reqnot(), atom, |nfo, ctx, id, buf| {
+        with_atom_record(&mk_ctx, hand.reqnot(), atom, |nfo, ctx, id, buf| {
           let actx = AtomCtx(buf, atom.drop, ctx.clone());
-          match atom_req {
+          match &atom_req {
             api::AtomReq::SerializeAtom(ser) => {
               let mut buf = enc_vec(&id);
               let refs = nfo.serialize(actx, &mut buf);
-              req.handle(ser, &(buf, refs))
+              hand.handle(ser, &(buf, refs))
             }
-            api::AtomReq::AtomPrint(print@api::AtomPrint(_)) => req.handle(print, &nfo.print(actx)),
-            api::AtomReq::AtomSame(same@api::AtomSame(_, r)) => {
-              // different systems or different type tags
-              if atom.owner != r.owner || buf != &r.data[..8] {
-                return req.handle(same, &false)
-              }
-              req.handle(same, &nfo.same(actx, r))
-            },
-            api::AtomReq::Fwded(fwded@api::Fwded(_, payload)) => {
+            api::AtomReq::AtomPrint(print@api::AtomPrint(_)) =>
+              hand.handle(print, &nfo.print(actx)),
+            api::AtomReq::Fwded(fwded) => {
+              let api::Fwded(_, key, payload) = &fwded;
               let mut reply = Vec::new();
-              nfo.handle_req(actx, &mut &payload[..], &mut reply);
-              req.handle(fwded, &reply)
+              let some = nfo.handle_req(actx, Sym::deintern(*key), &mut &payload[..], &mut reply);
+              hand.handle(fwded, &some.then_some(reply))
             }
-            api::AtomReq::CallRef(call@api::CallRef(_, arg))
-              => req.handle(call, &nfo.call_ref(actx, *arg).to_api(ctx.clone())),
-            api::AtomReq::FinalCall(call@api::FinalCall(_, arg))
-              => req.handle(call, &nfo.call(actx, *arg).to_api(ctx.clone())),
-            api::AtomReq::Command(cmd@api::Command(_)) => req.handle(cmd, &match nfo.command(actx) {
-              Err(e) => Err(errv_to_apiv(e.iter())),
-              Ok(opt) => Ok(match opt {
-                Some(cont) => api::NextStep::Continue(cont.into_api(ctx.clone())),
-                None => api::NextStep::Halt,
+            api::AtomReq::CallRef(call@api::CallRef(_, arg)) => {
+              let ret = nfo.call_ref(actx, *arg);
+              hand.handle(call, &ret.api_return(ctx.clone(), &mut |h| hand.defer_drop(h)))
+            },
+            api::AtomReq::FinalCall(call@api::FinalCall(_, arg)) => {
+              let ret = nfo.call(actx, *arg);
+              hand.handle(call, &ret.api_return(ctx.clone(), &mut |h| hand.defer_drop(h)))
+            }
+            api::AtomReq::Command(cmd@api::Command(_)) => {
+              hand.handle(cmd, &match nfo.command(actx) {
+                Err(e) => Err(e.to_api()),
+                Ok(opt) => Ok(match opt {
+                  None => api::NextStep::Halt,
+                  Some(cont) => api::NextStep::Continue(
+                    cont.api_return(ctx.clone(), &mut |h| hand.defer_drop(h))
+                  ),
+                })
               })
-            })
+            }
           }
         })
       },
-      api::HostExtReq::DeserAtom(deser@DeserAtom(sys, buf, refs)) => {
+      api::HostExtReq::DeserAtom(deser) => {
+        let api::DeserAtom(sys, buf, refs) = &deser;
         let mut read = &mut &buf[..];
-        let ctx = mk_ctx(*sys, req.reqnot());
+        let ctx = mk_ctx(*sys, hand.reqnot());
         let id = api::AtomId::decode(&mut read);
         let inst = ctx.cted.inst();
         let nfo = atom_by_idx(inst.card(), id).expect("Deserializing atom with invalid ID");
-        req.handle(deser, &nfo.deserialize(ctx.clone(), read, refs))
+        hand.handle(&deser, &nfo.deserialize(ctx.clone(), read, refs))
+      },
+      orchid_api::HostExtReq::ApplyMacro(am) => {
+        let tok = hand.will_handle_as(&am);
+        let sys_ctx = mk_ctx(am.sys, hand.reqnot());
+        let ctx = RuleCtx {
+          args: am.params.into_iter().map(|(k, v)| (deintern(k), mtreev_from_api(&v))).collect(),
+          run_id: am.run_id,
+          sys: sys_ctx.clone(),
+        };
+        hand.handle_as(tok, &match apply_rule(am.id, ctx) {
+          Err(e) => e.keep_only(|e| *e != err_cascade()).map(|e| Err(e.to_api())),
+          Ok(t) => Some(Ok(mtreev_to_api(&t))),
+        })
       }
     }),
   );

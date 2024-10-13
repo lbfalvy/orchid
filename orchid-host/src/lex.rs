@@ -2,12 +2,14 @@ use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use hashbrown::HashMap;
-use orchid_base::error::{mk_err, OrcErr, OrcRes};
+use orchid_base::error::{mk_errv, OrcErrv, OrcRes};
 use orchid_base::intern;
 use orchid_base::interner::{deintern, intern, Tok};
 use orchid_base::location::Pos;
+use orchid_base::number::{num_to_err, parse_num};
 use orchid_base::parse::{name_char, name_start, op_char, unrep_space};
 use orchid_base::tokens::PARENS;
+use orchid_base::tree::Ph;
 
 use crate::api;
 use crate::extension::{AtomHand, System};
@@ -81,11 +83,9 @@ pub fn lex_once(ctx: &mut LexCtx) -> OrcRes<ParsTokTree> {
     ParsTok::NS
   } else if ctx.strip_prefix("--[") {
     let (cmt, tail) = ctx.tail.split_once("]--").ok_or_else(|| {
-      vec![mk_err(
-        intern!(str: "Unterminated block comment"),
-        "This block comment has no ending ]--",
-        [Pos::Range(start..start + 3).into()],
-      )]
+      mk_errv(intern!(str: "Unterminated block comment"), "This block comment has no ending ]--", [
+        Pos::Range(start..start + 3).into(),
+      ])
     })?;
     ctx.set_tail(tail);
     ParsTok::Comment(Arc::new(cmt.to_string()))
@@ -98,11 +98,11 @@ pub fn lex_once(ctx: &mut LexCtx) -> OrcRes<ParsTokTree> {
     ctx.trim_ws();
     while !ctx.strip_char('.') {
       if ctx.tail.is_empty() {
-        return Err(vec![mk_err(
+        return Err(mk_errv(
           intern!(str: "Unclosed lambda"),
           "Lambdae started with \\ should separate arguments from body with .",
           [Pos::Range(start..start + 1).into()],
-        )]);
+        ));
       }
       arg.push(lex_once(ctx)?);
       ctx.trim_ws();
@@ -113,33 +113,46 @@ pub fn lex_once(ctx: &mut LexCtx) -> OrcRes<ParsTokTree> {
     ctx.trim_ws();
     while !ctx.strip_char(*rp) {
       if ctx.tail.is_empty() {
-        return Err(vec![mk_err(
+        return Err(mk_errv(
           intern!(str: "unclosed paren"),
           format!("this {lp} has no matching {rp}"),
           [Pos::Range(start..start + 1).into()],
-        )]);
+        ));
       }
       body.push(lex_once(ctx)?);
       ctx.trim_ws();
     }
     ParsTok::S(paren.clone(), body)
+  } else if ctx.strip_prefix("macro") &&
+    !ctx.tail.chars().next().is_some_and(|x| x.is_ascii_alphabetic())
+  {
+    ctx.strip_prefix("macro");
+    if ctx.strip_char('(') {
+      let pos = ctx.get_pos();
+      let numstr = ctx.get_start_matches(|x| x != ')').trim();
+      let num = parse_num(numstr).map_err(|e| num_to_err(e, pos))?;
+      ParsTok::Macro(Some(num.to_f64()))
+    } else {
+      ParsTok::Macro(None)
+    }
   } else {
     for sys in ctx.systems {
       let mut errors = Vec::new();
       if ctx.tail.starts_with(|c| sys.can_lex(c)) {
-        let lexed = sys.lex(ctx.source.clone(), ctx.get_pos(), |pos| {
-          let mut sub_ctx = ctx.push(pos);
-          let ott =
-            lex_once(&mut sub_ctx).inspect_err(|e| errors.extend(e.iter().cloned())).ok()?;
-          Some(api::SubLexed { pos: sub_ctx.get_pos(), ticket: sub_ctx.add_subtree(ott) })
-        });
-        match lexed {
-          Ok(None) if errors.is_empty() => continue,
-          Ok(None) => return Err(errors),
-          Err(e) => return Err(e.into_iter().map(|e| OrcErr::from_api(&e)).collect()),
-          Ok(Some(lexed)) => {
-            ctx.set_pos(lexed.pos);
-            return Ok(tt_to_owned(&lexed.expr, ctx));
+        let lx =
+          sys.lex(ctx.source.clone(), ctx.get_pos(), |pos| match lex_once(&mut ctx.push(pos)) {
+            Ok(t) => Some(api::SubLexed { pos, ticket: ctx.add_subtree(t) }),
+            Err(e) => {
+              errors.push(e);
+              None
+            },
+          });
+        match lx {
+          Err(e) => return Err(errors.into_iter().fold(OrcErrv::from_api(&e), |a, b| a + b)),
+          Ok(Some(lexed)) => return Ok(tt_to_owned(&lexed.expr, &mut ctx.push(lexed.pos))),
+          Ok(None) => match errors.into_iter().reduce(|a, b| a + b) {
+            Some(errors) => return Err(errors),
+            None => continue,
           },
         }
       }
@@ -149,11 +162,11 @@ pub fn lex_once(ctx: &mut LexCtx) -> OrcRes<ParsTokTree> {
     } else if ctx.tail.starts_with(op_char) {
       ParsTok::Name(intern(ctx.get_start_matches(op_char)))
     } else {
-      return Err(vec![mk_err(
+      return Err(mk_errv(
         intern!(str: "Unrecognized character"),
         "The following syntax is meaningless.",
         [Pos::Range(start..start + 1).into()],
-      )]);
+      ));
     }
   };
   Ok(ParsTokTree { tok, range: start..ctx.get_pos() })
@@ -162,17 +175,26 @@ pub fn lex_once(ctx: &mut LexCtx) -> OrcRes<ParsTokTree> {
 fn tt_to_owned(api: &api::TokenTree, ctx: &mut LexCtx<'_>) -> ParsTokTree {
   let tok = match &api.token {
     api::Token::Atom(atom) => ParsTok::Atom(AtomHand::from_api(atom.clone())),
-    api::Token::Bottom(err) => ParsTok::Bottom(err.iter().map(OrcErr::from_api).collect()),
-    api::Token::Lambda(arg) =>
-      ParsTok::LambdaHead(arg.iter().map(|t| tt_to_owned(t, ctx)).collect()),
+    api::Token::Bottom(err) => ParsTok::Bottom(OrcErrv::from_api(err)),
+    api::Token::LambdaHead(arg) => ParsTok::LambdaHead(ttv_to_owned(arg, ctx)),
+    api::Token::Lambda(arg, b) => ParsTok::Lambda(ttv_to_owned(arg, ctx), ttv_to_owned(b, ctx)),
     api::Token::Name(name) => ParsTok::Name(deintern(*name)),
     api::Token::S(p, b) => ParsTok::S(p.clone(), b.iter().map(|t| tt_to_owned(t, ctx)).collect()),
     api::Token::Slot(id) => return ctx.rm_subtree(*id),
     api::Token::BR => ParsTok::BR,
     api::Token::NS => ParsTok::NS,
     api::Token::Comment(c) => ParsTok::Comment(c.clone()),
+    api::Token::Ph(ph) => ParsTok::Ph(Ph::from_api(ph)),
+    api::Token::Macro(prio) => ParsTok::Macro(*prio)
   };
   ParsTokTree { range: api.range.clone(), tok }
+}
+
+fn ttv_to_owned<'a>(
+  api: impl IntoIterator<Item = &'a api::TokenTree>,
+  ctx: &mut LexCtx<'_>
+) -> Vec<ParsTokTree> {
+  api.into_iter().map(|t| tt_to_owned(t, ctx)).collect()
 }
 
 pub fn lex(text: Tok<String>, systems: &[System]) -> OrcRes<Vec<ParsTokTree>> {

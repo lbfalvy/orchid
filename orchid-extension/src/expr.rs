@@ -1,10 +1,11 @@
-use std::marker::PhantomData;
+use std::fmt;
 use std::ops::Deref;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use derive_destructure::destructure;
-use orchid_base::error::{errv_from_apiv, errv_to_apiv, OrcErr};
-use orchid_base::interner::{deintern, Tok};
+use orchid_api::InspectedKind;
+use orchid_base::error::{OrcErr, OrcErrv};
+use orchid_base::interner::Tok;
 use orchid_base::location::Pos;
 use orchid_base::reqnot::Requester;
 
@@ -19,11 +20,12 @@ pub struct ExprHandle {
 }
 impl ExprHandle {
   pub(crate) fn from_args(ctx: SysCtx, tk: api::ExprTicket) -> Self { Self { ctx, tk } }
-  pub(crate) fn into_tk(self) -> api::ExprTicket {
-    let (tk, ..) = self.destructure();
-    tk
-  }
   pub fn get_ctx(&self) -> SysCtx { self.ctx.clone() }
+}
+impl fmt::Debug for ExprHandle {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "ExprHandle({})", self.tk.0)
+  }
 }
 impl Clone for ExprHandle {
   fn clone(&self) -> Self {
@@ -35,144 +37,128 @@ impl Drop for ExprHandle {
   fn drop(&mut self) { self.ctx.reqnot.notify(api::Release(self.ctx.id, self.tk)) }
 }
 
-#[derive(Clone, destructure)]
-pub struct OwnedExpr {
-  pub handle: ExprHandle,
-  pub val: OnceLock<Box<GenExpr>>,
+#[derive(Clone, Debug, destructure)]
+pub struct Expr {
+  pub handle: Option<Arc<ExprHandle>>,
+  pub val: OnceLock<ExprData>,
 }
-impl OwnedExpr {
-  pub fn new(handle: ExprHandle) -> Self { Self { handle, val: OnceLock::new() } }
-  pub fn get_data(&self) -> &GenExpr {
+impl Expr {
+  pub fn new(hand: Arc<ExprHandle>) -> Self { Self { handle: Some(hand), val: OnceLock::new() } }
+  pub fn from_data(val: ExprData) -> Self { Self { handle: None, val: OnceLock::from(val) } }
+  pub fn get_data(&self) -> &ExprData {
     self.val.get_or_init(|| {
-      Box::new(GenExpr::from_api(
-        self.handle.ctx.reqnot.request(api::Inspect(self.handle.tk)).expr,
-        &self.handle.ctx,
-      ))
+      let handle = self.handle.as_ref().expect("Either the value or the handle must be set");
+      let details = handle.ctx.reqnot.request(api::Inspect { target: handle.tk });
+      let pos = Pos::from_api(&details.location);
+      let kind = match details.kind {
+        InspectedKind::Atom(a) => ExprKind::Atom(ForeignAtom::new(handle.clone(), a, pos.clone())),
+        InspectedKind::Bottom(b) => ExprKind::Bottom(OrcErrv::from_api(&b)),
+        InspectedKind::Opaque => ExprKind::Opaque,
+      };
+      ExprData { pos, kind }
     })
   }
   pub fn foreign_atom(self) -> Result<ForeignAtom<'static>, Self> {
-    if let GenExpr { clause: GenClause::Atom(_, atom), pos: position } = self.get_data() {
-      let (atom, position) = (atom.clone(), position.clone());
-      return Ok(ForeignAtom {
-        ctx: self.handle.ctx.clone(),
-        expr: Some(self.handle),
-        char_marker: PhantomData,
-        pos: position,
-        atom,
-      });
+    match (self.get_data(), &self.handle) {
+      (ExprData { kind: ExprKind::Atom(atom), .. }, Some(_)) => Ok(atom.clone()),
+      _ => Err(self),
     }
-    Err(self)
   }
+  pub fn api_return(
+    self,
+    ctx: SysCtx,
+    do_slot: &mut impl FnMut(Arc<ExprHandle>),
+  ) -> api::Expression {
+    if let Some(h) = self.handle {
+      do_slot(h.clone());
+      api::Expression { location: api::Location::SlotTarget, kind: api::ExpressionKind::Slot(h.tk) }
+    } else {
+      self.val.into_inner().expect("Either value or handle must be set").api_return(ctx, do_slot)
+    }
+  }
+  pub fn handle(&self) -> Option<Arc<ExprHandle>> { self.handle.clone() }
 }
-impl Deref for OwnedExpr {
-  type Target = GenExpr;
+impl Deref for Expr {
+  type Target = ExprData;
   fn deref(&self) -> &Self::Target { self.get_data() }
 }
 
-#[derive(Clone)]
-pub struct GenExpr {
+#[derive(Clone, Debug)]
+pub struct ExprData {
   pub pos: Pos,
-  pub clause: GenClause,
+  pub kind: ExprKind,
 }
-impl GenExpr {
-  pub fn to_api(&self, ctx: SysCtx) -> api::Expr {
-    api::Expr { location: self.pos.to_api(), clause: self.clause.to_api(ctx) }
-  }
-  pub fn into_api(self, ctx: SysCtx) -> api::Expr {
-    api::Expr { location: self.pos.to_api(), clause: self.clause.into_api(ctx) }
-  }
-  pub fn from_api(api: api::Expr, ctx: &SysCtx) -> Self {
-    Self { pos: Pos::from_api(&api.location), clause: GenClause::from_api(api.clause, ctx) }
+impl ExprData {
+  pub fn api_return(
+    self,
+    ctx: SysCtx,
+    do_slot: &mut impl FnMut(Arc<ExprHandle>),
+  ) -> api::Expression {
+    api::Expression { location: self.pos.to_api(), kind: self.kind.api_return(ctx, do_slot) }
   }
 }
 
-#[derive(Clone)]
-pub enum GenClause {
-  Call(Box<GenExpr>, Box<GenExpr>),
-  Lambda(u64, Box<GenExpr>),
+#[derive(Clone, Debug)]
+pub enum ExprKind {
+  Call(Box<Expr>, Box<Expr>),
+  Lambda(u64, Box<Expr>),
   Arg(u64),
-  Slot(OwnedExpr),
-  Seq(Box<GenExpr>, Box<GenExpr>),
+  Seq(Box<Expr>, Box<Expr>),
   Const(Tok<Vec<Tok<String>>>),
   NewAtom(AtomFactory),
-  Atom(api::ExprTicket, api::Atom),
-  Bottom(Vec<OrcErr>),
+  Atom(ForeignAtom<'static>),
+  Bottom(OrcErrv),
+  Opaque,
 }
-impl GenClause {
-  pub fn to_api(&self, ctx: SysCtx) -> api::Clause {
+impl ExprKind {
+  pub fn api_return(
+    self,
+    ctx: SysCtx,
+    do_slot: &mut impl FnMut(Arc<ExprHandle>),
+  ) -> api::ExpressionKind {
+    use api::ExpressionKind as K;
     match self {
       Self::Call(f, x) =>
-        api::Clause::Call(Box::new(f.to_api(ctx.clone())), Box::new(x.to_api(ctx))),
-      Self::Seq(a, b) => api::Clause::Seq(Box::new(a.to_api(ctx.clone())), Box::new(b.to_api(ctx))),
-      Self::Lambda(arg, body) => api::Clause::Lambda(*arg, Box::new(body.to_api(ctx))),
-      Self::Arg(arg) => api::Clause::Arg(*arg),
-      Self::Const(name) => api::Clause::Const(name.marker()),
-      Self::Bottom(err) => api::Clause::Bottom(errv_to_apiv(err)),
-      Self::NewAtom(fac) => api::Clause::NewAtom(fac.clone().build(ctx)),
-      Self::Atom(tk, atom) => api::Clause::Atom(*tk, atom.clone()),
-      Self::Slot(_) => panic!("Slot is forbidden in const tree"),
-    }
-  }
-  pub fn into_api(self, ctx: SysCtx) -> api::Clause {
-    match self {
-      Self::Call(f, x) =>
-        api::Clause::Call(Box::new(f.into_api(ctx.clone())), Box::new(x.into_api(ctx))),
+        K::Call(Box::new(f.api_return(ctx.clone(), do_slot)), Box::new(x.api_return(ctx, do_slot))),
       Self::Seq(a, b) =>
-        api::Clause::Seq(Box::new(a.into_api(ctx.clone())), Box::new(b.into_api(ctx))),
-      Self::Lambda(arg, body) => api::Clause::Lambda(arg, Box::new(body.into_api(ctx))),
-      Self::Arg(arg) => api::Clause::Arg(arg),
-      Self::Slot(extk) => api::Clause::Slot(extk.handle.into_tk()),
-      Self::Const(name) => api::Clause::Const(name.marker()),
-      Self::Bottom(err) => api::Clause::Bottom(errv_to_apiv(err.iter())),
-      Self::NewAtom(fac) => api::Clause::NewAtom(fac.clone().build(ctx)),
-      Self::Atom(tk, atom) => api::Clause::Atom(tk, atom),
-    }
-  }
-  pub fn from_api(api: api::Clause, ctx: &SysCtx) -> Self {
-    match api {
-      api::Clause::Arg(id) => Self::Arg(id),
-      api::Clause::Lambda(arg, body) => Self::Lambda(arg, Box::new(GenExpr::from_api(*body, ctx))),
-      api::Clause::NewAtom(_) => panic!("Clause::NewAtom should never be received, only sent"),
-      api::Clause::Bottom(s) => Self::Bottom(errv_from_apiv(&s)),
-      api::Clause::Call(f, x) =>
-        Self::Call(Box::new(GenExpr::from_api(*f, ctx)), Box::new(GenExpr::from_api(*x, ctx))),
-      api::Clause::Seq(a, b) =>
-        Self::Seq(Box::new(GenExpr::from_api(*a, ctx)), Box::new(GenExpr::from_api(*b, ctx))),
-      api::Clause::Const(name) => Self::Const(deintern(name)),
-      api::Clause::Slot(exi) => Self::Slot(OwnedExpr::new(ExprHandle::from_args(ctx.clone(), exi))),
-      api::Clause::Atom(tk, atom) => Self::Atom(tk, atom),
+        K::Seq(Box::new(a.api_return(ctx.clone(), do_slot)), Box::new(b.api_return(ctx, do_slot))),
+      Self::Lambda(arg, body) => K::Lambda(arg, Box::new(body.api_return(ctx, do_slot))),
+      Self::Arg(arg) => K::Arg(arg),
+      Self::Const(name) => K::Const(name.marker()),
+      Self::Bottom(err) => K::Bottom(err.to_api()),
+      Self::NewAtom(fac) => K::NewAtom(fac.clone().build(ctx)),
+      kind @ (Self::Atom(_) | Self::Opaque) => panic!("{kind:?} should have a token"),
     }
   }
 }
-fn inherit(clause: GenClause) -> GenExpr { GenExpr { pos: Pos::Inherit, clause } }
+fn inherit(kind: ExprKind) -> Expr { Expr::from_data(ExprData { pos: Pos::Inherit, kind }) }
 
-pub fn sym_ref(path: Tok<Vec<Tok<String>>>) -> GenExpr { inherit(GenClause::Const(path)) }
-pub fn atom<A: ToAtom>(atom: A) -> GenExpr { inherit(GenClause::NewAtom(atom.to_atom_factory())) }
+pub fn sym_ref(path: Tok<Vec<Tok<String>>>) -> Expr { inherit(ExprKind::Const(path)) }
+pub fn atom<A: ToAtom>(atom: A) -> Expr { inherit(ExprKind::NewAtom(atom.to_atom_factory())) }
 
-pub fn seq(ops: impl IntoIterator<Item = GenExpr>) -> GenExpr {
-  fn recur(mut ops: impl Iterator<Item = GenExpr>) -> Option<GenExpr> {
+pub fn seq(ops: impl IntoIterator<Item = Expr>) -> Expr {
+  fn recur(mut ops: impl Iterator<Item = Expr>) -> Option<Expr> {
     let op = ops.next()?;
     Some(match recur(ops) {
       None => op,
-      Some(rec) => inherit(GenClause::Seq(Box::new(op), Box::new(rec))),
+      Some(rec) => inherit(ExprKind::Seq(Box::new(op), Box::new(rec))),
     })
   }
   recur(ops.into_iter()).expect("Empty list provided to seq!")
 }
 
-pub fn slot(extk: OwnedExpr) -> GenClause { GenClause::Slot(extk) }
+pub fn arg(n: u64) -> ExprKind { ExprKind::Arg(n) }
 
-pub fn arg(n: u64) -> GenClause { GenClause::Arg(n) }
-
-pub fn lambda(n: u64, b: impl IntoIterator<Item = GenExpr>) -> GenExpr {
-  inherit(GenClause::Lambda(n, Box::new(call(b))))
+pub fn lambda(n: u64, b: impl IntoIterator<Item = Expr>) -> Expr {
+  inherit(ExprKind::Lambda(n, Box::new(call(b))))
 }
 
-pub fn call(v: impl IntoIterator<Item = GenExpr>) -> GenExpr {
+pub fn call(v: impl IntoIterator<Item = Expr>) -> Expr {
   v.into_iter()
-    .reduce(|f, x| inherit(GenClause::Call(Box::new(f), Box::new(x))))
+    .reduce(|f, x| inherit(ExprKind::Call(Box::new(f), Box::new(x))))
     .expect("Empty call expression")
 }
 
-pub fn bot(e: OrcErr) -> GenExpr { botv(vec![e]) }
-pub fn botv(ev: Vec<OrcErr>) -> GenExpr { inherit(GenClause::Bottom(ev)) }
+pub fn bot(ev: impl IntoIterator<Item = OrcErr>) -> Expr {
+  inherit(ExprKind::Bottom(OrcErrv::new(ev).unwrap()))
+}

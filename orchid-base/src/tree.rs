@@ -1,6 +1,6 @@
 use std::borrow::Borrow;
 use std::cell::RefCell;
-use std::fmt::{self, Display, Write};
+use std::fmt::{self, Debug, Display};
 use std::iter;
 use std::marker::PhantomData;
 use std::ops::Range;
@@ -8,26 +8,32 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use never::Never;
+use orchid_api::Placeholder;
+use ordered_float::NotNan;
 use trait_set::trait_set;
 
 use crate::api;
-use crate::error::OrcErr;
+use crate::error::OrcErrv;
 use crate::interner::{deintern, Tok};
-use crate::name::{NameLike, VName};
+use crate::name::PathSlice;
+use crate::parse::Snippet;
 use crate::tokens::PARENS;
 
+pub use api::PhKind as PhKind;
+
 trait_set! {
-  pub trait RecurCB<'a, A: AtomInTok, X> = Fn(TokTree<'a, A, X>) -> TokTree<'a, A, X>;
+  pub trait RecurCB<'a, A: AtomTok, X: ExtraTok> = Fn(TokTree<'a, A, X>) -> TokTree<'a, A, X>;
+  pub trait ExtraTok = Display + Clone + fmt::Debug;
 }
 
-pub fn recur<'a, A: AtomInTok, X>(
+pub fn recur<'a, A: AtomTok, X: ExtraTok>(
   tt: TokTree<'a, A, X>,
   f: &impl Fn(TokTree<'a, A, X>, &dyn RecurCB<'a, A, X>) -> TokTree<'a, A, X>,
 ) -> TokTree<'a, A, X> {
   f(tt, &|TokTree { range, tok }| {
     let tok = match tok {
       tok @ (Token::Atom(_) | Token::BR | Token::Bottom(_) | Token::Comment(_) | Token::NS) => tok,
-      tok @ (Token::Name(_) | Token::Slot(_) | Token::X(_)) => tok,
+      tok @ (Token::Name(_) | Token::Slot(_) | Token::X(_) | Token::Ph(_) | Token::Macro(_)) => tok,
       Token::LambdaHead(arg) =>
         Token::LambdaHead(arg.into_iter().map(|tt| recur(tt, f)).collect_vec()),
       Token::S(p, b) => Token::S(p, b.into_iter().map(|tt| recur(tt, f)).collect_vec()),
@@ -36,46 +42,48 @@ pub fn recur<'a, A: AtomInTok, X>(
   })
 }
 
-pub trait AtomInTok: Display + Clone {
+pub trait AtomTok: fmt::Display + Clone + fmt::Debug {
   type Context: ?Sized;
   fn from_api(atom: &api::Atom, pos: Range<u32>, ctx: &mut Self::Context) -> Self;
   fn to_api(&self) -> api::Atom;
 }
-impl AtomInTok for Never {
+impl AtomTok for Never {
   type Context = Never;
   fn from_api(_: &api::Atom, _: Range<u32>, _: &mut Self::Context) -> Self { panic!() }
   fn to_api(&self) -> orchid_api::Atom { match *self {} }
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub struct TreeHandle<'a>(api::TreeTicket, PhantomData<&'a ()>);
-impl TreeHandle<'static> {
-  pub fn new(tt: api::TreeTicket) -> Self { TreeHandle(tt, PhantomData) }
+pub struct TokHandle<'a>(api::TreeTicket, PhantomData<&'a ()>);
+impl TokHandle<'static> {
+  pub fn new(tt: api::TreeTicket) -> Self { TokHandle(tt, PhantomData) }
 }
-impl<'a> TreeHandle<'a> {
+impl<'a> TokHandle<'a> {
   pub fn ticket(self) -> api::TreeTicket { self.0 }
 }
-impl<'a> Display for TreeHandle<'a> {
+impl<'a> Display for TokHandle<'a> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "Handle({})", self.0.0) }
 }
 
 #[derive(Clone, Debug)]
-pub struct TokTree<'a, A: AtomInTok, X> {
+pub struct TokTree<'a, A: AtomTok, X: ExtraTok> {
   pub tok: Token<'a, A, X>,
   pub range: Range<u32>,
 }
-impl<'a, A: AtomInTok, X> TokTree<'a, A, X> {
+impl<'a, A: AtomTok, X: ExtraTok> TokTree<'a, A, X> {
   pub fn from_api(tt: &api::TokenTree, ctx: &mut A::Context) -> Self {
     let tok = match &tt.token {
       api::Token::Atom(a) => Token::Atom(A::from_api(a, tt.range.clone(), ctx)),
       api::Token::BR => Token::BR,
       api::Token::NS => Token::NS,
-      api::Token::Bottom(e) => Token::Bottom(e.iter().map(OrcErr::from_api).collect()),
-      api::Token::Lambda(arg) => Token::LambdaHead(ttv_from_api(arg, ctx)),
+      api::Token::Bottom(e) => Token::Bottom(OrcErrv::from_api(e)),
+      api::Token::LambdaHead(arg) => Token::LambdaHead(ttv_from_api(arg, ctx)),
       api::Token::Name(name) => Token::Name(deintern(*name)),
-      api::Token::S(par, b) => Token::S(par.clone(), ttv_from_api(b, ctx)),
+      api::Token::S(par, b) => Token::S(*par, ttv_from_api(b, ctx)),
       api::Token::Comment(c) => Token::Comment(c.clone()),
-      api::Token::Slot(id) => Token::Slot(TreeHandle::new(*id)),
+      api::Token::Slot(id) => Token::Slot(TokHandle::new(*id)),
+      api::Token::Ph(ph) => Token::Ph(Ph {name: deintern(ph.name), kind: ph.kind }),
+      api::Token::Macro(prio) => Token::Macro(*prio)
     };
     Self { range: tt.range.clone(), tok }
   }
@@ -88,66 +96,110 @@ impl<'a, A: AtomInTok, X> TokTree<'a, A, X> {
       Token::Atom(a) => api::Token::Atom(a.to_api()),
       Token::BR => api::Token::BR,
       Token::NS => api::Token::NS,
-      Token::Bottom(e) => api::Token::Bottom(e.iter().map(OrcErr::to_api).collect()),
+      Token::Bottom(e) => api::Token::Bottom(e.to_api()),
       Token::Comment(c) => api::Token::Comment(c.clone()),
-      Token::LambdaHead(arg) =>
-        api::Token::Lambda(arg.iter().map(|t| t.to_api(do_extra)).collect_vec()),
+      Token::LambdaHead(arg) => api::Token::LambdaHead(ttv_to_api(arg, do_extra)),
       Token::Name(n) => api::Token::Name(n.marker()),
       Token::Slot(tt) => api::Token::Slot(tt.ticket()),
-      Token::S(p, b) => api::Token::S(p.clone(), b.iter().map(|t| t.to_api(do_extra)).collect()),
+      Token::S(p, b) => api::Token::S(*p, ttv_to_api(b, do_extra)),
+      Token::Ph(Ph { name, kind }) => api::Token::Ph(Placeholder { name: name.marker(), kind: *kind }),
       Token::X(x) => return do_extra(x, self.range.clone()),
+      Token::Macro(prio) => api::Token::Macro(*prio),
     };
     api::TokenTree { range: self.range.clone(), token }
   }
+
+  pub fn into_api(
+    self,
+    do_extra: &mut impl FnMut(X, Range<u32>) -> api::TokenTree,
+  ) -> api::TokenTree {
+    let token = match self.tok {
+      Token::Atom(a) => api::Token::Atom(a.to_api()),
+      Token::BR => api::Token::BR,
+      Token::NS => api::Token::NS,
+      Token::Bottom(e) => api::Token::Bottom(e.to_api()),
+      Token::Comment(c) => api::Token::Comment(c.clone()),
+      Token::LambdaHead(arg) => api::Token::LambdaHead(ttv_into_api(arg, do_extra)),
+      Token::Name(n) => api::Token::Name(n.marker()),
+      Token::Slot(tt) => api::Token::Slot(tt.ticket()),
+      Token::S(p, b) => api::Token::S(p, ttv_into_api(b, do_extra)),
+      Token::Ph(Ph { kind, name }) => api::Token::Ph(Placeholder { name: name.marker(), kind }),
+      Token::X(x) => return do_extra(x, self.range.clone()),
+      Token::Macro(prio) => api::Token::Macro(prio),
+    };
+    api::TokenTree { range: self.range.clone(), token }
+  }
+
+  pub fn is_kw(&self, tk: Tok<String>) -> bool { self.tok.is_kw(tk) }
+  pub fn as_name(&self) -> Option<Tok<String>> {
+    if let Token::Name(n) = &self.tok { Some(n.clone()) } else { None }
+  }
+  pub fn as_s(&self, par: Paren) -> Option<Snippet<'_, 'a, A, X>> {
+    self.tok.as_s(par).map(|slc| Snippet::new(self, slc))
+  }
+  pub fn lambda(arg: Vec<Self>, mut body: Vec<Self>) -> Self {
+    let arg_range = ttv_range(&arg);
+    let s_range = arg_range.start..body.last().expect("Lambda with empty body!").range.end;
+    body.insert(0, Token::LambdaHead(arg).at(arg_range));
+    Token::S(Paren::Round, body).at(s_range)
+  }
 }
-impl<'a, A: AtomInTok + Display, X: Display> Display for TokTree<'a, A, X> {
+
+impl<'a, A: AtomTok, X: ExtraTok> Display for TokTree<'a, A, X> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.tok) }
 }
 
-pub fn ttv_from_api<A: AtomInTok, X>(
+pub fn ttv_from_api<A: AtomTok, X: ExtraTok>(
   tokv: impl IntoIterator<Item: Borrow<api::TokenTree>>,
   ctx: &mut A::Context,
 ) -> Vec<TokTree<'static, A, X>> {
   tokv.into_iter().map(|t| TokTree::<A, X>::from_api(t.borrow(), ctx)).collect()
 }
 
-pub fn ttv_to_api<'a, A: AtomInTok, X>(
+pub fn ttv_to_api<'a, A: AtomTok, X: ExtraTok>(
   tokv: impl IntoIterator<Item: Borrow<TokTree<'a, A, X>>>,
   do_extra: &mut impl FnMut(&X, Range<u32>) -> api::TokenTree,
 ) -> Vec<api::TokenTree> {
-  tokv
-    .into_iter()
-    .map(|tok| {
-      let tt: &TokTree<A, X> = tok.borrow();
-      tt.to_api(do_extra)
-    })
-    .collect_vec()
+  tokv.into_iter().map(|tok| Borrow::<TokTree<A, X>>::borrow(&tok).to_api(do_extra)).collect_vec()
 }
 
-pub fn vname_tv<'a: 'b, 'b, A: AtomInTok + 'a, X: 'a>(
-  name: &'b VName,
-  ran: Range<u32>,
+pub fn ttv_into_api<'a, A: AtomTok, X: ExtraTok>(
+  tokv: impl IntoIterator<Item = TokTree<'a, A, X>>,
+  do_extra: &mut impl FnMut(X, Range<u32>) -> api::TokenTree,
+) -> Vec<api::TokenTree> {
+  tokv.into_iter().map(|t| t.into_api(do_extra)).collect_vec()
+}
+
+/// This takes a position and not a range because it assigns the range to
+/// multiple leaf tokens, which is only valid if it's a zero-width range
+pub fn vname_tv<'a: 'b, 'b, A: AtomTok + 'a, X: ExtraTok + 'a>(
+  name: &'b PathSlice,
+  pos: u32,
 ) -> impl Iterator<Item = TokTree<'a, A, X>> + 'b {
-  let (head, tail) = name.split_first();
-  iter::once(Token::Name(head))
-    .chain(tail.iter().flat_map(|t| [Token::NS, Token::Name(t)]))
-    .map(move |t| t.at(ran.clone()))
+  let (head, tail) = name.split_first().expect("Empty vname");
+  iter::once(Token::Name(head.clone()))
+    .chain(tail.iter().flat_map(|t| [Token::NS, Token::Name(t.clone())]))
+    .map(move |t| t.at(pos..pos))
 }
 
-pub fn wrap_tokv<'a, A: AtomInTok + 'a, X: 'a>(
-  items: Vec<TokTree<'a, A, X>>,
-  range: Range<u32>,
+pub fn wrap_tokv<'a, A: AtomTok, X: ExtraTok>(
+  items: impl IntoIterator<Item = TokTree<'a, A, X>>
 ) -> TokTree<'a, A, X> {
-  match items.len() {
-    1 => items.into_iter().next().unwrap(),
-    _ => Token::S(api::Paren::Round, items).at(range),
+  let items_v = items.into_iter().collect_vec();
+  match items_v.len() {
+    0 => panic!("A tokv with no elements is illegal"),
+    1 => items_v.into_iter().next().unwrap(),
+    _ => {
+      let range = items_v.first().unwrap().range.start..items_v.last().unwrap().range.end;
+      Token::S(api::Paren::Round, items_v).at(range)
+    },
   }
 }
 
 pub use api::Paren;
 
 #[derive(Clone, Debug)]
-pub enum Token<'a, A: AtomInTok, X> {
+pub enum Token<'a, A: AtomTok, X: ExtraTok> {
   Comment(Arc<String>),
   LambdaHead(Vec<TokTree<'a, A, X>>),
   Name(Tok<String>),
@@ -155,14 +207,25 @@ pub enum Token<'a, A: AtomInTok, X> {
   BR,
   S(Paren, Vec<TokTree<'a, A, X>>),
   Atom(A),
-  Bottom(Vec<OrcErr>),
-  Slot(TreeHandle<'a>),
+  Bottom(OrcErrv),
+  Slot(TokHandle<'a>),
   X(X),
+  Ph(Ph),
+  Macro(Option<NotNan<f64>>),
 }
-impl<'a, A: AtomInTok, X> Token<'a, A, X> {
+impl<'a, A: AtomTok, X: ExtraTok> Token<'a, A, X> {
   pub fn at(self, range: Range<u32>) -> TokTree<'a, A, X> { TokTree { range, tok: self } }
+  pub fn is_kw(&self, tk: Tok<String>) -> bool {
+    matches!(self, Token::Name(n) if *n == tk)
+  }
+  pub fn as_s(&self, par: Paren) -> Option<&[TokTree<'a, A, X>]> {
+    match self {
+      Self::S(p, b) if *p == par => Some(b),
+      _ => None,
+    }
+  }
 }
-impl<'a, A: AtomInTok + Display, X: Display> Display for Token<'a, A, X> {
+impl<'a, A: AtomTok, X: ExtraTok> Display for Token<'a, A, X> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     thread_local! {
       static PAREN_LEVEL: RefCell<usize> = 0.into();
@@ -175,33 +238,47 @@ impl<'a, A: AtomInTok + Display, X: Display> Display for Token<'a, A, X> {
       r
     }
     match self {
-      Self::Atom(a) => f.write_str(&indent(&format!("{a}"), get_indent(), false)),
+      Self::Atom(a) => f.write_str(&indent(&format!("{a} "), get_indent(), false)),
       Self::BR => write!(f, "\n{}", "  ".repeat(get_indent())),
-      Self::Bottom(err) => write!(
-        f,
-        "Botttom({})",
-        err.iter().map(|e| format!("{}: {}", e.description, e.message)).join(", ")
-      ),
-      Self::Comment(c) => write!(f, "--[{c}]--"),
-      Self::LambdaHead(arg) => with_indent(|| write!(f, "\\ {} .", ttv_fmt(arg))),
-      Self::NS => f.write_str("::"),
-      Self::Name(n) => f.write_str(n),
-      Self::Slot(th) => write!(f, "{th}"),
+      Self::Bottom(err) if err.len() == 1 => write!(f, "Bottom({}) ", err.one().unwrap()),
+      Self::Bottom(err) => {
+        write!(f, "Botttom(\n{}) ", indent(&err.to_string(), get_indent() + 1, true))
+      },
+      Self::Comment(c) => write!(f, "--[{c}]-- "),
+      Self::LambdaHead(arg) => with_indent(|| write!(f, "\\ {} . ", ttv_fmt(arg))),
+      Self::NS => f.write_str(":: "),
+      Self::Name(n) => write!(f, "{n} "),
+      Self::Slot(th) => write!(f, "{th} "),
+      Self::Ph(Ph { kind, name }) => match &kind {
+        PhKind::Scalar => write!(f, "${name}"),
+        PhKind::Vector { at_least_one, priority } => {
+          if *at_least_one { write!(f, ".")? }
+          write!(f, "..${name}")?;
+          if 0 < *priority { write!(f, "{priority}") } else { Ok(()) }
+        }
+      }
       Self::S(p, b) => {
         let (lp, rp, _) = PARENS.iter().find(|(_, _, par)| par == p).unwrap();
-        f.write_char(*lp)?;
+        write!(f, "{lp} ")?;
         with_indent(|| f.write_str(&ttv_fmt(b)))?;
-        f.write_char(*rp)
+        write!(f, "{rp} ")
       },
-      Self::X(x) => write!(f, "{x}"),
+      Self::X(x) => write!(f, "{x} "),
+      Self::Macro(None) => write!(f, "macro "),
+      Self::Macro(Some(prio)) => write!(f, "macro({prio})"),
     }
   }
 }
 
-pub fn ttv_fmt<'a>(
-  ttv: impl IntoIterator<Item = &'a TokTree<'a, impl AtomInTok + 'a, impl Display + 'a>>,
+pub fn ttv_range(ttv: &[TokTree<'_, impl AtomTok, impl ExtraTok>]) -> Range<u32> {
+  assert!(!ttv.is_empty(), "Empty slice has no range");
+  ttv.first().unwrap().range.start..ttv.last().unwrap().range.end
+}
+
+pub fn ttv_fmt<'a: 'b, 'b>(
+  ttv: impl IntoIterator<Item = &'b TokTree<'a, impl AtomTok + 'b, impl ExtraTok + 'b>>,
 ) -> String {
-  ttv.into_iter().join(" ")
+  ttv.into_iter().join("")
 }
 
 pub fn indent(s: &str, lvl: usize, first: bool) -> String {
@@ -214,13 +291,23 @@ pub fn indent(s: &str, lvl: usize, first: bool) -> String {
   }
 }
 
+#[derive(Clone, Debug)]
+pub struct Ph {
+  pub name: Tok<String>,
+  pub kind: PhKind,
+}
+impl Ph {
+  pub fn from_api(api: &Placeholder) -> Self { Self { name: deintern(api.name), kind: api.kind } }
+  pub fn to_api(&self) -> Placeholder { Placeholder { name: self.name.marker(), kind: self.kind } }
+}
+
 #[cfg(test)]
 mod test {
   use super::*;
 
   #[test]
   fn test_covariance() {
-    fn _f<'a>(x: Token<'static, Never, ()>) -> Token<'a, Never, ()> { x }
+    fn _f<'a>(x: Token<'static, Never, Never>) -> Token<'a, Never, Never> { x }
   }
 
   #[test]

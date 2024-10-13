@@ -5,26 +5,25 @@ use std::sync::{Arc, Mutex};
 
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use never::Never;
 use orchid_api_traits::Encode;
 use orchid_base::error::OrcRes;
 use orchid_base::interner::Tok;
 use orchid_base::name::Sym;
 use trait_set::trait_set;
 
-use crate::atom::{Atomic, ReqPck};
+use crate::atom::{MethodSet, Atomic};
 use crate::atom_owned::{DeserializeCtx, OwnedAtom, OwnedVariant};
 use crate::conv::ToExpr;
-use crate::expr::{ExprHandle, GenExpr};
+use crate::expr::{Expr, ExprHandle};
 use crate::system::SysCtx;
 
 trait_set! {
-  trait FunCB = Fn(Vec<ExprHandle>) -> OrcRes<GenExpr> + Send + Sync + 'static;
+  trait FunCB = Fn(Vec<Expr>) -> OrcRes<Expr> + Send + Sync + 'static;
 }
 
 pub trait ExprFunc<I, O>: Clone + Send + Sync + 'static {
   const ARITY: u8;
-  fn apply(&self, v: Vec<ExprHandle>) -> OrcRes<GenExpr>;
+  fn apply(&self, v: Vec<Expr>) -> OrcRes<Expr>;
 }
 
 lazy_static! {
@@ -34,7 +33,7 @@ lazy_static! {
 #[derive(Clone)]
 pub(crate) struct Fun {
   path: Sym,
-  args: Vec<ExprHandle>,
+  args: Vec<Expr>,
   arity: u8,
   fun: Arc<dyn FunCB>,
 }
@@ -53,14 +52,14 @@ impl Fun {
 }
 impl Atomic for Fun {
   type Data = ();
-  type Req = Never;
   type Variant = OwnedVariant;
+  fn reg_reqs() -> MethodSet<Self> { MethodSet::new() }
 }
 impl OwnedAtom for Fun {
-  type Refs = Vec<ExprHandle>;
+  type Refs = Vec<Expr>;
   fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(()) }
-  fn call_ref(&self, arg: ExprHandle) -> GenExpr {
-    let new_args = self.args.iter().cloned().chain([arg]).collect_vec();
+  fn call_ref(&self, arg: ExprHandle) -> Expr {
+    let new_args = self.args.iter().cloned().chain([Expr::new(Arc::new(arg))]).collect_vec();
     if new_args.len() == self.arity.into() {
       (self.fun)(new_args).to_expr()
     } else {
@@ -68,8 +67,7 @@ impl OwnedAtom for Fun {
         .to_expr()
     }
   }
-  fn call(self, arg: ExprHandle) -> GenExpr { self.call_ref(arg) }
-  fn handle_req(&self, pck: impl ReqPck<Self>) { pck.never() }
+  fn call(self, arg: ExprHandle) -> Expr { self.call_ref(arg) }
   fn serialize(&self, _: SysCtx, sink: &mut (impl io::Write + ?Sized)) -> Self::Refs {
     self.path.encode(sink);
     self.args.clone()
@@ -86,7 +84,7 @@ mod expr_func_derives {
 
   use super::ExprFunc;
   use crate::conv::{ToExpr, TryFromExpr};
-  use crate::func_atom::{ExprHandle, GenExpr};
+  use crate::func_atom::Expr;
 
   macro_rules! expr_func_derive {
     ($arity: tt, $($t:ident),*) => {
@@ -97,7 +95,7 @@ mod expr_func_derives {
           Func: Fn($($t,)*) -> Out + Clone + Send + Sync + 'static
         > ExprFunc<($($t,)*), Out> for Func {
           const ARITY: u8 = $arity;
-          fn apply(&self, v: Vec<ExprHandle>) -> OrcRes<GenExpr> {
+          fn apply(&self, v: Vec<Expr>) -> OrcRes<Expr> {
             assert_eq!(v.len(), Self::ARITY.into(), "Arity mismatch");
             let [$([< $t:lower >],)*] = v.try_into().unwrap_or_else(|_| panic!("Checked above"));
             Ok(self($($t::try_from_expr([< $t:lower >])?,)*).to_expr())

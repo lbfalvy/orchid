@@ -27,17 +27,16 @@ use std::io::{Read, Write};
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::{read_exact, write_exact, Channel, Decode, Encode, MsgSet, Request};
 
-use crate::logging::{self, LogStrategy};
-use crate::{atom, expr, interner, parser, system, tree, vfs};
+use crate::{atom, expr, interner, lexer, logging, macros, parser, system, tree, vfs};
 
 static HOST_INTRO: &[u8] = b"Orchid host, binary API v0\n";
 pub struct HostHeader {
-  pub log_strategy: LogStrategy,
+  pub log_strategy: logging::LogStrategy,
 }
 impl Decode for HostHeader {
   fn decode<R: Read + ?Sized>(read: &mut R) -> Self {
     read_exact(read, HOST_INTRO);
-    Self { log_strategy: LogStrategy::decode(read) }
+    Self { log_strategy: logging::LogStrategy::decode(read) }
   }
 }
 impl Encode for HostHeader {
@@ -79,8 +78,10 @@ pub enum ExtHostReq {
   Ping(Ping),
   IntReq(interner::IntReq),
   Fwd(atom::Fwd),
+  SysFwd(system::SysFwd),
   ExprReq(expr::ExprReq),
-  SubLex(parser::SubLex),
+  SubLex(lexer::SubLex),
+  RunMacros(macros::RunMacros),
 }
 
 /// Notifications sent from the extension to the host
@@ -107,9 +108,11 @@ pub enum HostExtReq {
   Sweep(interner::Sweep),
   AtomReq(atom::AtomReq),
   DeserAtom(atom::DeserAtom),
-  ParserReq(parser::ParserReq),
+  LexExpr(lexer::LexExpr),
+  ParseLine(parser::ParseLine),
   GetMember(tree::GetMember),
   VfsReq(vfs::VfsReq),
+  ApplyMacro(macros::ApplyMacro),
 }
 
 /// Notifications sent from the host to the extension
@@ -147,13 +150,12 @@ impl MsgSet for HostMsgSet {
 mod tests {
   use orchid_api_traits::enc_vec;
   use ordered_float::NotNan;
-  use system::{SysDeclId, SystemDecl};
 
   use super::*;
 
   #[test]
   fn host_header_enc() {
-    let hh = HostHeader { log_strategy: LogStrategy::File("SomeFile".to_string()) };
+    let hh = HostHeader { log_strategy: logging::LogStrategy::File("SomeFile".to_string()) };
     let mut enc = &enc_vec(&hh)[..];
     eprintln!("Encoded to {enc:?}");
     HostHeader::decode(&mut enc);
@@ -164,8 +166,8 @@ mod tests {
   fn ext_header_enc() {
     let eh = ExtensionHeader {
       name: "my_extension".to_string(),
-      systems: vec![SystemDecl {
-        id: SysDeclId(1.try_into().unwrap()),
+      systems: vec![system::SystemDecl {
+        id: system::SysDeclId(1.try_into().unwrap()),
         name: "misc".to_string(),
         depends: vec!["std".to_string()],
         priority: NotNan::new(1f64).unwrap(),

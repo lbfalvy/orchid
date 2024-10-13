@@ -5,10 +5,7 @@ use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 use ordered_float::NotNan;
 
-use crate::interner::TStr;
-use crate::parser::CharFilter;
-use crate::proto::{HostExtNotif, HostExtReq};
-use crate::tree::MemberKind;
+use crate::{CharFilter, ExtHostReq, HostExtNotif, HostExtReq, MemberKind, TStr};
 
 /// ID of a system type
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
@@ -73,8 +70,23 @@ pub struct SystemInst {
 pub struct SystemDrop(pub SysId);
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
+#[extends(SysReq, HostExtReq)]
+pub struct SysFwded(pub SysId, pub Vec<u8>);
+impl Request for SysFwded {
+  type Response = Vec<u8>;
+}
+
+#[derive(Clone, Debug, Coding, Hierarchy)]
+#[extends(ExtHostReq)]
+pub struct SysFwd(pub SysId, pub Vec<u8>);
+impl Request for SysFwd {
+  type Response = Vec<u8>;
+}
+
+#[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(HostExtReq)]
 #[extendable]
 pub enum SysReq {
   NewSystem(NewSystem),
+  SysFwded(SysFwded),
 }

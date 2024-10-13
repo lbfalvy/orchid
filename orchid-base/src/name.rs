@@ -9,10 +9,10 @@ use std::path::Path;
 use std::{fmt, slice, vec};
 
 use itertools::Itertools;
-use orchid_api::TStrv;
 use trait_set::trait_set;
 
 use crate::api;
+use crate::api_conv::{ApiEquiv, FromApi, ToApi};
 use crate::interner::{deintern, intern, InternMarker, Tok};
 
 trait_set! {
@@ -357,7 +357,7 @@ impl Sym {
   pub fn id(&self) -> NonZeroU64 { self.0.marker().get_id() }
   /// Extern the sym for editing
   pub fn to_vname(&self) -> VName { VName(self[..].to_vec()) }
-  pub fn deintern(marker: TStrv) -> Sym {
+  pub fn deintern(marker: api::TStrv) -> Sym {
     Self::from_tok(deintern(marker)).expect("Empty sequence found for serialized Sym")
   }
 }
@@ -385,6 +385,17 @@ impl Borrow<PathSlice> for Sym {
 impl Deref for Sym {
   type Target = PathSlice;
   fn deref(&self) -> &Self::Target { self.borrow() }
+}
+impl ApiEquiv for Sym {
+  type Api = api::TStrv;
+}
+impl<C> ToApi<C> for Sym {
+  fn to_api(&self, ctx: &mut C) -> Self::Api { self.tok().to_api(ctx) }
+}
+impl<C> FromApi<C> for Sym {
+  fn from_api(api: &Self::Api, ctx: &mut C) -> Self {
+    Self::from_tok(Tok::from_api(api, ctx)).expect("Empty sequence found for serialized Sym")
+  }
 }
 
 /// An abstraction over tokenized vs non-tokenized names so that they can be

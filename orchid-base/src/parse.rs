@@ -1,14 +1,13 @@
+use std::iter;
 use std::ops::{Deref, Range};
-use std::sync::Arc;
-use std::{fmt, iter};
 
 use itertools::Itertools;
 
-use crate::error::{mk_err, OrcRes, Reporter};
-use crate::interner::{deintern, Tok};
+use crate::error::{mk_err, mk_errv, OrcRes, Reporter};
+use crate::interner::{deintern, intern, Tok};
 use crate::location::Pos;
 use crate::name::VPath;
-use crate::tree::{AtomInTok, Paren, TokTree, Token};
+use crate::tree::{AtomTok, ExtraTok, Paren, TokTree, Token};
 use crate::{api, intern};
 
 pub fn name_start(c: char) -> bool { c.is_alphabetic() || c == '_' }
@@ -17,11 +16,11 @@ pub fn op_char(c: char) -> bool { !name_char(c) && !c.is_whitespace() && !"()[]{
 pub fn unrep_space(c: char) -> bool { c.is_whitespace() && !"\r\n".contains(c) }
 
 #[derive(Debug)]
-pub struct Snippet<'a, 'b, A: AtomInTok, X> {
+pub struct Snippet<'a, 'b, A: AtomTok, X: ExtraTok> {
   prev: &'a TokTree<'b, A, X>,
   cur: &'a [TokTree<'b, A, X>],
 }
-impl<'a, 'b, A: AtomInTok, X> Snippet<'a, 'b, A, X> {
+impl<'a, 'b, A: AtomTok, X: ExtraTok> Snippet<'a, 'b, A, X> {
   pub fn new(prev: &'a TokTree<'b, A, X>, cur: &'a [TokTree<'b, A, X>]) -> Self {
     Self { prev, cur }
   }
@@ -44,6 +43,9 @@ impl<'a, 'b, A: AtomInTok, X> Snippet<'a, 'b, A, X> {
   pub fn pop_front(self) -> Option<(&'a TokTree<'b, A, X>, Self)> {
     self.cur.first().map(|r| (r, self.split_at(1).1))
   }
+  pub fn pop_back(self) -> Option<(Self, &'a TokTree<'b, A, X>)> {
+    self.cur.last().map(|r| (self.split_at(self.len() - 1).0, r))
+  }
   pub fn split_once(self, f: impl FnMut(&Token<'b, A, X>) -> bool) -> Option<(Self, Self)> {
     let idx = self.find_idx(f)?;
     Some((self.split_at(idx).0, self.split_at(idx + 1).1))
@@ -65,25 +67,25 @@ impl<'a, 'b, A: AtomInTok, X> Snippet<'a, 'b, A, X> {
     self.split_at(non_fluff_start.unwrap_or(self.len())).1
   }
 }
-impl<'a, 'b, A: AtomInTok, X> Copy for Snippet<'a, 'b, A, X> {}
-impl<'a, 'b, A: AtomInTok, X> Clone for Snippet<'a, 'b, A, X> {
+impl<'a, 'b, A: AtomTok, X: ExtraTok> Copy for Snippet<'a, 'b, A, X> {}
+impl<'a, 'b, A: AtomTok, X: ExtraTok> Clone for Snippet<'a, 'b, A, X> {
   fn clone(&self) -> Self { *self }
 }
-impl<'a, 'b, A: AtomInTok, X> Deref for Snippet<'a, 'b, A, X> {
+impl<'a, 'b, A: AtomTok, X: ExtraTok> Deref for Snippet<'a, 'b, A, X> {
   type Target = [TokTree<'b, A, X>];
   fn deref(&self) -> &Self::Target { self.cur }
 }
 
 /// Remove tokens that aren't meaningful in expression context, such as comments
 /// or line breaks
-pub fn strip_fluff<'a, A: AtomInTok, X: Clone>(
+pub fn strip_fluff<'a, A: AtomTok, X: ExtraTok>(
   tt: &TokTree<'a, A, X>,
 ) -> Option<TokTree<'a, A, X>> {
   let tok = match &tt.tok {
     Token::BR => return None,
     Token::Comment(_) => return None,
     Token::LambdaHead(arg) => Token::LambdaHead(arg.iter().filter_map(strip_fluff).collect()),
-    Token::S(p, b) => Token::S(p.clone(), b.iter().filter_map(strip_fluff).collect()),
+    Token::S(p, b) => Token::S(*p, b.iter().filter_map(strip_fluff).collect()),
     t => t.clone(),
   };
   Some(TokTree { tok, range: tt.range.clone() })
@@ -91,13 +93,21 @@ pub fn strip_fluff<'a, A: AtomInTok, X: Clone>(
 
 #[derive(Clone, Debug)]
 pub struct Comment {
-  pub text: Arc<String>,
+  pub text: Tok<String>,
   pub pos: Pos,
 }
+impl Comment {
+  pub fn from_api(api: &api::Comment) -> Self {
+    Self { pos: Pos::from_api(&api.location), text: deintern(api.text) }
+  }
+  pub fn to_api(&self) -> api::Comment {
+    api::Comment { location: self.pos.to_api(), text: self.text.marker() }
+  }
+}
 
-pub fn line_items<'a, 'b, A: AtomInTok, X>(
+pub fn line_items<'a, 'b, A: AtomTok, X: ExtraTok>(
   snip: Snippet<'a, 'b, A, X>,
-) -> Vec<(Vec<Comment>, Snippet<'a, 'b, A, X>)> {
+) -> Vec<Parsed<'a, 'b, Vec<Comment>, A, X>> {
   let mut items = Vec::new();
   let mut comments = Vec::new();
   for mut line in snip.split(|t| matches!(t, Token::BR)) {
@@ -109,72 +119,79 @@ pub fn line_items<'a, 'b, A: AtomInTok, X>(
     match line.find_idx(|t| !matches!(t, Token::Comment(_))) {
       None => comments.extend(line.cur),
       Some(i) => {
-        let (cmts, line) = line.split_at(i);
+        let (cmts, tail) = line.split_at(i);
         let comments = Vec::from_iter(comments.drain(..).chain(cmts.cur).map(|t| match &t.tok {
-          Token::Comment(c) => Comment { text: c.clone(), pos: Pos::Range(t.range.clone()) },
+          Token::Comment(c) => Comment { text: intern(&**c), pos: Pos::Range(t.range.clone()) },
           _ => unreachable!("All are comments checked above"),
         }));
-        items.push((comments, line));
+        items.push(Parsed { output: comments, tail });
       },
     }
   }
   items
 }
 
-pub fn try_pop_no_fluff<'a, 'b, A: AtomInTok, X>(
+pub fn try_pop_no_fluff<'a, 'b, A: AtomTok, X: ExtraTok>(
   snip: Snippet<'a, 'b, A, X>,
-) -> OrcRes<(&'a TokTree<'b, A, X>, Snippet<'a, 'b, A, X>)> {
-  snip.skip_fluff().pop_front().ok_or_else(|| {
-    vec![mk_err(intern!(str: "Unexpected end"), "Pattern ends abruptly", [
-      Pos::Range(snip.pos()).into()
-    ])]
+) -> ParseRes<'a, 'b, &'a TokTree<'b, A, X>, A, X> {
+  snip.skip_fluff().pop_front().map(|(output, tail)| Parsed { output, tail }).ok_or_else(|| {
+    mk_errv(
+      intern!(str: "Unexpected end"),
+      "Pattern ends abruptly",
+      [Pos::Range(snip.pos()).into()],
+    )
   })
 }
 
-pub fn expect_end(snip: Snippet<'_, '_, impl AtomInTok, impl Sized>) -> OrcRes<()> {
+pub fn expect_end(snip: Snippet<'_, '_, impl AtomTok, impl ExtraTok>) -> OrcRes<()> {
   match snip.skip_fluff().get(0) {
-    Some(surplus) => Err(vec![mk_err(
+    Some(surplus) => Err(mk_errv(
       intern!(str: "Extra code after end of line"),
       "Code found after the end of the line",
       [Pos::Range(surplus.range.clone()).into()],
-    )]),
+    )),
     None => Ok(()),
   }
 }
 
-pub fn expect_tok<'a, 'b, A: AtomInTok, X: fmt::Display>(
+pub fn expect_tok<'a, 'b, A: AtomTok, X: ExtraTok>(
   snip: Snippet<'a, 'b, A, X>,
   tok: Tok<String>,
-) -> OrcRes<Snippet<'a, 'b, A, X>> {
-  let (head, tail) = try_pop_no_fluff(snip)?;
+) -> ParseRes<'a, 'b, (), A, X> {
+  let Parsed { output: head, tail } = try_pop_no_fluff(snip)?;
   match &head.tok {
-    Token::Name(n) if *n == tok => Ok(tail),
-    t => Err(vec![mk_err(
+    Token::Name(n) if *n == tok => Ok(Parsed { output: (), tail }),
+    t => Err(mk_errv(
       intern!(str: "Expected specific keyword"),
       format!("Expected {tok} but found {t}"),
       [Pos::Range(head.range.clone()).into()],
-    )]),
+    )),
   }
 }
 
-pub fn parse_multiname<'a, 'b, A: AtomInTok, X: fmt::Display>(
+pub struct Parsed<'a, 'b, T, A: AtomTok, X: ExtraTok> {
+  pub output: T,
+  pub tail: Snippet<'a, 'b, A, X>,
+}
+
+pub type ParseRes<'a, 'b, T, A, X> = OrcRes<Parsed<'a, 'b, T, A, X>>;
+
+pub fn parse_multiname<'a, 'b, A: AtomTok, X: ExtraTok>(
   ctx: &impl Reporter,
   tail: Snippet<'a, 'b, A, X>,
-) -> OrcRes<(Vec<CompName>, Snippet<'a, 'b, A, X>)> {
+) -> ParseRes<'a, 'b, Vec<(Import, Pos)>, A, X> {
   let ret = rec(ctx, tail);
   #[allow(clippy::type_complexity)] // it's an internal function
-  pub fn rec<'a, 'b, A: AtomInTok, X: fmt::Display>(
+  pub fn rec<'a, 'b, A: AtomTok, X: ExtraTok>(
     ctx: &impl Reporter,
     tail: Snippet<'a, 'b, A, X>,
-  ) -> OrcRes<(Vec<(Vec<Tok<String>>, Option<Tok<String>>, Pos)>, Snippet<'a, 'b, A, X>)> {
+  ) -> ParseRes<'a, 'b, Vec<(Vec<Tok<String>>, Option<Tok<String>>, Pos)>, A, X> {
     let comma = intern!(str: ",");
     let globstar = intern!(str: "*");
     let (name, tail) = tail.skip_fluff().pop_front().ok_or_else(|| {
-      vec![mk_err(
-        intern!(str: "Expected name"),
-        "Expected a name, a list of names, or a globstar.",
-        [Pos::Range(tail.pos()).into()],
-      )]
+      mk_err(intern!(str: "Expected name"), "Expected a name, a list of names, or a globstar.", [
+        Pos::Range(tail.pos()).into(),
+      ])
     })?;
     if let Some((Token::NS, tail)) = tail.skip_fluff().pop_front().map(|(tt, s)| (&tt.tok, s)) {
       let n = match &name.tok {
@@ -184,25 +201,27 @@ pub fn parse_multiname<'a, 'b, A: AtomInTok, X: fmt::Display>(
         ])),
       };
       match (rec(ctx, tail), n) {
-        (Err(ev), n) => Err(Vec::from_iter(ev.into_iter().chain(n.err()))),
-        (Ok((_, tail)), Err(e)) => {
+        (Err(ev), n) => Err(ev.extended(n.err())),
+        (Ok(Parsed { tail, .. }), Err(e)) => {
           ctx.report(e);
-          Ok((vec![], tail))
+          Ok(Parsed { output: vec![], tail })
         },
-        (Ok((n, tail)), Ok(pre)) =>
-          Ok((n.into_iter().update(|i| i.0.push(pre.clone())).collect_vec(), tail)),
+        (Ok(Parsed { tail, output }), Ok(pre)) => Ok(Parsed {
+          output: output.into_iter().update(|i| i.0.push(pre.clone())).collect_vec(),
+          tail,
+        }),
       }
     } else {
-      let names = match &name.tok {
+      let output = match &name.tok {
         Token::Name(ntok) => {
           let nopt = match ntok {
             n if *n == globstar => None,
             n if n.starts_with(op_char) =>
-              return Err(vec![mk_err(
+              return Err(mk_errv(
                 intern!(str: "Unescaped operator in multiname"),
                 "Operators in multinames should be enclosed in []",
                 [Pos::Range(name.range.clone()).into()],
-              )]),
+              )),
             n => Some(n.clone()),
           };
           vec![(vec![], nopt, Pos::Range(name.range.clone()))]
@@ -226,9 +245,9 @@ pub fn parse_multiname<'a, 'b, A: AtomInTok, X: fmt::Display>(
           let body = Snippet::new(name, b);
           for csent in body.split(|n| matches!(n, Token::Name(n) if *n == comma)) {
             match rec(ctx, csent) {
-              Err(e) => e.into_iter().for_each(|e| ctx.report(e)),
-              Ok((v, surplus)) => match surplus.get(0) {
-                None => ok.extend(v),
+              Err(e) => ctx.report(e),
+              Ok(Parsed { output, tail }) => match tail.get(0) {
+                None => ok.extend(output),
                 Some(t) => ctx.report(mk_err(
                   intern!(str: "Unexpected token in multiname group"),
                   "Unexpected token. Likely missing a :: or , or wanted [] instead of ()",
@@ -240,40 +259,39 @@ pub fn parse_multiname<'a, 'b, A: AtomInTok, X: fmt::Display>(
           ok
         },
         t =>
-          return Err(vec![mk_err(
+          return Err(mk_errv(
             intern!(str: "Unrecognized name end"),
             format!("Names cannot end with {t} tokens"),
             [Pos::Range(name.range.clone()).into()],
-          )]),
+          )),
       };
-      Ok((names, tail))
+      Ok(Parsed { output, tail })
     }
   }
-  ret.map(|(i, tail)| {
-    let i = Vec::from_iter((i.into_iter()).map(|(p, name, pos)| CompName {
-      path: VPath::new(p.into_iter().rev()),
-      name,
-      pos,
-    }));
-    (i, tail)
+  ret.map(|Parsed { output, tail }| {
+    let output = (output.into_iter())
+      .map(|(p, name, pos)| (Import { path: VPath::new(p.into_iter().rev()), name }, pos))
+      .collect_vec();
+    Parsed { output, tail }
   })
 }
 
 /// A compound name, possibly ending with a globstar
 #[derive(Debug, Clone)]
-pub struct CompName {
+pub struct Import {
   pub path: VPath,
   pub name: Option<Tok<String>>,
-  pub pos: Pos,
 }
-impl CompName {
-  pub fn from_api(i: api::CompName) -> Self {
-    Self {
-      path: VPath::new(i.path.into_iter().map(deintern)),
-      name: i.name.map(deintern),
-      pos: Pos::from_api(&i.location),
-    }
-  }
+impl Import {
+  // pub fn from_api(i: api::CompName) -> Self {
+  //   Self { path: VPath::new(i.path.into_iter().map(deintern)), name: i.name.map(deintern) }
+  // }
+  // pub fn to_api(&self) -> api::CompName {
+  //   api::CompName {
+  //     path: self.path.iter().map(|t| t.marker()).collect(),
+  //     name: self.name.as_ref().map(|t| t.marker()),
+  //   }
+  // }
 }
 
 #[cfg(test)]
@@ -282,6 +300,14 @@ mod test {
 
   use super::Snippet;
 
-  fn _covary_snip_a<'a, 'b>(x: Snippet<'static, 'b, Never, ()>) -> Snippet<'a, 'b, Never, ()> { x }
-  fn _covary_snip_b<'a, 'b>(x: Snippet<'a, 'static, Never, ()>) -> Snippet<'a, 'b, Never, ()> { x }
+  fn _covary_snip_a<'a, 'b>(
+    x: Snippet<'static, 'b, Never, Never>,
+  ) -> Snippet<'a, 'b, Never, Never> {
+    x
+  }
+  fn _covary_snip_b<'a, 'b>(
+    x: Snippet<'a, 'static, Never, Never>,
+  ) -> Snippet<'a, 'b, Never, Never> {
+    x
+  }
 }

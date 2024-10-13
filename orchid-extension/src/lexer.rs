@@ -5,22 +5,22 @@ use orchid_base::intern;
 use orchid_base::interner::Tok;
 use orchid_base::location::Pos;
 use orchid_base::reqnot::{ReqNot, Requester};
-use orchid_base::tree::TreeHandle;
+use orchid_base::tree::TokHandle;
 
 use crate::api;
 use crate::tree::{GenTok, GenTokTree};
 
 pub fn err_cascade() -> OrcErr {
   mk_err(
-    intern!(str: "An error cascading from a recursive sublexer"),
+    intern!(str: "An error cascading from a recursive call"),
     "This error should not surface. If you are seeing it, something is wrong",
     [Pos::None.into()],
   )
 }
 
-pub fn err_lexer_na() -> OrcErr {
+pub fn err_not_applicable() -> OrcErr {
   mk_err(
-    intern!(str: "Pseudo-error to communicate that the lexer doesn't apply"),
+    intern!(str: "Pseudo-error to communicate that the current branch in a dispatch doesn't apply"),
     &*err_cascade().message,
     [Pos::None.into()],
   )
@@ -38,7 +38,7 @@ impl<'a> LexContext<'a> {
     let start = self.pos(tail);
     let lx =
       self.reqnot.request(api::SubLex { pos: start, id: self.id }).ok_or_else(err_cascade)?;
-    Ok((&self.text[lx.pos as usize..], GenTok::Slot(TreeHandle::new(lx.ticket)).at(start..lx.pos)))
+    Ok((&self.text[lx.pos as usize..], GenTok::Slot(TokHandle::new(lx.ticket)).at(start..lx.pos)))
   }
 
   pub fn pos(&self, tail: &'a str) -> u32 { (self.text.len() - tail.len()) as u32 }
