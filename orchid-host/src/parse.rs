@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::{iter, thread};
 
 use itertools::Itertools;
@@ -16,6 +17,7 @@ use orchid_base::tree::{Paren, TokTree, Token};
 use substack::Substack;
 
 use crate::extension::{AtomHand, System};
+use crate::macros::MacTree;
 use crate::tree::{Code, CodeLocator, Item, ItemKind, Member, MemberKind, Module, ParsTokTree, Rule, RuleKind};
 
 type ParsSnippet<'a> = Snippet<'a, 'static, AtomHand, Never>;
@@ -181,9 +183,7 @@ pub fn parse_const(tail: ParsSnippet) -> OrcRes<(Tok<String>, Vec<ParsTokTree>)>
   Ok((name, tail.iter().flat_map(strip_fluff).collect_vec()))
 }
 
-pub fn parse_mtree<'a>(
-  mut snip: ParsSnippet<'a>
-) -> OrcRes<Vec<MTree<'static>>> {
+pub fn parse_mtree(mut snip: ParsSnippet<'_>) -> OrcRes<Vec<MacTree>> {
   let mut mtreev = Vec::new();
   while let Some((ttree, tail)) = snip.pop_front() {
     let (range, tok, tail) = match &ttree.tok {
@@ -221,21 +221,14 @@ pub fn parse_mtree<'a>(
       )),
       Token::BR | Token::Comment(_) => continue,
       Token::Bottom(e) => return Err(e.clone()),
-      Token::Lambda(arg, body) => {
-        let tok = MTok::Lambda(
-          parse_mtree(Snippet::new(&ttree, &arg))?,
-          parse_mtree(Snippet::new(&ttree, &body))?,
-        );
-        (ttree.range.clone(), tok, tail)
-      },
       Token::LambdaHead(arg) => (
         ttree.range.start..snip.pos().end,
-        MTok::Lambda(parse_mtree(Snippet::new(&ttree, &arg))?, parse_mtree(tail)?),
+        MTok::Lambda(parse_mtree(Snippet::new(ttree, arg))?, parse_mtree(tail)?),
         Snippet::new(ttree, &[]),
       ),
       Token::Slot(_) | Token::X(_) => panic!("Did not expect {} in parsed token tree", &ttree.tok),
     };
-    mtreev.push(MTree { pos: Pos::Range(range.clone()), tok });
+    mtreev.push(MTree { pos: Pos::Range(range.clone()), tok: Arc::new(tok) });
     snip = tail;
   }
   Ok(mtreev)
@@ -246,14 +239,14 @@ pub fn parse_macro(tail: ParsSnippet, macro_i: u16, path: Substack<Tok<String>>)
     Parsed { tail, output: o@TokTree { tok: Token::S(Paren::Round, b), .. } } => (tail, o, b),
     Parsed { output, .. } => return Err(mk_errv(
       intern!(str: "m"),
-      format!("Macro blocks must either start with a block or a ..$:number"), 
+      "Macro blocks must either start with a block or a ..$:number",
       [Pos::Range(output.range.clone()).into()]
     )),
   };
   expect_end(surplus)?;
   let mut errors = Vec::new();
   let mut rules = Vec::new();
-  for (i, item) in line_items(Snippet::new(prev, &block)).into_iter().enumerate() {
+  for (i, item) in line_items(Snippet::new(prev, block)).into_iter().enumerate() {
     let Parsed { tail, output } = try_pop_no_fluff(item.tail)?;
     if !output.is_kw(intern!(str: "rule")) {
       errors.extend(mk_errv(

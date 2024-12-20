@@ -6,10 +6,10 @@ use std::sync::{Arc, RwLock};
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use orchid_base::error::OrcErrv;
-use orchid_base::interner::deintern;
 use orchid_base::location::Pos;
+use orchid_base::match_mapping;
 use orchid_base::name::Sym;
-use orchid_base::tree::AtomTok;
+use orchid_base::tree::AtomRepr;
 
 use crate::api;
 use crate::extension::AtomHand;
@@ -41,12 +41,12 @@ impl Expr {
   pub fn resolve(tk: api::ExprTicket) -> Option<Self> {
     KNOWN_EXPRS.read().unwrap().get(&tk).cloned()
   }
-  pub fn from_api(api: api::Expression, ctx: &mut ExprParseCtx) -> Self {
+  pub fn from_api(api: &api::Expression, ctx: &mut ExprParseCtx) -> Self {
     if let api::ExpressionKind::Slot(tk) = &api.kind {
       return Self::resolve(*tk).expect("Invalid slot");
     }
     Self {
-      kind: Arc::new(RwLock::new(ExprKind::from_api(api.kind, ctx))),
+      kind: Arc::new(RwLock::new(ExprKind::from_api(&api.kind, ctx))),
       is_canonical: Arc::default(),
       pos: Pos::from_api(&api.location),
     }
@@ -81,24 +81,24 @@ pub enum ExprKind {
   Seq(Expr, Expr),
   Call(Expr, Expr),
   Atom(AtomHand),
-  Argument,
+  Arg,
   Lambda(Option<PathSet>, Expr),
   Bottom(OrcErrv),
   Const(Sym),
 }
 impl ExprKind {
-  pub fn from_api(api: api::ExpressionKind, ctx: &mut ExprParseCtx) -> Self {
-    use api::ExpressionKind as K;
-    match api {
-      K::Slot(_) => panic!("Handled in Expr"),
-      K::Lambda(id, b) => ExprKind::Lambda(PathSet::from_api(id, &b), Expr::from_api(*b, ctx)),
-      K::Arg(_) => ExprKind::Argument,
-      K::Bottom(b) => ExprKind::Bottom(OrcErrv::from_api(&b)),
-      K::Call(f, x) => ExprKind::Call(Expr::from_api(*f, ctx), Expr::from_api(*x, ctx)),
-      K::Const(c) => ExprKind::Const(Sym::from_tok(deintern(c)).unwrap()),
-      K::NewAtom(a) => ExprKind::Atom(AtomHand::from_api(a)),
-      K::Seq(a, b) => ExprKind::Seq(Expr::from_api(*a, ctx), Expr::from_api(*b, ctx)),
-    }
+  pub fn from_api(api: &api::ExpressionKind, ctx: &mut ExprParseCtx) -> Self {
+    match_mapping!(api, api::ExpressionKind => ExprKind {
+      Lambda(id => PathSet::from_api(*id, api), b => Expr::from_api(b, ctx)),
+      Bottom(b => OrcErrv::from_api(b)),
+      Call(f => Expr::from_api(f, ctx), x => Expr::from_api(x, ctx)),
+      Const(c => Sym::from_api(*c)),
+      Seq(a => Expr::from_api(a, ctx), b => Expr::from_api(b, ctx)),
+    } {
+      api::ExpressionKind::Arg(_) => ExprKind::Arg,
+      api::ExpressionKind::NewAtom(a) => ExprKind::Atom(AtomHand::from_api(a.clone())),
+      api::ExpressionKind::Slot(_) => panic!("Handled in Expr"),
+    })
   }
 }
 
@@ -121,19 +121,20 @@ impl PathSet {
     self.steps.push_front(step);
     self
   }
-  pub fn from_api(id: u64, b: &api::Expression) -> Option<Self> {
+  pub fn from_api(id: u64, api: &api::ExpressionKind) -> Option<Self> {
     use api::ExpressionKind as K;
-    match &b.kind {
+    match &api {
       K::Arg(id2) => (id == *id2).then(|| Self { steps: VecDeque::new(), next: None }),
       K::Bottom(_) | K::Const(_) | K::NewAtom(_) | K::Slot(_) => None,
-      K::Lambda(_, b) => Self::from_api(id, b),
-      K::Call(l, r) | K::Seq(l, r) => match (Self::from_api(id, l), Self::from_api(id, r)) {
-        (Some(a), Some(b)) =>
-          Some(Self { steps: VecDeque::new(), next: Some((Box::new(a), Box::new(b))) }),
-        (Some(l), None) => Some(l.after(Step::Left)),
-        (None, Some(r)) => Some(r.after(Step::Right)),
-        (None, None) => None,
-      },
+      K::Lambda(_, b) => Self::from_api(id, &b.kind),
+      K::Call(l, r) | K::Seq(l, r) =>
+        match (Self::from_api(id, &l.kind), Self::from_api(id, &r.kind)) {
+          (Some(a), Some(b)) =>
+            Some(Self { steps: VecDeque::new(), next: Some((Box::new(a), Box::new(b))) }),
+          (Some(l), None) => Some(l.after(Step::Left)),
+          (None, Some(r)) => Some(r.after(Step::Right)),
+          (None, None) => None,
+        },
     }
   }
 }

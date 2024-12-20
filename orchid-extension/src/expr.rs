@@ -3,7 +3,6 @@ use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
 
 use derive_destructure::destructure;
-use orchid_api::InspectedKind;
 use orchid_base::error::{OrcErr, OrcErrv};
 use orchid_base::interner::Tok;
 use orchid_base::location::Pos;
@@ -51,9 +50,10 @@ impl Expr {
       let details = handle.ctx.reqnot.request(api::Inspect { target: handle.tk });
       let pos = Pos::from_api(&details.location);
       let kind = match details.kind {
-        InspectedKind::Atom(a) => ExprKind::Atom(ForeignAtom::new(handle.clone(), a, pos.clone())),
-        InspectedKind::Bottom(b) => ExprKind::Bottom(OrcErrv::from_api(&b)),
-        InspectedKind::Opaque => ExprKind::Opaque,
+        api::InspectedKind::Atom(a) =>
+          ExprKind::Atom(ForeignAtom::new(handle.clone(), a, pos.clone())),
+        api::InspectedKind::Bottom(b) => ExprKind::Bottom(OrcErrv::from_api(&b)),
+        api::InspectedKind::Opaque => ExprKind::Opaque,
       };
       ExprData { pos, kind }
     })
@@ -124,7 +124,7 @@ impl ExprKind {
         K::Seq(Box::new(a.api_return(ctx.clone(), do_slot)), Box::new(b.api_return(ctx, do_slot))),
       Self::Lambda(arg, body) => K::Lambda(arg, Box::new(body.api_return(ctx, do_slot))),
       Self::Arg(arg) => K::Arg(arg),
-      Self::Const(name) => K::Const(name.marker()),
+      Self::Const(name) => K::Const(name.to_api()),
       Self::Bottom(err) => K::Bottom(err.to_api()),
       Self::NewAtom(fac) => K::NewAtom(fac.clone().build(ctx)),
       kind @ (Self::Atom(_) | Self::Opaque) => panic!("{kind:?} should have a token"),

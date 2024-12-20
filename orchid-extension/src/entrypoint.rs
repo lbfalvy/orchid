@@ -6,11 +6,10 @@ use std::{mem, process, thread};
 
 use hashbrown::HashMap;
 use itertools::Itertools;
-use orchid_api::ExtMsgSet;
 use orchid_api_traits::{enc_vec, Decode, Encode};
 use orchid_base::char_filter::{char_filter_match, char_filter_union, mk_char_filter};
 use orchid_base::clone;
-use orchid_base::interner::{deintern, init_replica, sweep_replica};
+use orchid_base::interner::{init_replica, sweep_replica, Tok};
 use orchid_base::logging::Logger;
 use orchid_base::macros::{mtreev_from_api, mtreev_to_api};
 use orchid_base::name::{PathSlice, Sym};
@@ -30,8 +29,8 @@ use crate::system::{atom_by_idx, SysCtx};
 use crate::system_ctor::{CtedObj, DynSystemCtor};
 use crate::tree::{do_extra, GenTok, GenTokTree, LazyMemberFactory, TIACtxImpl};
 
-pub type ExtReq = RequestHandle<ExtMsgSet>;
-pub type ExtReqNot = ReqNot<ExtMsgSet>;
+pub type ExtReq = RequestHandle<api::ExtMsgSet>;
+pub type ExtReqNot = ReqNot<api::ExtMsgSet>;
 
 pub struct ExtensionData {
   pub name: &'static str,
@@ -136,7 +135,7 @@ fn extension_main_logic(data: ExtensionData) {
           path: Substack::Bottom,
         };
         let const_root = (cted.inst().dyn_env().into_iter())
-          .map(|(k, v)| (k.marker(), v.into_api(&mut tia_ctx)))
+          .map(|(k, v)| (k.to_api(), v.into_api(&mut tia_ctx)))
           .collect();
         systems.lock().unwrap().insert(new_sys.id, SystemRecord {
           declfs: cted.inst().dyn_vfs().to_api_rec(&mut vfses),
@@ -180,14 +179,14 @@ fn extension_main_logic(data: ExtensionData) {
       api::HostExtReq::VfsReq(api::VfsReq::VfsRead(vfs_read)) => {
         let api::VfsRead(sys_id, vfs_id, path) = &vfs_read;
         let systems_g = systems.lock().unwrap();
-        let path = path.iter().map(|t| deintern(*t)).collect_vec();
+        let path = path.iter().map(|t| Tok::from_api(*t)).collect_vec();
         hand.handle(&vfs_read, &systems_g[sys_id].vfses[vfs_id].load(PathSlice::new(&path)))
       }
       api::HostExtReq::LexExpr(lex @ api::LexExpr{ sys, text, pos, id }) => {
         let systems_g = systems.lock().unwrap();
         let lexers = systems_g[&sys].cted.inst().dyn_lexers();
         mem::drop(systems_g);
-        let text = deintern(text);
+        let text = Tok::from_api(text);
         let ctx = LexContext { sys, id, pos, reqnot: hand.reqnot(), text: &text };
         let trigger_char = text.chars().nth(pos as usize).unwrap();
         for lx in lexers.iter().filter(|l| char_filter_match(l.char_filter(), trigger_char)) {
@@ -241,7 +240,7 @@ fn extension_main_logic(data: ExtensionData) {
             api::AtomReq::Fwded(fwded) => {
               let api::Fwded(_, key, payload) = &fwded;
               let mut reply = Vec::new();
-              let some = nfo.handle_req(actx, Sym::deintern(*key), &mut &payload[..], &mut reply);
+              let some = nfo.handle_req(actx, Sym::from_api(*key), &mut &payload[..], &mut reply);
               hand.handle(fwded, &some.then_some(reply))
             }
             api::AtomReq::CallRef(call@api::CallRef(_, arg)) => {
@@ -279,13 +278,20 @@ fn extension_main_logic(data: ExtensionData) {
         let tok = hand.will_handle_as(&am);
         let sys_ctx = mk_ctx(am.sys, hand.reqnot());
         let ctx = RuleCtx {
-          args: am.params.into_iter().map(|(k, v)| (deintern(k), mtreev_from_api(&v))).collect(),
+          args: (am.params.into_iter())
+            .map(|(k, v)| (
+              Tok::from_api(k),
+              mtreev_from_api(&v, &mut |_| panic!("No atom in macro prompt!"))
+            ))
+            .collect(),
           run_id: am.run_id,
           sys: sys_ctx.clone(),
         };
         hand.handle_as(tok, &match apply_rule(am.id, ctx) {
           Err(e) => e.keep_only(|e| *e != err_cascade()).map(|e| Err(e.to_api())),
-          Ok(t) => Some(Ok(mtreev_to_api(&t))),
+          Ok(t) => Some(Ok(mtreev_to_api(&t, &mut |a| {
+            api::MacroToken::Atom(a.clone().build(sys_ctx.clone()))
+          }))),
         })
       }
     }),

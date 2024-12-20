@@ -5,10 +5,10 @@ use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 use ordered_float::NotNan;
 
-use crate::{Comment, ExtHostReq, HostExtReq, Location, OrcResult, Paren, ParsId, SysId, TStr, TStrv};
+use crate::{Atom, Comment, ExtHostReq, HostExtReq, Location, OrcResult, Paren, ParsId, SysId, TStr, TStrv};
 
-#[derive(Clone, Debug, Coding)]
-pub struct MacroTreeId(NonZeroU64);
+#[derive(Clone, Copy, Debug, Coding, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MacroTreeId(pub NonZeroU64);
 
 #[derive(Clone, Debug, Coding)]
 pub struct MacroTree {
@@ -23,6 +23,7 @@ pub enum MacroToken {
   Slot(MacroTreeId),
   Lambda(Vec<MacroTree>, Vec<MacroTree>),
   Ph(Placeholder),
+  Atom(Atom),
 }
 
 #[derive(Clone, Debug, Coding)]

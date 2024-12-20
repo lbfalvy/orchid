@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::{process, thread};
 
-use orchid_api::ExtensionHeader;
 use orchid_api_traits::{Decode, Encode};
 use orchid_base::logging::Logger;
 use orchid_base::msg::{recv_msg, send_msg};
@@ -15,7 +14,7 @@ pub struct Subprocess {
   child: Mutex<process::Child>,
   stdin: Mutex<process::ChildStdin>,
   stdout: Mutex<process::ChildStdout>,
-  header: ExtensionHeader,
+  header: api::ExtensionHeader,
 }
 impl Subprocess {
   pub fn new(mut cmd: process::Command, logger: Logger) -> io::Result<Self> {
@@ -30,7 +29,7 @@ impl Subprocess {
     api::HostHeader { log_strategy: logger.strat() }.encode(&mut stdin);
     stdin.flush()?;
     let mut stdout = child.stdout.take().unwrap();
-    let header = ExtensionHeader::decode(&mut stdout);
+    let header = api::ExtensionHeader::decode(&mut stdout);
     let child_stderr = child.stderr.take().unwrap();
     thread::Builder::new().name(format!("stderr-fwd:{prog}")).spawn(move || {
       let mut reader = io::BufReader::new(child_stderr);

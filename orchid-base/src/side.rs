@@ -4,7 +4,7 @@
 use std::fmt;
 use std::ops::Not;
 
-use super::boxed_iter::BoxedIter;
+use crate::boxed_iter::BoxedIter;
 
 /// A primitive for encoding the two sides Left and Right. While booleans
 /// are technically usable for this purpose, they're very easy to confuse

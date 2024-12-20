@@ -7,7 +7,7 @@ use orchid_api_derive::Coding;
 use orchid_api_traits::{Encode, Request};
 use orchid_base::error::{mk_errv, OrcRes};
 use orchid_base::intern;
-use orchid_base::interner::{deintern, intern, Tok};
+use orchid_base::interner::{intern, Tok};
 use orchid_extension::atom::{AtomMethod, Atomic, MethodSet, Supports, TypAtom};
 use orchid_extension::atom_owned::{DeserializeCtx, OwnedAtom, OwnedVariant};
 use orchid_extension::conv::TryFromExpr;
@@ -66,7 +66,7 @@ impl From<Tok<String>> for IntStrAtom {
 }
 impl OwnedAtom for IntStrAtom {
   type Refs = ();
-  fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(self.0.marker()) }
+  fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(self.0.to_api()) }
   fn print(&self, _ctx: SysCtx) -> String { format!("{:?}i", *self.0) }
   fn serialize(&self, _: SysCtx, write: &mut (impl io::Write + ?Sized)) { self.0.encode(write) }
   fn deserialize(ctx: impl DeserializeCtx, _: ()) -> Self { Self(intern(&ctx.decode::<String>())) }
@@ -80,7 +80,7 @@ pub enum OrcString<'a> {
 impl<'a> OrcString<'a> {
   pub fn get_string(&self) -> Arc<String> {
     match &self {
-      Self::Int(tok) => deintern(tok.value).arc(),
+      Self::Int(tok) => Tok::from_api(tok.value).arc(),
       Self::Val(atom) => atom.request(StringGetVal),
     }
   }

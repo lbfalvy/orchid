@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::num::NonZero;
-use std::ops::{Deref, Range};
+use std::ops::Deref;
 use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
@@ -11,23 +11,23 @@ use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use orchid_api::TStrv;
 use orchid_api_traits::Request;
 use orchid_base::char_filter::char_filter_match;
 use orchid_base::error::{OrcErrv, OrcRes};
-use orchid_base::interner::{deintern, intern, Tok};
+use orchid_base::interner::{intern, Tok};
+use orchid_base::location::Pos;
 use orchid_base::logging::Logger;
-use orchid_base::macros::{mtreev_from_api, mtreev_to_api};
+use orchid_base::macros::mtreev_from_api;
 use orchid_base::parse::Comment;
 use orchid_base::reqnot::{ReqNot, Requester as _};
-use orchid_base::tree::{ttv_from_api, AtomTok};
+use orchid_base::tree::{ttv_from_api, AtomRepr};
 use orchid_base::clone;
 use ordered_float::NotNan;
 use substack::{Stackframe, Substack};
 
 use crate::api;
 use crate::expr::Expr;
-use crate::macros::macro_recur;
+use crate::macros::{macro_recur, macro_treev_to_api};
 use crate::tree::{Member, ParsTokTree};
 
 #[derive(Debug, destructure)]
@@ -56,11 +56,11 @@ impl Drop for AtomData {
 #[derive(Clone, Debug)]
 pub struct AtomHand(Arc<AtomData>);
 impl AtomHand {
-  fn create_new(api::Atom { data, drop, owner }: api::Atom) -> Self {
-    let owner = System::resolve(owner).expect("Atom owned by non-existing system");
-    Self(Arc::new(AtomData { data, drop, owner }))
-  }
   pub fn from_api(atom: api::Atom) -> Self {
+    fn create_new(api::Atom { data, drop, owner }: api::Atom) -> AtomHand {
+      let owner = System::resolve(owner).expect("Atom owned by non-existing system");
+      AtomHand(Arc::new(AtomData { data, drop, owner }))
+    }
     if let Some(id) = atom.drop {
       lazy_static! {
         static ref OWNED_ATOMS: Mutex<HashMap<(api::SysId, api::AtomId), Weak<AtomData>>> =
@@ -73,11 +73,11 @@ impl AtomHand {
           return Self(atom);
         }
       }
-      let new = Self::create_new(atom);
+      let new = create_new(atom);
       owned_g.insert((owner, id), Arc::downgrade(&new.0));
       new
     } else {
-      Self::create_new(atom)
+      create_new(atom)
     }
   }
   pub fn call(self, arg: Expr) -> api::Expression {
@@ -89,15 +89,15 @@ impl AtomHand {
       Err(hand) => reqnot.request(api::CallRef(hand.api_ref(), ticket)),
     }
   }
-  pub fn req(&self, key: TStrv, req: Vec<u8>) -> Option<Vec<u8>> {
+  pub fn req(&self, key: api::TStrv, req: Vec<u8>) -> Option<Vec<u8>> {
     self.0.owner.reqnot().request(api::Fwded(self.0.api_ref(), key, req))
   }
   pub fn api_ref(&self) -> api::Atom { self.0.api_ref() }
   pub fn print(&self) -> String { self.0.owner.reqnot().request(api::AtomPrint(self.0.api_ref())) }
 }
-impl AtomTok for AtomHand {
-  type Context = ();
-  fn from_api(atom: &orchid_api::Atom, _: Range<u32>, (): &mut Self::Context) -> Self {
+impl AtomRepr for AtomHand {
+  type Ctx = ();
+  fn from_api(atom: &orchid_api::Atom, _: Pos, (): &mut Self::Ctx) -> Self {
     Self::from_api(atom.clone())
   }
   fn to_api(&self) -> orchid_api::Atom { self.api_ref() }
@@ -177,11 +177,15 @@ impl Extension {
         |hand, req| match req {
           api::ExtHostReq::Ping(ping) => hand.handle(&ping, &()),
           api::ExtHostReq::IntReq(intreq) => match intreq {
-            api::IntReq::InternStr(s) => hand.handle(&s, &intern(&**s.0).marker()),
-            api::IntReq::InternStrv(v) => hand.handle(&v, &intern(&*v.0).marker()),
-            api::IntReq::ExternStr(si) => hand.handle(&si, &deintern(si.0).arc()),
-            api::IntReq::ExternStrv(vi) =>
-              hand.handle(&vi, &Arc::new(deintern(vi.0).iter().map(|t| t.marker()).collect_vec())),
+            api::IntReq::InternStr(s) => hand.handle(&s, &intern(&**s.0).to_api()),
+            api::IntReq::InternStrv(v) => hand.handle(&v, &intern(&*v.0).to_api()),
+            api::IntReq::ExternStr(si) => hand.handle(&si, &Tok::<String>::from_api(si.0).arc()),
+            api::IntReq::ExternStrv(vi) => hand.handle(&vi, &Arc::new(
+              Tok::<Vec<Tok<String>>>::from_api(vi.0)
+                .iter()
+                .map(|t| t.to_api())
+                .collect_vec()
+            )),
           },
           api::ExtHostReq::Fwd(ref fw @ api::Fwd(ref atom, ref key, ref body)) => {
             let sys = System::resolve(atom.owner).unwrap();
@@ -207,7 +211,12 @@ impl Extension {
             })
           },
           api::ExtHostReq::RunMacros(ref rm @ api::RunMacros{ ref run_id, ref query }) => {
-            hand.handle(rm, &macro_recur(*run_id, mtreev_from_api(query)).map(|x| mtreev_to_api(&x)))
+            hand.handle(rm,
+              &macro_recur(*run_id,
+                mtreev_from_api(query, &mut |_| panic!("Recursion never contains atoms"))
+              )
+              .map(|x| macro_treev_to_api(*run_id, x))
+            )
           }
         },
       ),
@@ -255,13 +264,13 @@ impl SystemCtor {
       exprs: RwLock::default(),
       lex_filter: sys_inst.lex_filter,
       const_root: OnceLock::new(),
-      line_types: sys_inst.line_types.into_iter().map(deintern).collect(),
+      line_types: sys_inst.line_types.into_iter().map(Tok::from_api).collect(),
       id,
     }));
     let root = (sys_inst.const_root.into_iter())
       .map(|(k, v)| Member::from_api(
         api::Member { name: k, kind: v },
-        Substack::Bottom.push(deintern(k)),
+        Substack::Bottom.push(Tok::from_api(k)),
         &data
       ))
       .collect_vec();
@@ -342,7 +351,7 @@ impl System {
       });
       // Pass control to extension
       let ret =
-        self.reqnot().request(api::LexExpr { id, pos, sys: self.id(), text: source.marker() });
+        self.reqnot().request(api::LexExpr { id, pos, sys: self.id(), text: source.to_api() });
       // collect sender to unblock recursion handler thread before returning
       LEX_RECUR.lock().unwrap().remove(&id);
       ret.transpose()

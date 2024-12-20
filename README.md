@@ -34,3 +34,13 @@ Orchids and mangrove trees form complex ecosystems; The flowers persuade the tre
 ## Contribution
 
 All contributions are welcome. For the time being, use the issue tracker to discuss ideas.
+
+## Forks
+
+The code in this repository is available under the GNU GPLv3, but identifying marks stored in the repository are restricted for use with an unmodified copy of this software. If you distribute modified versions of this software, you must either replace these identifying marks or modify them in a way that clearly indicates that what you are distributing is a derivative work and not this official vversion. You must also replace any contact information in such a way that your derivative work does not suggest that we may be contacted about issues. Your derivative work may use the original identifying marks and contact information to identify this project as its basis, while emphasizing that the authors of the original project are neither in control of, nor liable for the derivative work.
+
+Identifying marks include the Orchid logo, the ribbon image above, and the names "Orchid", "Orchidlang" unless they are part of a technical interface.
+
+Contact information includes email addresses, links to the source code and issue tracker.
+
+Words listed as identifying marks are explicltly not considered as such when they apear in technical interfaces or APIs. For example, shell commands, identifiers within the language,

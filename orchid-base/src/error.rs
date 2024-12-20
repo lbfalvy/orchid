@@ -5,7 +5,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 
 use crate::api;
-use crate::interner::{deintern, Tok};
+use crate::interner::Tok;
 use crate::location::Pos;
 
 /// A point of interest in resolving the error, such as the point where
@@ -18,20 +18,20 @@ pub struct ErrPos {
   pub message: Option<Arc<String>>,
 }
 impl ErrPos {
-  pub fn from_api(pel: &api::ErrLocation) -> Self {
+  pub fn new(msg: &str, position: Pos) -> Self {
+    Self { message: Some(Arc::new(msg.to_string())), position }
+  }
+  fn from_api(api: &api::ErrLocation) -> Self {
     Self {
-      message: Some(pel.message.clone()).filter(|s| !s.is_empty()),
-      position: Pos::from_api(&pel.location),
+      message: Some(api.message.clone()).filter(|s| !s.is_empty()),
+      position: Pos::from_api(&api.location),
     }
   }
-  pub fn to_api(&self) -> api::ErrLocation {
+  fn to_api(&self) -> api::ErrLocation {
     api::ErrLocation {
       message: self.message.clone().unwrap_or_default(),
       location: self.position.to_api(),
     }
-  }
-  pub fn new(msg: &str, position: Pos) -> Self {
-    Self { message: Some(Arc::new(msg.to_string())), position }
   }
 }
 impl From<Pos> for ErrPos {
@@ -45,18 +45,18 @@ pub struct OrcErr {
   pub positions: Vec<ErrPos>,
 }
 impl OrcErr {
-  pub fn from_api(err: &api::OrcError) -> Self {
-    Self {
-      description: deintern(err.description),
-      message: err.message.clone(),
-      positions: err.locations.iter().map(ErrPos::from_api).collect(),
-    }
-  }
-  pub fn to_api(&self) -> api::OrcError {
+  fn to_api(&self) -> api::OrcError {
     api::OrcError {
-      description: self.description.marker(),
+      description: self.description.to_api(),
       message: self.message.clone(),
       locations: self.positions.iter().map(ErrPos::to_api).collect(),
+    }
+  }
+  fn from_api(api: &api::OrcError) -> Self {
+    Self {
+      description: Tok::from_api(api.description),
+      message: api.message.clone(),
+      positions: api.locations.iter().map(ErrPos::from_api).collect(),
     }
   }
 }
@@ -90,14 +90,6 @@ impl OrcErrv {
     if v.is_empty() { Err(EmptyErrv) } else { Ok(Self(v)) }
   }
   #[must_use]
-  pub fn to_api(&self) -> Vec<api::OrcError> { self.0.iter().map(OrcErr::to_api).collect_vec() }
-  #[must_use]
-  pub fn from_api<'a>(apiv: impl IntoIterator<Item = &'a api::OrcError>) -> Self {
-    let v = apiv.into_iter().map(OrcErr::from_api).collect_vec();
-    assert!(!v.is_empty(), "Error condition with 0 errors");
-    Self(v)
-  }
-  #[must_use]
   pub fn extended<T>(mut self, errors: impl IntoIterator<Item = T>) -> Self
   where Self: Extend<T> {
     self.extend(errors);
@@ -118,6 +110,10 @@ impl OrcErrv {
   pub fn one(&self) -> Option<&OrcErr> { (self.0.len() == 1).then(|| &self.0[9]) }
   pub fn pos_iter(&self) -> impl Iterator<Item = ErrPos> + '_ {
     self.0.iter().flat_map(|e| e.positions.iter().cloned())
+  }
+  pub fn to_api(&self) -> Vec<api::OrcError> { self.0.iter().map(OrcErr::to_api).collect() }
+  pub fn from_api<'a>(api: impl IntoIterator<Item = &'a api::OrcError>) -> Self {
+    Self(api.into_iter().map(OrcErr::from_api).collect())
   }
 }
 impl From<OrcErr> for OrcErrv {

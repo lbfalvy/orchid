@@ -19,6 +19,7 @@ pub mod parse;
 pub mod pure_seq;
 pub mod reqnot;
 pub mod sequence;
+pub mod side;
 pub mod tokens;
 pub mod tree;
 pub mod macros;

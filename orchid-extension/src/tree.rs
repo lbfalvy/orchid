@@ -43,9 +43,9 @@ pub struct GenItem {
 impl GenItem {
   pub fn into_api(self, ctx: &mut impl TreeIntoApiCtx) -> api::Item {
     let kind = match self.kind {
-      GenItemKind::Export(n) => api::ItemKind::Export(n.marker()),
+      GenItemKind::Export(n) => api::ItemKind::Export(n.to_api()),
       GenItemKind::Member(mem) => api::ItemKind::Member(mem.into_api(ctx)),
-      GenItemKind::Import(cn) => api::ItemKind::Import(cn.tok().marker()),
+      GenItemKind::Import(cn) => api::ItemKind::Import(cn.tok().to_api()),
       GenItemKind::Macro(prio, rules) => api::ItemKind::Macro(api::MacroBlock {
         priority: prio,
         rules: rules.into_iter().map(|r| r.to_api() ).collect_vec(),
@@ -134,7 +134,7 @@ pub struct GenMember {
 impl GenMember {
   pub fn into_api(self, ctx: &mut impl TreeIntoApiCtx) -> api::Member {
     api::Member {
-      name: self.name.marker(),
+      name: self.name.to_api(),
       kind: self.kind.into_api(&mut ctx.push_path(self.name)),
     }
   }

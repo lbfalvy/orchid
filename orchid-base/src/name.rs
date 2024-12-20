@@ -12,8 +12,7 @@ use itertools::Itertools;
 use trait_set::trait_set;
 
 use crate::api;
-use crate::api_conv::{ApiEquiv, FromApi, ToApi};
-use crate::interner::{deintern, intern, InternMarker, Tok};
+use crate::interner::{intern, InternMarker, Tok};
 
 trait_set! {
   /// Traits that all name iterators should implement
@@ -258,7 +257,7 @@ impl VName {
     if data.is_empty() { Err(EmptyNameError) } else { Ok(Self(data)) }
   }
   pub fn deintern(items: impl IntoIterator<Item = api::TStr>) -> Result<Self, EmptyNameError> {
-    Self::new(items.into_iter().map(deintern))
+    Self::new(items.into_iter().map(Tok::from_api))
   }
   /// Unwrap the enclosed vector
   pub fn into_vec(self) -> Vec<Tok<String>> { self.0 }
@@ -354,12 +353,13 @@ impl Sym {
   /// Grab the interner token
   pub fn tok(&self) -> Tok<Vec<Tok<String>>> { self.0.clone() }
   /// Get a number unique to this name suitable for arbitrary ordering.
-  pub fn id(&self) -> NonZeroU64 { self.0.marker().get_id() }
+  pub fn id(&self) -> NonZeroU64 { self.0.to_api().get_id() }
   /// Extern the sym for editing
   pub fn to_vname(&self) -> VName { VName(self[..].to_vec()) }
-  pub fn deintern(marker: api::TStrv) -> Sym {
-    Self::from_tok(deintern(marker)).expect("Empty sequence found for serialized Sym")
+  pub fn from_api(marker: api::TStrv) -> Sym {
+    Self::from_tok(Tok::from_api(marker)).expect("Empty sequence found for serialized Sym")
   }
+  pub fn to_api(&self) -> api::TStrv { self.tok().to_api() }
 }
 impl fmt::Debug for Sym {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "Sym({self})") }
@@ -385,17 +385,6 @@ impl Borrow<PathSlice> for Sym {
 impl Deref for Sym {
   type Target = PathSlice;
   fn deref(&self) -> &Self::Target { self.borrow() }
-}
-impl ApiEquiv for Sym {
-  type Api = api::TStrv;
-}
-impl<C> ToApi<C> for Sym {
-  fn to_api(&self, ctx: &mut C) -> Self::Api { self.tok().to_api(ctx) }
-}
-impl<C> FromApi<C> for Sym {
-  fn from_api(api: &Self::Api, ctx: &mut C) -> Self {
-    Self::from_tok(Tok::from_api(api, ctx)).expect("Empty sequence found for serialized Sym")
-  }
 }
 
 /// An abstraction over tokenized vs non-tokenized names so that they can be

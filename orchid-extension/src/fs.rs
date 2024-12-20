@@ -24,7 +24,7 @@ impl DeclFs {
         api::EagerVfs::Lazy(id)
       },
       DeclFs::Mod(children) => api::EagerVfs::Eager(
-        children.iter().map(|(k, v)| (intern(*k).marker(), v.to_api_rec(vfses))).collect(),
+        children.iter().map(|(k, v)| (intern(*k).to_api(), v.to_api_rec(vfses))).collect(),
       ),
     }
   }

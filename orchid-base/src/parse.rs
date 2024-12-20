@@ -4,10 +4,10 @@ use std::ops::{Deref, Range};
 use itertools::Itertools;
 
 use crate::error::{mk_err, mk_errv, OrcRes, Reporter};
-use crate::interner::{deintern, intern, Tok};
+use crate::interner::{intern, Tok};
 use crate::location::Pos;
 use crate::name::VPath;
-use crate::tree::{AtomTok, ExtraTok, Paren, TokTree, Token};
+use crate::tree::{AtomRepr, ExtraTok, Paren, TokTree, Token};
 use crate::{api, intern};
 
 pub fn name_start(c: char) -> bool { c.is_alphabetic() || c == '_' }
@@ -16,11 +16,11 @@ pub fn op_char(c: char) -> bool { !name_char(c) && !c.is_whitespace() && !"()[]{
 pub fn unrep_space(c: char) -> bool { c.is_whitespace() && !"\r\n".contains(c) }
 
 #[derive(Debug)]
-pub struct Snippet<'a, 'b, A: AtomTok, X: ExtraTok> {
+pub struct Snippet<'a, 'b, A: AtomRepr, X: ExtraTok> {
   prev: &'a TokTree<'b, A, X>,
   cur: &'a [TokTree<'b, A, X>],
 }
-impl<'a, 'b, A: AtomTok, X: ExtraTok> Snippet<'a, 'b, A, X> {
+impl<'a, 'b, A: AtomRepr, X: ExtraTok> Snippet<'a, 'b, A, X> {
   pub fn new(prev: &'a TokTree<'b, A, X>, cur: &'a [TokTree<'b, A, X>]) -> Self {
     Self { prev, cur }
   }
@@ -67,18 +67,18 @@ impl<'a, 'b, A: AtomTok, X: ExtraTok> Snippet<'a, 'b, A, X> {
     self.split_at(non_fluff_start.unwrap_or(self.len())).1
   }
 }
-impl<'a, 'b, A: AtomTok, X: ExtraTok> Copy for Snippet<'a, 'b, A, X> {}
-impl<'a, 'b, A: AtomTok, X: ExtraTok> Clone for Snippet<'a, 'b, A, X> {
+impl<'a, 'b, A: AtomRepr, X: ExtraTok> Copy for Snippet<'a, 'b, A, X> {}
+impl<'a, 'b, A: AtomRepr, X: ExtraTok> Clone for Snippet<'a, 'b, A, X> {
   fn clone(&self) -> Self { *self }
 }
-impl<'a, 'b, A: AtomTok, X: ExtraTok> Deref for Snippet<'a, 'b, A, X> {
+impl<'a, 'b, A: AtomRepr, X: ExtraTok> Deref for Snippet<'a, 'b, A, X> {
   type Target = [TokTree<'b, A, X>];
   fn deref(&self) -> &Self::Target { self.cur }
 }
 
 /// Remove tokens that aren't meaningful in expression context, such as comments
 /// or line breaks
-pub fn strip_fluff<'a, A: AtomTok, X: ExtraTok>(
+pub fn strip_fluff<'a, A: AtomRepr, X: ExtraTok>(
   tt: &TokTree<'a, A, X>,
 ) -> Option<TokTree<'a, A, X>> {
   let tok = match &tt.tok {
@@ -97,15 +97,15 @@ pub struct Comment {
   pub pos: Pos,
 }
 impl Comment {
-  pub fn from_api(api: &api::Comment) -> Self {
-    Self { pos: Pos::from_api(&api.location), text: deintern(api.text) }
-  }
   pub fn to_api(&self) -> api::Comment {
-    api::Comment { location: self.pos.to_api(), text: self.text.marker() }
+    api::Comment { location: self.pos.to_api(), text: self.text.to_api() }
+  }
+  pub fn from_api(api: &api::Comment) -> Self {
+    Self { pos: Pos::from_api(&api.location), text: Tok::from_api(api.text) }  
   }
 }
 
-pub fn line_items<'a, 'b, A: AtomTok, X: ExtraTok>(
+pub fn line_items<'a, 'b, A: AtomRepr, X: ExtraTok>(
   snip: Snippet<'a, 'b, A, X>,
 ) -> Vec<Parsed<'a, 'b, Vec<Comment>, A, X>> {
   let mut items = Vec::new();
@@ -131,7 +131,7 @@ pub fn line_items<'a, 'b, A: AtomTok, X: ExtraTok>(
   items
 }
 
-pub fn try_pop_no_fluff<'a, 'b, A: AtomTok, X: ExtraTok>(
+pub fn try_pop_no_fluff<'a, 'b, A: AtomRepr, X: ExtraTok>(
   snip: Snippet<'a, 'b, A, X>,
 ) -> ParseRes<'a, 'b, &'a TokTree<'b, A, X>, A, X> {
   snip.skip_fluff().pop_front().map(|(output, tail)| Parsed { output, tail }).ok_or_else(|| {
@@ -143,7 +143,7 @@ pub fn try_pop_no_fluff<'a, 'b, A: AtomTok, X: ExtraTok>(
   })
 }
 
-pub fn expect_end(snip: Snippet<'_, '_, impl AtomTok, impl ExtraTok>) -> OrcRes<()> {
+pub fn expect_end(snip: Snippet<'_, '_, impl AtomRepr, impl ExtraTok>) -> OrcRes<()> {
   match snip.skip_fluff().get(0) {
     Some(surplus) => Err(mk_errv(
       intern!(str: "Extra code after end of line"),
@@ -154,7 +154,7 @@ pub fn expect_end(snip: Snippet<'_, '_, impl AtomTok, impl ExtraTok>) -> OrcRes<
   }
 }
 
-pub fn expect_tok<'a, 'b, A: AtomTok, X: ExtraTok>(
+pub fn expect_tok<'a, 'b, A: AtomRepr, X: ExtraTok>(
   snip: Snippet<'a, 'b, A, X>,
   tok: Tok<String>,
 ) -> ParseRes<'a, 'b, (), A, X> {
@@ -169,20 +169,20 @@ pub fn expect_tok<'a, 'b, A: AtomTok, X: ExtraTok>(
   }
 }
 
-pub struct Parsed<'a, 'b, T, A: AtomTok, X: ExtraTok> {
+pub struct Parsed<'a, 'b, T, A: AtomRepr, X: ExtraTok> {
   pub output: T,
   pub tail: Snippet<'a, 'b, A, X>,
 }
 
 pub type ParseRes<'a, 'b, T, A, X> = OrcRes<Parsed<'a, 'b, T, A, X>>;
 
-pub fn parse_multiname<'a, 'b, A: AtomTok, X: ExtraTok>(
+pub fn parse_multiname<'a, 'b, A: AtomRepr, X: ExtraTok>(
   ctx: &impl Reporter,
   tail: Snippet<'a, 'b, A, X>,
 ) -> ParseRes<'a, 'b, Vec<(Import, Pos)>, A, X> {
   let ret = rec(ctx, tail);
   #[allow(clippy::type_complexity)] // it's an internal function
-  pub fn rec<'a, 'b, A: AtomTok, X: ExtraTok>(
+  pub fn rec<'a, 'b, A: AtomRepr, X: ExtraTok>(
     ctx: &impl Reporter,
     tail: Snippet<'a, 'b, A, X>,
   ) -> ParseRes<'a, 'b, Vec<(Vec<Tok<String>>, Option<Tok<String>>, Pos)>, A, X> {

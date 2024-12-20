@@ -10,7 +10,6 @@ use itertools::Itertools as _;
 use orchid_api_traits::{Decode, Encode, Request};
 
 use crate::api;
-use orchid_api_traits::{ApiEquiv, FromApi, ToApi};
 use crate::reqnot::{DynRequester, Requester};
 
 /// Clippy crashes while verifying `Tok: Sized` without this and I cba to create
@@ -25,7 +24,10 @@ pub struct Tok<T: Interned> {
 }
 impl<T: Interned> Tok<T> {
   pub fn new(data: Arc<T>, marker: T::Marker) -> Self { Self { data, marker: ForceSized(marker) } }
-  pub fn marker(&self) -> T::Marker { self.marker.0 }
+  pub fn to_api(&self) -> T::Marker { self.marker.0 }
+  pub fn from_api<M>(marker: M) -> Self where M: InternMarker<Interned = T> {
+    deintern(marker)
+  }
   pub fn arc(&self) -> Arc<T> { self.data.clone() }
 }
 impl<T: Interned> Deref for Tok<T> {
@@ -34,7 +36,7 @@ impl<T: Interned> Deref for Tok<T> {
   fn deref(&self) -> &Self::Target { self.data.as_ref() }
 }
 impl<T: Interned> Ord for Tok<T> {
-  fn cmp(&self, other: &Self) -> std::cmp::Ordering { self.marker().cmp(&other.marker()) }
+  fn cmp(&self, other: &Self) -> std::cmp::Ordering { self.to_api().cmp(&other.to_api()) }
 }
 impl<T: Interned> PartialOrd for Tok<T> {
   fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) }
@@ -44,7 +46,7 @@ impl<T: Interned> PartialEq for Tok<T> {
   fn eq(&self, other: &Self) -> bool { self.cmp(other).is_eq() }
 }
 impl<T: Interned> hash::Hash for Tok<T> {
-  fn hash<H: hash::Hasher>(&self, state: &mut H) { self.marker().hash(state) }
+  fn hash<H: hash::Hasher>(&self, state: &mut H) { self.to_api().hash(state) }
 }
 impl<T: Interned + fmt::Display> fmt::Display for Tok<T> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -53,7 +55,7 @@ impl<T: Interned + fmt::Display> fmt::Display for Tok<T> {
 }
 impl<T: Interned + fmt::Debug> fmt::Debug for Tok<T> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "Token({} -> {:?})", self.marker().get_id(), self.data.as_ref())
+    write!(f, "Token({} -> {:?})", self.to_api().get_id(), self.data.as_ref())
   }
 }
 impl<T: Interned + Encode> Encode for Tok<T> {
@@ -117,25 +119,13 @@ impl Internable for String {
   fn get_owned(&self) -> Arc<Self::Interned> { Arc::new(self.to_string()) }
 }
 
-impl ApiEquiv for Tok<String> {
-  type Api = api::TStr;
-}
-impl ToApi for Tok<String> {
-  type Ctx = ();
-  fn to_api(&self, _: &mut Self::Ctx) -> Self::Api { self.marker() }
-}
-impl FromApi for Tok<String> {
-  type Ctx = ();
-  fn from_api(api: &Self::Api, _: &mut Self::Ctx) -> Self { deintern(*api) }
-}
-
 impl Interned for Vec<Tok<String>> {
   type Marker = api::TStrv;
   fn intern(
     self: Arc<Self>,
     req: &(impl DynRequester<Transfer = api::IntReq> + ?Sized),
   ) -> Self::Marker {
-    req.request(api::InternStrv(Arc::new(self.iter().map(|t| t.marker()).collect())))
+    req.request(api::InternStrv(Arc::new(self.iter().map(|t| t.to_api()).collect())))
   }
   fn bimap(interners: &mut TypedInterners) -> &mut Bimap<Self> { &mut interners.vecs }
 }
@@ -172,17 +162,6 @@ impl Internable for [api::TStr] {
     Arc::new(self.iter().map(|ts| deintern(*ts)).collect())
   }
 }
-impl ApiEquiv for Tok<Vec<Tok<String>>> {
-  type Api = api::TStrv;
-}
-impl ToApi for Tok<Vec<Tok<String>>> {
-  type Ctx = ();
-  fn to_api(&self, _: &mut Self::Ctx) -> Self::Api { self.marker() }
-}
-impl FromApi for Tok<Vec<Tok<String>>> {
-  type Ctx = ();
-  fn from_api(api: &Self::Api, _: &mut Self::Ctx) -> Self { deintern(*api) }
-}
 
 /// The number of references held to any token by the interner.
 const BASE_RC: usize = 3;
@@ -202,7 +181,7 @@ pub struct Bimap<T: Interned> {
 impl<T: Interned> Bimap<T> {
   pub fn insert(&mut self, token: Tok<T>) {
     self.intern.insert(token.data.clone(), token.clone());
-    self.by_id.insert(token.marker(), token);
+    self.by_id.insert(token.to_api(), token);
   }
 
   pub fn by_marker(&self, marker: T::Marker) -> Option<Tok<T>> { self.by_id.get(&marker).cloned() }
@@ -218,14 +197,14 @@ impl<T: Interned> Bimap<T> {
     (self.intern)
       .extract_if(|k, _| Arc::strong_count(k) == BASE_RC)
       .map(|(_, v)| {
-        self.by_id.remove(&v.marker());
-        v.marker()
+        self.by_id.remove(&v.to_api());
+        v.to_api()
       })
       .collect()
   }
 
   pub fn sweep_master(&mut self, retained: HashSet<T::Marker>) {
-    self.intern.retain(|k, v| BASE_RC < Arc::strong_count(k) || retained.contains(&v.marker()))
+    self.intern.retain(|k, v| BASE_RC < Arc::strong_count(k) || retained.contains(&v.to_api()))
   }
 }
 
@@ -298,7 +277,7 @@ pub fn intern<T: Interned>(t: &(impl Internable<Interned = T> + ?Sized)) -> Tok<
   tok
 }
 
-pub fn deintern<M: InternMarker>(marker: M) -> Tok<M::Interned> {
+fn deintern<M: InternMarker>(marker: M) -> Tok<M::Interned> {
   let mut g = interner();
   if let Some(tok) = M::Interned::bimap(&mut g.interners).by_marker(marker) {
     return tok;
