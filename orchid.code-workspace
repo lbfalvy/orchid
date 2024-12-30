@@ -42,12 +42,12 @@
 	"extensions": {
 		"recommendations": [
 			"maptz.regionfolder",
-			"serayuzgur.crates",
 			"tamasfe.even-better-toml",
 			"yzhang.markdown-all-in-one",
 			"gruntfuggly.todo-tree",
 			"vadimcn.vscode-lldb",
-			"rust-lang.rust-analyzer"
+			"rust-lang.rust-analyzer",
+			"fill-labs.dependi"
 		]
 	},
 }
