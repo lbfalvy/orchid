@@ -108,8 +108,7 @@ impl Lexer for StringLexer {
         .at(ctx.tok_ran(str.len() as u32, tail))
     };
     let add_frag = |prev: GenTokTree<'a>, new: GenTokTree<'a>| {
-      let range = prev.range.start..new.range.end;
-      wrap_tokv(vname_tv(&vname!(std::string::concat), new.range.end).chain([prev, new]), range)
+      wrap_tokv(vname_tv(&vname!(std::string::concat), new.range.end).chain([prev, new]))
     };
     loop {
       if let Some(rest) = tail.strip_prefix('"') {

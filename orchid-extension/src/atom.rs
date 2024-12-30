@@ -2,7 +2,7 @@ use std::any::{type_name, Any, TypeId};
 use std::fmt;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
-use std::ops::{Deref, Range};
+use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
 
 use dyn_clone::{clone_box, DynClone};
@@ -12,7 +12,7 @@ use orchid_base::intern;
 use orchid_base::location::Pos;
 use orchid_base::name::Sym;
 use orchid_base::reqnot::Requester;
-use orchid_base::tree::AtomTok;
+use orchid_base::tree::AtomRepr;
 use trait_set::trait_set;
 
 use crate::api;
@@ -92,7 +92,7 @@ impl ForeignAtom<'static> {
   pub fn request<M: AtomMethod>(&self, m: M) -> Option<M::Response> {
     let rep = self.ctx.reqnot.request(api::Fwd(
       self.atom.clone(),
-      Sym::parse(M::NAME).unwrap().tok().marker(),
+      Sym::parse(M::NAME).unwrap().tok().to_api(),
       enc_vec(&m)
     ))?;
     Some(M::Response::decode(&mut &rep[..]))
@@ -106,16 +106,10 @@ impl<'a> fmt::Display for ForeignAtom<'a> {
 impl<'a> fmt::Debug for ForeignAtom<'a> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "ForeignAtom({self})") }
 }
-impl<'a> AtomTok for ForeignAtom<'a> {
-  type Context = SysCtx;
-  fn from_api(atom: &api::Atom, pos: Range<u32>, ctx: &mut Self::Context) -> Self {
-    Self {
-      atom: atom.clone(),
-      _life: PhantomData,
-      ctx: ctx.clone(),
-      expr: None,
-      pos: Pos::Range(pos),
-    }
+impl<'a> AtomRepr for ForeignAtom<'a> {
+  type Ctx = SysCtx;
+  fn from_api(atom: &api::Atom, pos: Pos, ctx: &mut Self::Ctx) -> Self {
+    Self { atom: atom.clone(), _life: PhantomData, ctx: ctx.clone(), expr: None, pos }
   }
   fn to_api(&self) -> orchid_api::Atom { self.atom.clone() }
 }
@@ -208,7 +202,7 @@ impl<'a, A: AtomicFeatures> TypAtom<'a, A> {
     M::Response::decode(
       &mut &self.data.ctx.reqnot.request(api::Fwd(
         self.data.atom.clone(),
-        Sym::parse(M::NAME).unwrap().tok().marker(),
+        Sym::parse(M::NAME).unwrap().tok().to_api(),
         enc_vec(&req)
       )).unwrap()[..]
     )

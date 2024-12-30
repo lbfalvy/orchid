@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use hashbrown::HashMap;
 use orchid_base::error::{mk_errv, OrcErrv, OrcRes};
-use orchid_base::intern;
-use orchid_base::interner::{deintern, intern, Tok};
+use orchid_base::{intern, match_mapping};
+use orchid_base::interner::{intern, Tok};
 use orchid_base::location::Pos;
 use orchid_base::number::{num_to_err, parse_num};
 use orchid_base::parse::{name_char, name_start, op_char, unrep_space};
@@ -122,7 +122,7 @@ pub fn lex_once(ctx: &mut LexCtx) -> OrcRes<ParsTokTree> {
       body.push(lex_once(ctx)?);
       ctx.trim_ws();
     }
-    ParsTok::S(paren.clone(), body)
+    ParsTok::S(*paren, body)
   } else if ctx.strip_prefix("macro") &&
     !ctx.tail.chars().next().is_some_and(|x| x.is_ascii_alphabetic())
   {
@@ -173,20 +173,19 @@ pub fn lex_once(ctx: &mut LexCtx) -> OrcRes<ParsTokTree> {
 }
 
 fn tt_to_owned(api: &api::TokenTree, ctx: &mut LexCtx<'_>) -> ParsTokTree {
-  let tok = match &api.token {
-    api::Token::Atom(atom) => ParsTok::Atom(AtomHand::from_api(atom.clone())),
-    api::Token::Bottom(err) => ParsTok::Bottom(OrcErrv::from_api(err)),
-    api::Token::LambdaHead(arg) => ParsTok::LambdaHead(ttv_to_owned(arg, ctx)),
-    api::Token::Lambda(arg, b) => ParsTok::Lambda(ttv_to_owned(arg, ctx), ttv_to_owned(b, ctx)),
-    api::Token::Name(name) => ParsTok::Name(deintern(*name)),
-    api::Token::S(p, b) => ParsTok::S(p.clone(), b.iter().map(|t| tt_to_owned(t, ctx)).collect()),
+  let tok = match_mapping!(&api.token, api::Token => ParsTok {
+    Atom(atom => AtomHand::from_api(atom.clone())),
+    Bottom(err => OrcErrv::from_api(err)),
+    LambdaHead(arg => ttv_to_owned(arg, ctx)),
+    Name(name => Tok::from_api(*name)),
+    S(p.clone(), b.iter().map(|t| tt_to_owned(t, ctx)).collect()),
+    BR, NS,
+    Comment(c.clone()),
+    Ph(ph => Ph::from_api(ph)),
+    Macro(*prio),
+  } {
     api::Token::Slot(id) => return ctx.rm_subtree(*id),
-    api::Token::BR => ParsTok::BR,
-    api::Token::NS => ParsTok::NS,
-    api::Token::Comment(c) => ParsTok::Comment(c.clone()),
-    api::Token::Ph(ph) => ParsTok::Ph(Ph::from_api(ph)),
-    api::Token::Macro(prio) => ParsTok::Macro(*prio)
-  };
+  });
   ParsTokTree { range: api.range.clone(), tok }
 }
 

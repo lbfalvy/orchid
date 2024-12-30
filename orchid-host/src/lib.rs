@@ -8,3 +8,4 @@ pub mod parse;
 pub mod subprocess;
 pub mod tree;
 pub mod macros;
+pub mod rule;
