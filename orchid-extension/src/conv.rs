@@ -28,7 +28,7 @@ fn err_type(pos: Pos) -> OrcErr {
   mk_err(intern!(str: "Type error"), "The atom is a different type than expected", [pos.into()])
 }
 
-impl<'a, A: AtomicFeatures> TryFromExpr for TypAtom<'a, A> {
+impl<A: AtomicFeatures> TryFromExpr for TypAtom<'_, A> {
   fn try_from_expr(expr: Expr) -> OrcRes<Self> {
     (expr.foreign_atom())
       .map_err(|ex| err_not_atom(ex.pos.clone()).into())

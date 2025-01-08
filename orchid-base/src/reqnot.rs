@@ -105,16 +105,16 @@ impl<T: MsgSet> ReqNot<T> {
   }
 
   /// Can be called from a polling thread or dispatched in any other way
-  pub fn receive(&self, message: Vec<u8>) {
+  pub fn receive(&self, message: &[u8]) {
     let mut g = self.0.lock().unwrap();
-    let (id, payload) = get_id(&message[..]);
+    let (id, payload) = get_id(message);
     if id == 0 {
       let mut notif = clone_box(&*g.notif);
       mem::drop(g);
       notif(<T::In as Channel>::Notif::decode(&mut &payload[..]), self.clone())
     } else if 0 < id.bitand(1 << 63) {
       let sender = g.responses.remove(&!id).expect("Received response for invalid message");
-      sender.send(message).unwrap();
+      sender.send(message.to_vec()).unwrap();
     } else {
       let message = <T::In as Channel>::Req::decode(&mut &payload[..]);
       let mut req = clone_box(&*g.req);
@@ -150,7 +150,7 @@ impl<'a, T> MappedRequester<'a, T> {
   }
 }
 
-impl<'a, T> DynRequester for MappedRequester<'a, T> {
+impl<T> DynRequester for MappedRequester<'_, T> {
   type Transfer = T;
   fn raw_request(&self, data: Self::Transfer) -> RawReply { self.0(data) }
 }
@@ -181,7 +181,7 @@ pub trait Requester: DynRequester {
     MappedRequester::new(self)
   }
 }
-impl<'a, This: DynRequester + ?Sized + 'a> Requester for This {
+impl<This: DynRequester + ?Sized> Requester for This {
   fn request<R: Request + Into<Self::Transfer>>(&self, data: R) -> R::Response {
     R::Response::decode(&mut &self.raw_request(data.into())[..])
   }
@@ -229,7 +229,7 @@ mod test {
       |_, _| panic!("Not receiving a request"),
     );
     let sender = ReqNot::<TestMsgSet>::new(
-      clone!(receiver; move |d, _| receiver.receive(d.to_vec())),
+      clone!(receiver; move |d, _| receiver.receive(d)),
       |_, _| panic!("Should not receive notif"),
       |_, _| panic!("Should not receive request"),
     );
@@ -245,7 +245,7 @@ mod test {
     let sender = Arc::new(ReqNot::<TestMsgSet>::new(
       {
         let receiver = receiver.clone();
-        move |d, _| receiver.lock().unwrap().as_ref().unwrap().receive(d.to_vec())
+        move |d, _| receiver.lock().unwrap().as_ref().unwrap().receive(d)
       },
       |_, _| panic!("Should not receive notif"),
       |_, _| panic!("Should not receive request"),
@@ -253,7 +253,7 @@ mod test {
     *receiver.lock().unwrap() = Some(ReqNot::new(
       {
         let sender = sender.clone();
-        move |d, _| sender.receive(d.to_vec())
+        move |d, _| sender.receive(d)
       },
       |_, _| panic!("Not receiving notifs"),
       |hand, req| {

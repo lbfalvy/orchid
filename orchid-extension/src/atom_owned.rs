@@ -1,19 +1,21 @@
-use std::any::{type_name, Any, TypeId};
+use std::any::{Any, TypeId, type_name};
 use std::borrow::Cow;
 use std::io::{Read, Write};
 use std::sync::Arc;
 
 use itertools::Itertools;
-use orchid_api_traits::{enc_vec, Decode, Encode};
+use never::Never;
+use orchid_api_traits::{Decode, Encode, enc_vec};
 use orchid_base::error::OrcRes;
 use orchid_base::id_store::{IdRecord, IdStore};
 use orchid_base::name::Sym;
 
 use crate::api;
 use crate::atom::{
-  err_not_callable, err_not_command, get_info, AtomCard, AtomCtx, AtomDynfo, AtomFactory, MethodSet, Atomic, AtomicFeaturesImpl, AtomicVariant,
+  AtomCard, AtomCtx, AtomDynfo, AtomFactory, Atomic, AtomicFeaturesImpl, AtomicVariant, MethodSet,
+  err_not_callable, err_not_command, get_info,
 };
-use crate::expr::{bot, Expr, ExprHandle};
+use crate::expr::{Expr, ExprHandle, bot};
 use crate::system::SysCtx;
 
 pub struct OwnedVariant;
@@ -28,9 +30,7 @@ impl<A: OwnedAtom + Atomic<Variant = OwnedVariant>> AtomicFeaturesImpl<OwnedVari
       api::Atom { drop: Some(api::AtomId(rec.id())), data, owner: ctx.id }
     })
   }
-  fn _info() -> Self::_Info {
-    OwnedAtomDynfo(A::reg_reqs())
-  }
+  fn _info() -> Self::_Info { OwnedAtomDynfo(A::reg_reqs()) }
   type _Info = OwnedAtomDynfo<A>;
 }
 
@@ -54,7 +54,13 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
   fn call_ref(&self, AtomCtx(_, id, ctx): AtomCtx, arg: api::ExprTicket) -> Expr {
     with_atom(id.unwrap(), |a| a.dyn_call_ref(ctx, arg))
   }
-  fn handle_req(&self, AtomCtx(_, id, ctx): AtomCtx, key: Sym, req: &mut dyn Read, rep: &mut dyn Write) -> bool {
+  fn handle_req(
+    &self,
+    AtomCtx(_, id, ctx): AtomCtx,
+    key: Sym,
+    req: &mut dyn Read,
+    rep: &mut dyn Write,
+  ) -> bool {
     with_atom(id.unwrap(), |a| {
       self.0.dispatch(a.as_any_ref().downcast_ref().unwrap(), ctx, key, req, rep)
     })
@@ -69,13 +75,11 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
     &self,
     AtomCtx(_, id, ctx): AtomCtx<'_>,
     write: &mut dyn Write,
-  ) -> Vec<api::ExprTicket> {
+  ) -> Option<Vec<api::ExprTicket>> {
     let id = id.unwrap();
     id.encode(write);
     with_atom(id, |a| a.dyn_serialize(ctx, write))
-      .into_iter()
-      .map(|t| t.handle.unwrap().tk)
-      .collect_vec()
+      .map(|v| v.into_iter().map(|t| t.handle.unwrap().tk).collect_vec())
   }
   fn deserialize(&self, ctx: SysCtx, data: &[u8], refs: &[api::ExprTicket]) -> orchid_api::Atom {
     let refs = refs.iter().map(|tk| Expr::new(Arc::new(ExprHandle::from_args(ctx.clone(), *tk))));
@@ -97,7 +101,7 @@ pub trait DeserializeCtx: Sized {
 }
 
 struct DeserCtxImpl<'a>(&'a [u8], &'a SysCtx);
-impl<'a> DeserializeCtx for DeserCtxImpl<'a> {
+impl DeserializeCtx for DeserCtxImpl<'_> {
   fn read<T: Decode>(&mut self) -> T { T::decode(&mut self.0) }
   fn is_empty(&self) -> bool { self.0.is_empty() }
   fn sys(&self) -> SysCtx { self.1.clone() }
@@ -106,6 +110,13 @@ impl<'a> DeserializeCtx for DeserCtxImpl<'a> {
 pub trait RefSet {
   fn from_iter<I: Iterator<Item = Expr> + ExactSizeIterator>(refs: I) -> Self;
   fn to_vec(self) -> Vec<Expr>;
+}
+
+static E_NON_SER: &str = "Never is a stand-in refset for non-serializable atoms";
+
+impl RefSet for Never {
+  fn from_iter<I>(_: I) -> Self { panic!("{E_NON_SER}") }
+  fn to_vec(self) -> Vec<Expr> { panic!("{E_NON_SER}") }
 }
 
 impl RefSet for () {
@@ -130,6 +141,16 @@ impl<const N: usize> RefSet for [Expr; N] {
 
 /// Atoms that have a [Drop]
 pub trait OwnedAtom: Atomic<Variant = OwnedVariant> + Send + Sync + Any + Clone + 'static {
+  /// If serializable, the collection that best stores subexpression references
+  /// for this atom.
+  /// 
+  /// - `()` for no subexppressions,
+  /// - `[Expr; N]` for a static number of subexpressions
+  /// - `Vec<Expr>` for a variable number of subexpressions
+  /// - `Never` if not serializable
+  ///
+  /// If this isn't `Never`, you must override the default, panicking
+  /// `serialize` and `deserialize` implementation
   type Refs: RefSet;
   fn val(&self) -> Cow<'_, Self::Data>;
   #[allow(unused_variables)]
@@ -147,8 +168,21 @@ pub trait OwnedAtom: Atomic<Variant = OwnedVariant> + Send + Sync + Any + Clone 
   #[allow(unused_variables)]
   fn print(&self, ctx: SysCtx) -> String { format!("OwnedAtom({})", type_name::<Self>()) }
   #[allow(unused_variables)]
-  fn serialize(&self, ctx: SysCtx, write: &mut (impl Write + ?Sized)) -> Self::Refs;
-  fn deserialize(ctx: impl DeserializeCtx, refs: Self::Refs) -> Self;
+  fn serialize(&self, ctx: SysCtx, write: &mut (impl Write + ?Sized)) -> Self::Refs {
+    assert!(
+      TypeId::of::<Self::Refs>() != TypeId::of::<Never>(),
+      "The extension scaffold is broken, this function should never be called on Never Refs"
+    );
+    panic!("Either implement serialize or set Refs to Never for {}", type_name::<Self>())
+  }
+  #[allow(unused_variables)]
+  fn deserialize(ctx: impl DeserializeCtx, refs: Self::Refs) -> Self {
+    assert!(
+      TypeId::of::<Self::Refs>() != TypeId::of::<Never>(),
+      "The extension scaffold is broken, this function should never be called on Never Refs"
+    );
+    panic!("Either implement deserialize or set Refs to Never for {}", type_name::<Self>())
+  }
 }
 pub trait DynOwnedAtom: Send + Sync + 'static {
   fn atom_tid(&self) -> TypeId;
@@ -159,7 +193,7 @@ pub trait DynOwnedAtom: Send + Sync + 'static {
   fn dyn_command(self: Box<Self>, ctx: SysCtx) -> OrcRes<Option<Expr>>;
   fn dyn_free(self: Box<Self>, ctx: SysCtx);
   fn dyn_print(&self, ctx: SysCtx) -> String;
-  fn dyn_serialize(&self, ctx: SysCtx, sink: &mut dyn Write) -> Vec<Expr>;
+  fn dyn_serialize(&self, ctx: SysCtx, sink: &mut dyn Write) -> Option<Vec<Expr>>;
 }
 impl<T: OwnedAtom> DynOwnedAtom for T {
   fn atom_tid(&self) -> TypeId { TypeId::of::<T>() }
@@ -174,8 +208,9 @@ impl<T: OwnedAtom> DynOwnedAtom for T {
   fn dyn_command(self: Box<Self>, ctx: SysCtx) -> OrcRes<Option<Expr>> { self.command(ctx) }
   fn dyn_free(self: Box<Self>, ctx: SysCtx) { self.free(ctx) }
   fn dyn_print(&self, ctx: SysCtx) -> String { self.print(ctx) }
-  fn dyn_serialize(&self, ctx: SysCtx, sink: &mut dyn Write) -> Vec<Expr> {
-    self.serialize(ctx, sink).to_vec()
+  fn dyn_serialize(&self, ctx: SysCtx, sink: &mut dyn Write) -> Option<Vec<Expr>> {
+    (TypeId::of::<Never>() != TypeId::of::<<Self as OwnedAtom>::Refs>())
+      .then(|| self.serialize(ctx, sink).to_vec())
   }
 }
 

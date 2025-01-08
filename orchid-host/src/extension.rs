@@ -2,26 +2,26 @@ use std::collections::VecDeque;
 use std::num::NonZero;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::{sync_channel, SyncSender};
+use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::{fmt, io, thread};
 
 use derive_destructure::destructure;
-use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
+use hashbrown::hash_map::Entry;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use orchid_api_traits::Request;
 use orchid_base::char_filter::char_filter_match;
+use orchid_base::clone;
 use orchid_base::error::{OrcErrv, OrcRes};
-use orchid_base::interner::{intern, Tok};
+use orchid_base::interner::{Tok, intern};
 use orchid_base::location::Pos;
 use orchid_base::logging::Logger;
 use orchid_base::macros::mtreev_from_api;
 use orchid_base::parse::Comment;
 use orchid_base::reqnot::{ReqNot, Requester as _};
-use orchid_base::tree::{ttv_from_api, AtomRepr};
-use orchid_base::clone;
+use orchid_base::tree::{AtomRepr, ttv_from_api};
 use ordered_float::NotNan;
 use substack::{Stackframe, Substack};
 
@@ -106,6 +106,8 @@ impl fmt::Display for AtomHand {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.print()) }
 }
 
+pub type OnMessage = Box<dyn FnMut(&[u8]) + Send>;
+
 /// The 3 primary contact points with an extension are
 /// - send a message
 /// - wait for a message to arrive
@@ -113,8 +115,8 @@ impl fmt::Display for AtomHand {
 ///
 /// There are no ordering guarantees about these
 pub trait ExtensionPort: Send + Sync {
+  fn set_onmessage(&self, callback: OnMessage);
   fn send(&self, msg: &[u8]);
-  fn receive(&self) -> Option<Vec<u8>>;
   fn header(&self) -> &api::ExtensionHeader;
 }
 
@@ -180,12 +182,12 @@ impl Extension {
             api::IntReq::InternStr(s) => hand.handle(&s, &intern(&**s.0).to_api()),
             api::IntReq::InternStrv(v) => hand.handle(&v, &intern(&*v.0).to_api()),
             api::IntReq::ExternStr(si) => hand.handle(&si, &Tok::<String>::from_api(si.0).arc()),
-            api::IntReq::ExternStrv(vi) => hand.handle(&vi, &Arc::new(
-              Tok::<Vec<Tok<String>>>::from_api(vi.0)
-                .iter()
-                .map(|t| t.to_api())
-                .collect_vec()
-            )),
+            api::IntReq::ExternStrv(vi) => hand.handle(
+              &vi,
+              &Arc::new(
+                Tok::<Vec<Tok<String>>>::from_api(vi.0).iter().map(|t| t.to_api()).collect_vec(),
+              ),
+            ),
           },
           api::ExtHostReq::Fwd(ref fw @ api::Fwd(ref atom, ref key, ref body)) => {
             let sys = System::resolve(atom.owner).unwrap();
@@ -210,30 +212,24 @@ impl Extension {
               kind: expr.to_api(),
             })
           },
-          api::ExtHostReq::RunMacros(ref rm @ api::RunMacros{ ref run_id, ref query }) => {
-            hand.handle(rm,
-              &macro_recur(*run_id,
-                mtreev_from_api(query, &mut |_| panic!("Recursion never contains atoms"))
+          api::ExtHostReq::RunMacros(ref rm @ api::RunMacros { ref run_id, ref query }) => hand
+            .handle(
+              rm,
+              &macro_recur(
+                *run_id,
+                mtreev_from_api(query, &mut |_| panic!("Recursion never contains atoms")),
               )
-              .map(|x| macro_treev_to_api(*run_id, x))
-            )
-          }
+              .map(|x| macro_treev_to_api(*run_id, x)),
+            ),
         },
       ),
     });
     let weak = Arc::downgrade(&ret);
-    thread::Builder::new()
-      .name(format!("host-end:{}", eh.name))
-      .spawn::<_, Option<()>>(move || {
-        loop {
-          // thread will exit if either the peer exits or the extension object is dropped.
-          // It holds a strong reference to the port so the port's destructor will not be
-          // called until the
-          let msg = port.receive()?;
-          weak.upgrade()?.reqnot.receive(msg);
-        }
-      })
-      .unwrap();
+    port.set_onmessage(Box::new(move |msg| {
+      if let Some(xd) = weak.upgrade() {
+        xd.reqnot.receive(msg)
+      }
+    }));
     Ok(Self(ret))
   }
   pub fn systems(&self) -> impl Iterator<Item = &SystemCtor> { self.0.systems.iter() }
@@ -268,11 +264,13 @@ impl SystemCtor {
       id,
     }));
     let root = (sys_inst.const_root.into_iter())
-      .map(|(k, v)| Member::from_api(
-        api::Member { name: k, kind: v },
-        Substack::Bottom.push(Tok::from_api(k)),
-        &data
-      ))
+      .map(|(k, v)| {
+        Member::from_api(
+          api::Member { name: k, kind: v },
+          Substack::Bottom.push(Tok::from_api(k)),
+          &data,
+        )
+      })
       .collect_vec();
     data.0.const_root.set(root).unwrap();
     inst_g.insert(id, data.clone());

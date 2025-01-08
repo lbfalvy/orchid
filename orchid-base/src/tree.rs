@@ -58,10 +58,10 @@ pub struct TokHandle<'a>(api::TreeTicket, PhantomData<&'a ()>);
 impl TokHandle<'static> {
   pub fn new(tt: api::TreeTicket) -> Self { TokHandle(tt, PhantomData) }
 }
-impl<'a> TokHandle<'a> {
+impl TokHandle<'_> {
   pub fn ticket(self) -> api::TreeTicket { self.0 }
 }
-impl<'a> Display for TokHandle<'a> {
+impl Display for TokHandle<'_> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "Handle({})", self.0.0) }
 }
 
@@ -146,7 +146,7 @@ impl<'a, A: AtomRepr, X: ExtraTok> TokTree<'a, A, X> {
   }
 }
 
-impl<'a, A: AtomRepr, X: ExtraTok> Display for TokTree<'a, A, X> {
+impl<A: AtomRepr, X: ExtraTok> Display for TokTree<'_, A, X> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.tok) }
 }
 
@@ -226,7 +226,7 @@ impl<'a, A: AtomRepr, X: ExtraTok> Token<'a, A, X> {
     }
   }
 }
-impl<'a, A: AtomRepr, X: ExtraTok> Display for Token<'a, A, X> {
+impl<A: AtomRepr, X: ExtraTok> Display for Token<'_, A, X> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     thread_local! {
       static PAREN_LEVEL: RefCell<usize> = 0.into();

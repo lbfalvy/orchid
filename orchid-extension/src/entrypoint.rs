@@ -232,8 +232,8 @@ fn extension_main_logic(data: ExtensionData) {
           match &atom_req {
             api::AtomReq::SerializeAtom(ser) => {
               let mut buf = enc_vec(&id);
-              let refs = nfo.serialize(actx, &mut buf);
-              hand.handle(ser, &(buf, refs))
+              let refs_opt = nfo.serialize(actx, &mut buf);
+              hand.handle(ser, &refs_opt.map(|refs| (buf, refs)))
             }
             api::AtomReq::AtomPrint(print@api::AtomPrint(_)) =>
               hand.handle(print, &nfo.print(actx)),
@@ -299,6 +299,6 @@ fn extension_main_logic(data: ExtensionData) {
   init_replica(rn.clone().map());
   while !exiting.load(Ordering::Relaxed) {
     let rcvd = recv_parent_msg().unwrap();
-    rn.receive(rcvd)
+    rn.receive(&rcvd)
   }
 }

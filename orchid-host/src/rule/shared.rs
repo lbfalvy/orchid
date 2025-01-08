@@ -4,14 +4,9 @@ use std::fmt;
 
 use itertools::Itertools;
 use orchid_base::interner::Tok;
-
-use super::any_match::any_match;
-use super::build::mk_any;
 use orchid_base::name::Sym;
-use crate::macros::MacTree;
-use crate::rule::state::MatchState;
 use orchid_base::side::Side;
-use orchid_base::tokens::{Paren, PARENS};
+use orchid_base::tokens::{PARENS, Paren};
 
 pub enum ScalMatcher {
   Name(Sym),
@@ -103,19 +98,4 @@ impl fmt::Display for AnyMatcher {
       },
     }
   }
-}
-
-// ################ External ################
-
-/// A priority-order tree of the vectorial placeholders with scalars as leaves.
-pub struct Matcher(AnyMatcher);
-impl Matcher {
-  pub fn new(pattern: &[MacTree]) -> Self { Self(mk_any(pattern)) }
-  pub fn apply<'a>(&self, seq: &'a [MacTree], save_loc: &impl Fn(Sym) -> bool) -> Option<MatchState<'a>> {
-    any_match(&self.0, seq, save_loc)
-  }
-}
-
-impl fmt::Display for Matcher {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.0.fmt(f) }
 }

@@ -5,7 +5,6 @@ pub mod atom_owned;
 pub mod atom_thin;
 pub mod conv;
 pub mod entrypoint;
-// pub mod error;
 pub mod expr;
 pub mod fs;
 pub mod func_atom;

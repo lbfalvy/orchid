@@ -77,7 +77,7 @@ nonzero_impl!(std::num::NonZeroI32);
 nonzero_impl!(std::num::NonZeroI64);
 nonzero_impl!(std::num::NonZeroI128);
 
-impl<'a, T: Encode + ?Sized> Encode for &'a T {
+impl<T: Encode + ?Sized> Encode for &T {
   fn encode<W: Write + ?Sized>(&self, write: &mut W) { (**self).encode(write) }
 }
 macro_rules! float_impl {
@@ -285,12 +285,12 @@ smart_ptr!(Arc);
 smart_ptr!(Rc);
 smart_ptr!(Box);
 
-impl<'a, T: ?Sized + ToOwned> Decode for Cow<'a, T>
+impl<T: ?Sized + ToOwned> Decode for Cow<'_, T>
 where T::Owned: Decode
 {
   fn decode<R: Read + ?Sized>(read: &mut R) -> Self { Cow::Owned(T::Owned::decode(read)) }
 }
-impl<'a, T: ?Sized + Encode + ToOwned> Encode for Cow<'a, T> {
+impl<T: ?Sized + Encode + ToOwned> Encode for Cow<'_, T> {
   fn encode<W: Write + ?Sized>(&self, write: &mut W) { (**self).encode(write) }
 }
 

@@ -6,10 +6,10 @@ pub enum ArcCow<'a, T: ?Sized + ToOwned> {
   Borrowed(&'a T),
   Owned(Arc<T::Owned>),
 }
-impl<'a, T: ?Sized + ToOwned> ArcCow<'a, T> {
+impl<T: ?Sized + ToOwned> ArcCow<'_, T> {
   pub fn owned(value: T::Owned) -> Self { Self::Owned(Arc::new(value)) }
 }
-impl<'a, T: ?Sized + ToOwned> Clone for ArcCow<'a, T> {
+impl<T: ?Sized + ToOwned> Clone for ArcCow<'_, T> {
   fn clone(&self) -> Self {
     match self {
       Self::Borrowed(r) => Self::Borrowed(r),
@@ -18,7 +18,7 @@ impl<'a, T: ?Sized + ToOwned> Clone for ArcCow<'a, T> {
   }
 }
 
-impl<'a, T: ?Sized + ToOwned> Deref for ArcCow<'a, T> {
+impl<T: ?Sized + ToOwned> Deref for ArcCow<'_, T> {
   type Target = T;
   fn deref(&self) -> &Self::Target {
     match self {

@@ -1,8 +1,9 @@
-use std::fmt;
 use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
+use std::{backtrace, fmt};
 
 use derive_destructure::destructure;
+use orchid_base::clone;
 use orchid_base::error::{OrcErr, OrcErrv};
 use orchid_base::interner::Tok;
 use orchid_base::location::Pos;
@@ -10,6 +11,8 @@ use orchid_base::reqnot::Requester;
 
 use crate::api;
 use crate::atom::{AtomFactory, ForeignAtom, ToAtom};
+use crate::conv::{ToExpr, TryFromExpr};
+use crate::func_atom::Lambda;
 use crate::system::SysCtx;
 
 #[derive(destructure)]
@@ -147,7 +150,7 @@ pub fn seq(ops: impl IntoIterator<Item = Expr>) -> Expr {
   recur(ops.into_iter()).expect("Empty list provided to seq!")
 }
 
-pub fn arg(n: u64) -> ExprKind { ExprKind::Arg(n) }
+pub fn arg(n: u64) -> Expr { inherit(ExprKind::Arg(n)) }
 
 pub fn lambda(n: u64, b: impl IntoIterator<Item = Expr>) -> Expr {
   inherit(ExprKind::Lambda(n, Box::new(call(b))))
@@ -161,4 +164,11 @@ pub fn call(v: impl IntoIterator<Item = Expr>) -> Expr {
 
 pub fn bot(ev: impl IntoIterator<Item = OrcErr>) -> Expr {
   inherit(ExprKind::Bottom(OrcErrv::new(ev).unwrap()))
+}
+
+pub fn with<I: TryFromExpr, O: ToExpr>(
+  expr: Expr,
+  cont: impl Fn(I) -> O + Clone + Send + Sync + 'static,
+) -> Expr {
+  call([lambda(0, [seq([arg(0), call([Lambda::new(cont).to_expr(), arg(0)])])]), expr])
 }

@@ -33,17 +33,17 @@ impl<T> Default for IdStore<T> {
 }
 
 pub struct IdRecord<'a, T>(NonZeroU64, MutexGuard<'a, HashMap<NonZeroU64, T>>);
-impl<'a, T> IdRecord<'a, T> {
+impl<T> IdRecord<'_, T> {
   pub fn id(&self) -> NonZeroU64 { self.0 }
   pub fn remove(mut self) -> T { self.1.remove(&self.0).unwrap() }
 }
-impl<'a, T> Deref for IdRecord<'a, T> {
+impl<T> Deref for IdRecord<'_, T> {
   type Target = T;
   fn deref(&self) -> &Self::Target {
     self.1.get(&self.0).expect("Existence checked on construction")
   }
 }
-impl<'a, T> DerefMut for IdRecord<'a, T> {
+impl<T> DerefMut for IdRecord<'_, T> {
   fn deref_mut(&mut self) -> &mut Self::Target {
     self.1.get_mut(&self.0).expect("Existence checked on construction")
   }

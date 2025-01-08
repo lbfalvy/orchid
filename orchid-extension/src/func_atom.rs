@@ -5,13 +5,14 @@ use std::sync::{Arc, Mutex};
 
 use itertools::Itertools;
 use lazy_static::lazy_static;
+use never::Never;
 use orchid_api_traits::Encode;
 use orchid_base::error::OrcRes;
 use orchid_base::interner::Tok;
 use orchid_base::name::Sym;
 use trait_set::trait_set;
 
-use crate::atom::{MethodSet, Atomic};
+use crate::atom::{Atomic, MethodSet};
 use crate::atom_owned::{DeserializeCtx, OwnedAtom, OwnedVariant};
 use crate::conv::ToExpr;
 use crate::expr::{Expr, ExprHandle};
@@ -30,6 +31,11 @@ lazy_static! {
   static ref FUNS: Mutex<HashMap<Sym, (u8, Arc<dyn FunCB>)>> = Mutex::default();
 }
 
+/// An Atom representing a partially applied named native function. These
+/// partial calls are serialized into the name of the native function and the
+/// argument list.
+/// 
+/// See [Lambda] for the non-serializable variant
 #[derive(Clone)]
 pub(crate) struct Fun {
   path: Sym,
@@ -77,6 +83,40 @@ impl OwnedAtom for Fun {
     let (arity, fun) = FUNS.lock().unwrap().get(&path).unwrap().clone();
     Self { args, arity, path, fun }
   }
+}
+
+/// An Atom representing a partially applied native lambda. These are not serializable.
+/// 
+/// See [Fun] for the serializable variant
+#[derive(Clone)]
+pub struct Lambda {
+  args: Vec<Expr>,
+  arity: u8,
+  fun: Arc<dyn FunCB>,
+}
+impl Lambda {
+  pub fn new<I, O, F: ExprFunc<I, O>>(f: F) -> Self {
+    let fun = Arc::new(move |v| f.apply(v));
+    Self { args: vec![], arity: F::ARITY, fun }
+  }
+}
+impl Atomic for Lambda {
+  type Data = ();
+  type Variant = OwnedVariant;
+  fn reg_reqs() -> MethodSet<Self> { MethodSet::new() }
+}
+impl OwnedAtom for Lambda {
+  type Refs = Never;
+  fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(()) }
+  fn call_ref(&self, arg: ExprHandle) -> Expr {
+    let new_args = self.args.iter().cloned().chain([Expr::new(Arc::new(arg))]).collect_vec();
+    if new_args.len() == self.arity.into() {
+      (self.fun)(new_args).to_expr()
+    } else {
+      Self { args: new_args, arity: self.arity, fun: self.fun.clone() }.to_expr()
+    }
+  }
+  fn call(self, arg: ExprHandle) -> Expr { self.call_ref(arg) }
 }
 
 mod expr_func_derives {

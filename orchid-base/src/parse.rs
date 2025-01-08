@@ -67,11 +67,11 @@ impl<'a, 'b, A: AtomRepr, X: ExtraTok> Snippet<'a, 'b, A, X> {
     self.split_at(non_fluff_start.unwrap_or(self.len())).1
   }
 }
-impl<'a, 'b, A: AtomRepr, X: ExtraTok> Copy for Snippet<'a, 'b, A, X> {}
-impl<'a, 'b, A: AtomRepr, X: ExtraTok> Clone for Snippet<'a, 'b, A, X> {
+impl<A: AtomRepr, X: ExtraTok> Copy for Snippet<'_, '_, A, X> {}
+impl<A: AtomRepr, X: ExtraTok> Clone for Snippet<'_, '_, A, X> {
   fn clone(&self) -> Self { *self }
 }
-impl<'a, 'b, A: AtomRepr, X: ExtraTok> Deref for Snippet<'a, 'b, A, X> {
+impl<'b, A: AtomRepr, X: ExtraTok> Deref for Snippet<'_, 'b, A, X> {
   type Target = [TokTree<'b, A, X>];
   fn deref(&self) -> &Self::Target { self.cur }
 }

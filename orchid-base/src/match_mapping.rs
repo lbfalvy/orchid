@@ -75,6 +75,9 @@ macro_rules! match_mapping {
   (@PAT_MUNCH $ctx:tt ($($names:ident)*) $name:ident => $value:expr , $($tail:tt)*) => {
     match_mapping!(@PAT_MUNCH $ctx ($($names)* $name) $($tail)*)
   };
+  (@PAT_MUNCH $ctx:tt ($($names:ident)*) $name:ident () $value:expr , $($tail:tt)*) => {
+    match_mapping!(@PAT_MUNCH $ctx ($($names)* $name) $($tail)*)
+  };
   (@PAT_MUNCH $ctx:tt ($($names:ident)*) $name:ident . $($tail:tt)*) => { 
     match_mapping!(@PAT_DOT_MUNCH $ctx ($($names)* $name) $($tail)*)
   };
@@ -96,6 +99,9 @@ macro_rules! match_mapping {
   };
   (@VAL_MUNCH $ctx:tt ($($prefix:tt)*) $name:ident => $value:expr , $($tail:tt)*) => {
     match_mapping!(@VAL_MUNCH $ctx ($($prefix)* ($name ($value)) ) $($tail)*)
+  };
+  (@VAL_MUNCH $ctx:tt ($($prefix:tt)*) $name:ident () $value:expr , $($tail:tt)*) => {
+    match_mapping!(@VAL_MUNCH $ctx ($($prefix)* ($name ($value($name))) ) $($tail)*)
   };
   (@VAL_MUNCH $ctx:tt $fields:tt $name:ident . $member:tt $($tail:tt)*) => {
     match_mapping!(@VAL_DOT_MUNCH $ctx $fields $name ($name . $member ) $($tail)*)

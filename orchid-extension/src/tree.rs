@@ -1,10 +1,10 @@
 use std::num::NonZero;
 use std::ops::Range;
 
-use dyn_clone::{clone_box, DynClone};
+use dyn_clone::{DynClone, clone_box};
 use hashbrown::HashMap;
 use itertools::Itertools;
-use orchid_base::interner::{intern, Tok};
+use orchid_base::interner::{Tok, intern};
 use orchid_base::location::Pos;
 use orchid_base::name::Sym;
 use orchid_base::parse::Comment;
@@ -15,7 +15,7 @@ use trait_set::trait_set;
 
 use crate::api;
 use crate::atom::{AtomFactory, ForeignAtom};
-use crate::conv::ToExpr;
+use crate::conv::{ToExpr, TryFromExpr};
 use crate::entrypoint::MemberRecord;
 use crate::expr::Expr;
 use crate::func_atom::{ExprFunc, Fun};
@@ -48,8 +48,8 @@ impl GenItem {
       GenItemKind::Import(cn) => api::ItemKind::Import(cn.tok().to_api()),
       GenItemKind::Macro(prio, rules) => api::ItemKind::Macro(api::MacroBlock {
         priority: prio,
-        rules: rules.into_iter().map(|r| r.to_api() ).collect_vec(),
-      })
+        rules: rules.into_iter().map(|r| r.to_api()).collect_vec(),
+      }),
     };
     let comments = self.comments.into_iter().map(|c| c.to_api()).collect_vec();
     api::Item { location: self.pos.to_api(), comments, kind }

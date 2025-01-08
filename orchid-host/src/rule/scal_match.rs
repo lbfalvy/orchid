@@ -2,7 +2,8 @@ use orchid_base::name::Sym;
 
 use super::any_match::any_match;
 use super::shared::ScalMatcher;
-use crate::{macros::{MacTok, MacTree}, rule::state::{MatchState, StateEntry}};
+use crate::macros::{MacTok, MacTree};
+use crate::rule::state::{MatchState, StateEntry};
 
 #[must_use]
 pub fn scal_match<'a>(
@@ -15,6 +16,7 @@ pub fn scal_match<'a>(
       true => MatchState::from_name(n1.clone(), expr.pos.clone()),
       false => MatchState::default(),
     }),
+    (ScalMatcher::Placeh { .. }, MacTok::Done(_)) => None,
     (ScalMatcher::Placeh { key }, _) =>
       Some(MatchState::from_ph(key.clone(), StateEntry::Scalar(expr))),
     (ScalMatcher::S(c1, b_mat), MacTok::S(c2, body)) if c1 == c2 =>

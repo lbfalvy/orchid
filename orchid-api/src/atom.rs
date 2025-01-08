@@ -67,7 +67,7 @@ impl Request for FinalCall {
 #[extends(AtomReq, HostExtReq)]
 pub struct SerializeAtom(pub Atom);
 impl Request for SerializeAtom {
-  type Response = (Vec<u8>, Vec<ExprTicket>);
+  type Response = Option<(Vec<u8>, Vec<ExprTicket>)>;
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]

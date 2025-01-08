@@ -77,7 +77,7 @@ pub struct ForeignAtom<'a> {
   pub atom: api::Atom,
   pub pos: Pos,
 }
-impl<'a> ForeignAtom<'a> {
+impl ForeignAtom<'_> {
   pub fn oex_opt(self) -> Option<Expr> {
     let (handle, pos) = (self.expr.as_ref()?.clone(), self.pos.clone());
     let data = ExprData { pos, kind: ExprKind::Atom(ForeignAtom { _life: PhantomData, ..self }) };
@@ -98,15 +98,15 @@ impl ForeignAtom<'static> {
     Some(M::Response::decode(&mut &rep[..]))
   }
 }
-impl<'a> fmt::Display for ForeignAtom<'a> {
+impl fmt::Display for ForeignAtom<'_> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "{}::{:?}", if self.expr.is_some() { "Clause" } else { "Tok" }, self.atom)
   }
 }
-impl<'a> fmt::Debug for ForeignAtom<'a> {
+impl fmt::Debug for ForeignAtom<'_> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "ForeignAtom({self})") }
 }
-impl<'a> AtomRepr for ForeignAtom<'a> {
+impl AtomRepr for ForeignAtom<'_> {
   type Ctx = SysCtx;
   fn from_api(atom: &api::Atom, pos: Pos, ctx: &mut Self::Ctx) -> Self {
     Self { atom: atom.clone(), _life: PhantomData, ctx: ctx.clone(), expr: None, pos }
@@ -197,7 +197,7 @@ impl<A: AtomicFeatures> TypAtom<'static, A> {
     }
   }
 }
-impl<'a, A: AtomicFeatures> TypAtom<'a, A> {
+impl<A: AtomicFeatures> TypAtom<'_, A> {
   pub fn request<M: AtomMethod>(&self, req: M) -> M::Response where A: Supports<M> {
     M::Response::decode(
       &mut &self.data.ctx.reqnot.request(api::Fwd(
@@ -208,7 +208,7 @@ impl<'a, A: AtomicFeatures> TypAtom<'a, A> {
     )
   }
 }
-impl<'a, A: AtomicFeatures> Deref for TypAtom<'a, A> {
+impl<A: AtomicFeatures> Deref for TypAtom<'_, A> {
   type Target = A::Data;
   fn deref(&self) -> &Self::Target { &self.value }
 }
@@ -224,7 +224,7 @@ pub trait AtomDynfo: Send + Sync + 'static {
   fn print(&self, ctx: AtomCtx<'_>) -> String;
   fn handle_req(&self, ctx: AtomCtx<'_>, key: Sym, req: &mut dyn Read, rep: &mut dyn Write) -> bool;
   fn command(&self, ctx: AtomCtx<'_>) -> OrcRes<Option<Expr>>;
-  fn serialize(&self, ctx: AtomCtx<'_>, write: &mut dyn Write) -> Vec<api::ExprTicket>;
+  fn serialize(&self, ctx: AtomCtx<'_>, write: &mut dyn Write) -> Option<Vec<api::ExprTicket>>;
   fn deserialize(&self, ctx: SysCtx, data: &[u8], refs: &[api::ExprTicket]) -> api::Atom;
   fn drop(&self, ctx: AtomCtx<'_>);
 }

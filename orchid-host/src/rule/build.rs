@@ -46,7 +46,7 @@ fn mk_scalv(pattern: &[MacTree]) -> Vec<ScalMatcher> { pattern.iter().map(mk_sca
 
 /// Pattern MUST start and end with a vectorial placeholder
 #[must_use]
-fn mk_vec(pattern: &[MacTree]) -> VecMatcher {
+pub fn mk_vec(pattern: &[MacTree]) -> VecMatcher {
   debug_assert!(!pattern.is_empty(), "pattern cannot be empty");
   debug_assert!(pattern.first().map(vec_attrs).is_some(), "pattern must start with a vectorial");
   debug_assert!(pattern.last().map(vec_attrs).is_some(), "pattern must end with a vectorial");
@@ -91,7 +91,7 @@ fn mk_vec(pattern: &[MacTree]) -> VecMatcher {
 #[must_use]
 fn mk_scalar(pattern: &MacTree) -> ScalMatcher {
   match &*pattern.tok {
-    MacTok::Atom(_) => panic!("Atoms aren't supported in matchers"),
+    MacTok::Atom(_) | MacTok::Done(_) => panic!("Atoms and Done aren't supported in matchers"),
     MacTok::Name(n) => ScalMatcher::Name(n.clone()),
     MacTok::Ph(Ph { name, kind }) => match kind {
       PhKind::Vector { .. } => {

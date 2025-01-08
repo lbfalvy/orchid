@@ -21,4 +21,5 @@ pub mod shared;
 mod vec_match;
 pub mod state;
 mod vec_attrs;
+pub mod matcher;
 // pub mod matcher;

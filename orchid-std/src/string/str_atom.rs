@@ -77,7 +77,7 @@ pub enum OrcString<'a> {
   Val(TypAtom<'a, StrAtom>),
   Int(TypAtom<'a, IntStrAtom>),
 }
-impl<'a> OrcString<'a> {
+impl OrcString<'_> {
   pub fn get_string(&self) -> Arc<String> {
     match &self {
       Self::Int(tok) => Tok::from_api(tok.value).arc(),

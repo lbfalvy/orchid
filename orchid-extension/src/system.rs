@@ -13,6 +13,7 @@ use crate::api;
 use crate::atom::{get_info, AtomCtx, AtomDynfo, AtomicFeatures, ForeignAtom, TypAtom};
 use crate::entrypoint::ExtReq;
 use crate::fs::DeclFs;
+use crate::func_atom::Fun;
 // use crate::fun::Fun;
 use crate::lexer::LexerObj;
 use crate::parser::ParserObj;
@@ -37,7 +38,7 @@ pub trait DynSystemCard: Send + Sync + 'static {
 /// The indices of these are bitwise negated, such that the MSB of an atom index
 /// marks whether it belongs to this package (0) or the importer (1)
 fn general_atoms() -> impl Iterator<Item = Option<Box<dyn AtomDynfo>>> {
-  [/*Some(Fun::INFO)*/].into_iter()
+  [Some(Fun::dynfo())].into_iter()
 }
 
 pub fn atom_info_for(

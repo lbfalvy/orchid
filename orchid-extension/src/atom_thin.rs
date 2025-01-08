@@ -1,15 +1,16 @@
-use std::any::{type_name, Any, TypeId};
+use std::any::{Any, TypeId, type_name};
 use std::io::Write;
 
-use orchid_api_traits::{enc_vec, Coding};
+use orchid_api_traits::{Coding, enc_vec};
 use orchid_base::error::OrcRes;
 use orchid_base::name::Sym;
 
 use crate::api;
 use crate::atom::{
-  err_not_callable, err_not_command, get_info, AtomCard, AtomCtx, AtomDynfo, AtomFactory, MethodSet, Atomic, AtomicFeaturesImpl, AtomicVariant
+  AtomCard, AtomCtx, AtomDynfo, AtomFactory, Atomic, AtomicFeaturesImpl, AtomicVariant, MethodSet,
+  err_not_callable, err_not_command, get_info,
 };
-use crate::expr::{bot, Expr, ExprHandle};
+use crate::expr::{Expr, ExprHandle, bot};
 use crate::system::SysCtx;
 
 pub struct ThinVariant;
@@ -23,9 +24,7 @@ impl<A: ThinAtom + Atomic<Variant = ThinVariant>> AtomicFeaturesImpl<ThinVariant
       api::Atom { drop: None, data: buf, owner: ctx.id }
     })
   }
-  fn _info() -> Self::_Info {
-    ThinAtomDynfo(Self::reg_reqs())
-  }
+  fn _info() -> Self::_Info { ThinAtomDynfo(Self::reg_reqs()) }
   type _Info = ThinAtomDynfo<Self>;
 }
 
@@ -55,9 +54,9 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
   fn command(&self, AtomCtx(buf, _, ctx): AtomCtx<'_>) -> OrcRes<Option<Expr>> {
     T::decode(&mut &buf[..]).command(ctx)
   }
-  fn serialize(&self, actx: AtomCtx<'_>, write: &mut dyn Write) -> Vec<api::ExprTicket> {
+  fn serialize(&self, actx: AtomCtx<'_>, write: &mut dyn Write) -> Option<Vec<api::ExprTicket>> {
     T::decode(&mut &actx.0[..]).encode(write);
-    Vec::new()
+    Some(Vec::new())
   }
   fn deserialize(&self, ctx: SysCtx, data: &[u8], refs: &[api::ExprTicket]) -> api::Atom {
     assert!(refs.is_empty(), "Refs found when deserializing thin atom");

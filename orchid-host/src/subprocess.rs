@@ -1,5 +1,6 @@
 use std::io::{self, BufRead as _, Write};
 use std::path::PathBuf;
+use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::Mutex;
 use std::{process, thread};
 
@@ -8,12 +9,12 @@ use orchid_base::logging::Logger;
 use orchid_base::msg::{recv_msg, send_msg};
 
 use crate::api;
-use crate::extension::ExtensionPort;
+use crate::extension::{ExtensionPort, OnMessage};
 
 pub struct Subprocess {
   child: Mutex<process::Child>,
   stdin: Mutex<process::ChildStdin>,
-  stdout: Mutex<process::ChildStdout>,
+  set_onmessage: SyncSender<OnMessage>,
   header: api::ExtensionHeader,
 }
 impl Subprocess {
@@ -31,6 +32,18 @@ impl Subprocess {
     let mut stdout = child.stdout.take().unwrap();
     let header = api::ExtensionHeader::decode(&mut stdout);
     let child_stderr = child.stderr.take().unwrap();
+    let (set_onmessage, recv_onmessage) = sync_channel(0);
+    thread::Builder::new().name(format!("stdout-fwd:{prog}")).spawn(move || {
+      let mut onmessage: Box<dyn FnMut(&[u8]) + Send> = recv_onmessage.recv().unwrap();
+      drop(recv_onmessage);
+      loop {
+        match recv_msg(&mut stdout) {
+          Ok(msg) => onmessage(&msg[..]),
+          Err(e) if e.kind() == io::ErrorKind::BrokenPipe => break,
+          Err(e) => panic!("Failed to read from stdout: {}, {e}", e.kind()),
+        }
+      }
+    })?;
     thread::Builder::new().name(format!("stderr-fwd:{prog}")).spawn(move || {
       let mut reader = io::BufReader::new(child_stderr);
       loop {
@@ -44,7 +57,7 @@ impl Subprocess {
     Ok(Self {
       child: Mutex::new(child),
       stdin: Mutex::new(stdin),
-      stdout: Mutex::new(stdout),
+      set_onmessage,
       header,
     })
   }
@@ -53,18 +66,14 @@ impl Drop for Subprocess {
   fn drop(&mut self) { self.child.lock().unwrap().wait().expect("Extension exited with error"); }
 }
 impl ExtensionPort for Subprocess {
+  fn set_onmessage(&self, callback: OnMessage) {
+    self.set_onmessage.send(callback).unwrap();
+  }
   fn header(&self) -> &orchid_api::ExtensionHeader { &self.header }
   fn send(&self, msg: &[u8]) {
     if msg.starts_with(&[0, 0, 0, 0x1c]) {
       panic!("Received unnecessary prefix");
     }
     send_msg(&mut *self.stdin.lock().unwrap(), msg).unwrap()
-  }
-  fn receive(&self) -> Option<Vec<u8>> {
-    match recv_msg(&mut *self.stdout.lock().unwrap()) {
-      Ok(msg) => Some(msg),
-      Err(e) if e.kind() == io::ErrorKind::BrokenPipe => None,
-      Err(e) => panic!("Failed to read from stdout: {}, {e}", e.kind()),
-    }
   }
 }
