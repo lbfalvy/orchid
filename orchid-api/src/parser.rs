@@ -11,11 +11,11 @@ pub struct ParsId(pub NonZeroU64);
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(HostExtReq)]
 pub struct ParseLine {
-  pub sys: SysId,
-  pub comments: Vec<Comment>,
-  pub exported: bool,
-  pub line: Vec<TokenTree>,
+	pub sys: SysId,
+	pub comments: Vec<Comment>,
+	pub exported: bool,
+	pub line: Vec<TokenTree>,
 }
 impl Request for ParseLine {
-  type Response = OrcResult<Vec<TokenTree>>;
+	type Response = OrcResult<Vec<TokenTree>>;
 }

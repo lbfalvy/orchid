@@ -4,8 +4,8 @@ use crate::ExtHostNotif;
 
 #[derive(Clone, Debug, Coding)]
 pub enum LogStrategy {
-  StdErr,
-  File(String),
+	StdErr,
+	File(String),
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]

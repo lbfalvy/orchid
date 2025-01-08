@@ -6,6 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ordered-float = "4.2.0"
+ordered-float = "4.6.0"
 orchid-api-traits = { version = "0.1.0", path = "../orchid-api-traits" }
 orchid-api-derive = { version = "0.1.0", path = "../orchid-api-derive" }

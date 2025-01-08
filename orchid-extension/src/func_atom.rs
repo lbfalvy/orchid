@@ -19,114 +19,115 @@ use crate::expr::{Expr, ExprHandle};
 use crate::system::SysCtx;
 
 trait_set! {
-  trait FunCB = Fn(Vec<Expr>) -> OrcRes<Expr> + Send + Sync + 'static;
+	trait FunCB = Fn(Vec<Expr>) -> OrcRes<Expr> + Send + Sync + 'static;
 }
 
 pub trait ExprFunc<I, O>: Clone + Send + Sync + 'static {
-  const ARITY: u8;
-  fn apply(&self, v: Vec<Expr>) -> OrcRes<Expr>;
+	const ARITY: u8;
+	fn apply(&self, v: Vec<Expr>) -> OrcRes<Expr>;
 }
 
 lazy_static! {
-  static ref FUNS: Mutex<HashMap<Sym, (u8, Arc<dyn FunCB>)>> = Mutex::default();
+	static ref FUNS: Mutex<HashMap<Sym, (u8, Arc<dyn FunCB>)>> = Mutex::default();
 }
 
 /// An Atom representing a partially applied named native function. These
 /// partial calls are serialized into the name of the native function and the
 /// argument list.
-/// 
+///
 /// See [Lambda] for the non-serializable variant
 #[derive(Clone)]
 pub(crate) struct Fun {
-  path: Sym,
-  args: Vec<Expr>,
-  arity: u8,
-  fun: Arc<dyn FunCB>,
+	path: Sym,
+	args: Vec<Expr>,
+	arity: u8,
+	fun: Arc<dyn FunCB>,
 }
 impl Fun {
-  pub fn new<I, O, F: ExprFunc<I, O>>(path: Sym, f: F) -> Self {
-    let mut fung = FUNS.lock().unwrap();
-    let fun = if let Some(x) = fung.get(&path) {
-      x.1.clone()
-    } else {
-      let fun = Arc::new(move |v| f.apply(v));
-      fung.insert(path.clone(), (F::ARITY, fun.clone()));
-      fun
-    };
-    Self { args: vec![], arity: F::ARITY, path, fun }
-  }
+	pub fn new<I, O, F: ExprFunc<I, O>>(path: Sym, f: F) -> Self {
+		let mut fung = FUNS.lock().unwrap();
+		let fun = if let Some(x) = fung.get(&path) {
+			x.1.clone()
+		} else {
+			let fun = Arc::new(move |v| f.apply(v));
+			fung.insert(path.clone(), (F::ARITY, fun.clone()));
+			fun
+		};
+		Self { args: vec![], arity: F::ARITY, path, fun }
+	}
 }
 impl Atomic for Fun {
-  type Data = ();
-  type Variant = OwnedVariant;
-  fn reg_reqs() -> MethodSet<Self> { MethodSet::new() }
+	type Data = ();
+	type Variant = OwnedVariant;
+	fn reg_reqs() -> MethodSet<Self> { MethodSet::new() }
 }
 impl OwnedAtom for Fun {
-  type Refs = Vec<Expr>;
-  fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(()) }
-  fn call_ref(&self, arg: ExprHandle) -> Expr {
-    let new_args = self.args.iter().cloned().chain([Expr::new(Arc::new(arg))]).collect_vec();
-    if new_args.len() == self.arity.into() {
-      (self.fun)(new_args).to_expr()
-    } else {
-      Self { args: new_args, arity: self.arity, fun: self.fun.clone(), path: self.path.clone() }
-        .to_expr()
-    }
-  }
-  fn call(self, arg: ExprHandle) -> Expr { self.call_ref(arg) }
-  fn serialize(&self, _: SysCtx, sink: &mut (impl io::Write + ?Sized)) -> Self::Refs {
-    self.path.encode(sink);
-    self.args.clone()
-  }
-  fn deserialize(ctx: impl DeserializeCtx, args: Self::Refs) -> Self {
-    let path = Sym::new(ctx.decode::<Vec<Tok<String>>>()).unwrap();
-    let (arity, fun) = FUNS.lock().unwrap().get(&path).unwrap().clone();
-    Self { args, arity, path, fun }
-  }
+	type Refs = Vec<Expr>;
+	fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(()) }
+	fn call_ref(&self, arg: ExprHandle) -> Expr {
+		let new_args = self.args.iter().cloned().chain([Expr::new(Arc::new(arg))]).collect_vec();
+		if new_args.len() == self.arity.into() {
+			(self.fun)(new_args).to_expr()
+		} else {
+			Self { args: new_args, arity: self.arity, fun: self.fun.clone(), path: self.path.clone() }
+				.to_expr()
+		}
+	}
+	fn call(self, arg: ExprHandle) -> Expr { self.call_ref(arg) }
+	fn serialize(&self, _: SysCtx, sink: &mut (impl io::Write + ?Sized)) -> Self::Refs {
+		self.path.encode(sink);
+		self.args.clone()
+	}
+	fn deserialize(ctx: impl DeserializeCtx, args: Self::Refs) -> Self {
+		let path = Sym::new(ctx.decode::<Vec<Tok<String>>>()).unwrap();
+		let (arity, fun) = FUNS.lock().unwrap().get(&path).unwrap().clone();
+		Self { args, arity, path, fun }
+	}
 }
 
-/// An Atom representing a partially applied native lambda. These are not serializable.
-/// 
+/// An Atom representing a partially applied native lambda. These are not
+/// serializable.
+///
 /// See [Fun] for the serializable variant
 #[derive(Clone)]
 pub struct Lambda {
-  args: Vec<Expr>,
-  arity: u8,
-  fun: Arc<dyn FunCB>,
+	args: Vec<Expr>,
+	arity: u8,
+	fun: Arc<dyn FunCB>,
 }
 impl Lambda {
-  pub fn new<I, O, F: ExprFunc<I, O>>(f: F) -> Self {
-    let fun = Arc::new(move |v| f.apply(v));
-    Self { args: vec![], arity: F::ARITY, fun }
-  }
+	pub fn new<I, O, F: ExprFunc<I, O>>(f: F) -> Self {
+		let fun = Arc::new(move |v| f.apply(v));
+		Self { args: vec![], arity: F::ARITY, fun }
+	}
 }
 impl Atomic for Lambda {
-  type Data = ();
-  type Variant = OwnedVariant;
-  fn reg_reqs() -> MethodSet<Self> { MethodSet::new() }
+	type Data = ();
+	type Variant = OwnedVariant;
+	fn reg_reqs() -> MethodSet<Self> { MethodSet::new() }
 }
 impl OwnedAtom for Lambda {
-  type Refs = Never;
-  fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(()) }
-  fn call_ref(&self, arg: ExprHandle) -> Expr {
-    let new_args = self.args.iter().cloned().chain([Expr::new(Arc::new(arg))]).collect_vec();
-    if new_args.len() == self.arity.into() {
-      (self.fun)(new_args).to_expr()
-    } else {
-      Self { args: new_args, arity: self.arity, fun: self.fun.clone() }.to_expr()
-    }
-  }
-  fn call(self, arg: ExprHandle) -> Expr { self.call_ref(arg) }
+	type Refs = Never;
+	fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(()) }
+	fn call_ref(&self, arg: ExprHandle) -> Expr {
+		let new_args = self.args.iter().cloned().chain([Expr::new(Arc::new(arg))]).collect_vec();
+		if new_args.len() == self.arity.into() {
+			(self.fun)(new_args).to_expr()
+		} else {
+			Self { args: new_args, arity: self.arity, fun: self.fun.clone() }.to_expr()
+		}
+	}
+	fn call(self, arg: ExprHandle) -> Expr { self.call_ref(arg) }
 }
 
 mod expr_func_derives {
-  use orchid_base::error::OrcRes;
+	use orchid_base::error::OrcRes;
 
-  use super::ExprFunc;
-  use crate::conv::{ToExpr, TryFromExpr};
-  use crate::func_atom::Expr;
+	use super::ExprFunc;
+	use crate::conv::{ToExpr, TryFromExpr};
+	use crate::func_atom::Expr;
 
-  macro_rules! expr_func_derive {
+	macro_rules! expr_func_derive {
     ($arity: tt, $($t:ident),*) => {
       paste::paste!{
         impl<
@@ -144,18 +145,18 @@ mod expr_func_derives {
       }
     };
   }
-  expr_func_derive!(1, A);
-  expr_func_derive!(2, A, B);
-  expr_func_derive!(3, A, B, C);
-  expr_func_derive!(4, A, B, C, D);
-  expr_func_derive!(5, A, B, C, D, E);
-  expr_func_derive!(6, A, B, C, D, E, F);
-  expr_func_derive!(7, A, B, C, D, E, F, G);
-  expr_func_derive!(8, A, B, C, D, E, F, G, H);
-  expr_func_derive!(9, A, B, C, D, E, F, G, H, I);
-  expr_func_derive!(10, A, B, C, D, E, F, G, H, I, J);
-  expr_func_derive!(11, A, B, C, D, E, F, G, H, I, J, K);
-  expr_func_derive!(12, A, B, C, D, E, F, G, H, I, J, K, L);
-  expr_func_derive!(13, A, B, C, D, E, F, G, H, I, J, K, L, M);
-  expr_func_derive!(14, A, B, C, D, E, F, G, H, I, J, K, L, M, N);
+	expr_func_derive!(1, A);
+	expr_func_derive!(2, A, B);
+	expr_func_derive!(3, A, B, C);
+	expr_func_derive!(4, A, B, C, D);
+	expr_func_derive!(5, A, B, C, D, E);
+	expr_func_derive!(6, A, B, C, D, E, F);
+	expr_func_derive!(7, A, B, C, D, E, F, G);
+	expr_func_derive!(8, A, B, C, D, E, F, G, H);
+	expr_func_derive!(9, A, B, C, D, E, F, G, H, I);
+	expr_func_derive!(10, A, B, C, D, E, F, G, H, I, J);
+	expr_func_derive!(11, A, B, C, D, E, F, G, H, I, J, K);
+	expr_func_derive!(12, A, B, C, D, E, F, G, H, I, J, K, L);
+	expr_func_derive!(13, A, B, C, D, E, F, G, H, I, J, K, L, M);
+	expr_func_derive!(14, A, B, C, D, E, F, G, H, I, J, K, L, M, N);
 }

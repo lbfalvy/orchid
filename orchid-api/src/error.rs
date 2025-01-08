@@ -10,11 +10,11 @@ pub struct ErrId(pub NonZeroU16);
 
 #[derive(Clone, Debug, Coding)]
 pub struct ErrLocation {
-  /// Description of the relation of this location to the error. If not used,
-  /// set to empty string
-  pub message: Arc<String>,
-  /// Location in code where the error emerged. This is usually [Location::Gen].
-  pub location: Location,
+	/// Description of the relation of this location to the error. If not used,
+	/// set to empty string
+	pub message: Arc<String>,
+	/// Location in code where the error emerged. This is usually [Location::Gen].
+	pub location: Location,
 }
 
 /// Programming errors raised by extensions. At runtime these produce the
@@ -24,14 +24,14 @@ pub struct ErrLocation {
 /// and a bottom if the file name isn't a string.
 #[derive(Clone, Debug, Coding)]
 pub struct OrcError {
-  /// General description of the kind of error.
-  pub description: TStr,
-  /// Specific information about the exact error, preferably containing concrete
-  /// values.
-  pub message: Arc<String>,
-  /// Specific code fragments that have contributed to the emergence of the
-  /// error.
-  pub locations: Vec<ErrLocation>,
+	/// General description of the kind of error.
+	pub description: TStr,
+	/// Specific information about the exact error, preferably containing concrete
+	/// values.
+	pub message: Arc<String>,
+	/// Specific code fragments that have contributed to the emergence of the
+	/// error.
+	pub locations: Vec<ErrLocation>,
 }
 
 /// If this is an [`Err`] then the [`Vec`] must not be empty.

@@ -14,34 +14,34 @@ pub struct VfsId(pub NonZeroU16);
 
 #[derive(Clone, Debug, Coding)]
 pub enum Loaded {
-  Code(String),
-  Collection(Vec<TStr>),
+	Code(String),
+	Collection(Vec<TStr>),
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(VfsReq, HostExtReq)]
 pub struct VfsRead(pub SysId, pub VfsId, pub Vec<TStr>);
 impl Request for VfsRead {
-  type Response = OrcResult<Loaded>;
+	type Response = OrcResult<Loaded>;
 }
 
 #[derive(Clone, Debug, Coding)]
 pub enum EagerVfs {
-  Lazy(VfsId),
-  Eager(HashMap<TStr, EagerVfs>),
+	Lazy(VfsId),
+	Eager(HashMap<TStr, EagerVfs>),
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(VfsReq, HostExtReq)]
 pub struct GetVfs(pub SysId);
 impl Request for GetVfs {
-  type Response = EagerVfs;
+	type Response = EagerVfs;
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(HostExtReq)]
 #[extendable]
 pub enum VfsReq {
-  GetVfs(GetVfs),
-  VfsRead(VfsRead),
+	GetVfs(GetVfs),
+	VfsRead(VfsRead),
 }

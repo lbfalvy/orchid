@@ -8,9 +8,9 @@ use crate::macros::{MacTok, MacTree};
 /// a vectorial placeholder
 #[must_use]
 pub fn vec_attrs(expr: &MacTree) -> Option<(Tok<String>, u8, bool)> {
-  match (*expr.tok).clone() {
-    MacTok::Ph(Ph { kind: PhKind::Vector { priority, at_least_one }, name }) =>
-      Some((name, priority, at_least_one)),
-    _ => None,
-  }
+	match (*expr.tok).clone() {
+		MacTok::Ph(Ph { kind: PhKind::Vector { priority, at_least_one }, name }) =>
+			Some((name, priority, at_least_one)),
+		_ => None,
+	}
 }

@@ -14,33 +14,33 @@ pub struct CharFilter(pub Vec<RangeInclusive<char>>);
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(HostExtReq)]
 pub struct LexExpr {
-  pub sys: SysId,
-  pub id: ParsId,
-  pub text: TStr,
-  pub pos: u32,
+	pub sys: SysId,
+	pub id: ParsId,
+	pub text: TStr,
+	pub pos: u32,
 }
 impl Request for LexExpr {
-  type Response = Option<OrcResult<LexedExpr>>;
+	type Response = Option<OrcResult<LexedExpr>>;
 }
 
 #[derive(Clone, Debug, Coding)]
 pub struct LexedExpr {
-  pub pos: u32,
-  pub expr: TokenTree,
+	pub pos: u32,
+	pub expr: TokenTree,
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(ExtHostReq)]
 pub struct SubLex {
-  pub id: ParsId,
-  pub pos: u32,
+	pub id: ParsId,
+	pub pos: u32,
 }
 impl Request for SubLex {
-  type Response = Option<SubLexed>;
+	type Response = Option<SubLexed>;
 }
 
 #[derive(Clone, Debug, Coding)]
 pub struct SubLexed {
-  pub pos: u32,
-  pub ticket: TreeTicket,
+	pub pos: u32,
+	pub ticket: TreeTicket,
 }

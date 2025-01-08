@@ -23,5 +23,5 @@ pub fn hierarchy(input: TokenStream) -> TokenStream { hierarchy::derive(input) }
 
 #[proc_macro_derive(Coding)]
 pub fn coding(input: TokenStream) -> TokenStream {
-  decode(input.clone()).into_iter().chain(encode(input)).collect()
+	decode(input.clone()).into_iter().chain(encode(input)).collect()
 }

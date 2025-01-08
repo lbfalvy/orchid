@@ -1,7 +1,7 @@
-/// A shorthand for mapping over enums with identical structure. Used for converting between
-/// owned enums and the corresponding API enums that only differ in the type of their
-/// fields.
-/// 
+/// A shorthand for mapping over enums with identical structure. Used for
+/// converting between owned enums and the corresponding API enums that only
+/// differ in the type of their fields.
+///
 /// The basic form is
 /// ```ignore
 /// match_mapping!(self, ThisType => OtherType {
@@ -78,7 +78,7 @@ macro_rules! match_mapping {
   (@PAT_MUNCH $ctx:tt ($($names:ident)*) $name:ident () $value:expr , $($tail:tt)*) => {
     match_mapping!(@PAT_MUNCH $ctx ($($names)* $name) $($tail)*)
   };
-  (@PAT_MUNCH $ctx:tt ($($names:ident)*) $name:ident . $($tail:tt)*) => { 
+  (@PAT_MUNCH $ctx:tt ($($names:ident)*) $name:ident . $($tail:tt)*) => {
     match_mapping!(@PAT_DOT_MUNCH $ctx ($($names)* $name) $($tail)*)
   };
   (@PAT_DOT_MUNCH $ctx:tt $names:tt , $($tail:tt)*) => {

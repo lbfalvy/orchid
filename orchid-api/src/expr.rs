@@ -43,9 +43,9 @@ pub struct Release(pub SysId, pub ExprTicket);
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
 #[extends(ExprNotif, ExtHostNotif)]
 pub struct Move {
-  pub dec: SysId,
-  pub inc: SysId,
-  pub expr: ExprTicket,
+	pub dec: SysId,
+	pub inc: SysId,
+	pub expr: ExprTicket,
 }
 
 /// A description of a new expression. It is used as the return value of
@@ -53,48 +53,48 @@ pub struct Move {
 /// [crate::tree::Tree].
 #[derive(Clone, Debug, Coding)]
 pub enum ExpressionKind {
-  /// Apply the lhs as a function to the rhs
-  Call(Box<Expression>, Box<Expression>),
-  /// Lambda function. The number operates as an argument name
-  Lambda(u64, Box<Expression>),
-  /// Binds the argument passed to the lambda with the same ID in the same
-  /// template
-  Arg(u64),
-  /// Insert the specified host-expression in the template here. When the clause
-  /// is used in the const tree, this variant is forbidden.
-  Slot(ExprTicket),
-  /// The lhs must be fully processed before the rhs can be processed.
-  /// Equivalent to Haskell's function of the same name
-  Seq(Box<Expression>, Box<Expression>),
-  /// Insert a new atom in the tree. When the clause is used in the const tree,
-  /// the atom must be trivial. This is always a newly constructed atom, if you
-  /// want to reference an existing atom, use the corresponding [ExprTicket].
-  /// Because the atom is newly constructed, it also must belong to this system.
-  NewAtom(Atom),
-  /// A reference to a constant
-  Const(TStrv),
-  /// A static runtime error.
-  Bottom(Vec<OrcError>),
+	/// Apply the lhs as a function to the rhs
+	Call(Box<Expression>, Box<Expression>),
+	/// Lambda function. The number operates as an argument name
+	Lambda(u64, Box<Expression>),
+	/// Binds the argument passed to the lambda with the same ID in the same
+	/// template
+	Arg(u64),
+	/// Insert the specified host-expression in the template here. When the clause
+	/// is used in the const tree, this variant is forbidden.
+	Slot(ExprTicket),
+	/// The lhs must be fully processed before the rhs can be processed.
+	/// Equivalent to Haskell's function of the same name
+	Seq(Box<Expression>, Box<Expression>),
+	/// Insert a new atom in the tree. When the clause is used in the const tree,
+	/// the atom must be trivial. This is always a newly constructed atom, if you
+	/// want to reference an existing atom, use the corresponding [ExprTicket].
+	/// Because the atom is newly constructed, it also must belong to this system.
+	NewAtom(Atom),
+	/// A reference to a constant
+	Const(TStrv),
+	/// A static runtime error.
+	Bottom(Vec<OrcError>),
 }
 
 #[derive(Clone, Debug, Coding)]
 pub struct Expression {
-  pub kind: ExpressionKind,
-  pub location: Location,
+	pub kind: ExpressionKind,
+	pub location: Location,
 }
 
 #[derive(Clone, Debug, Coding)]
 pub enum InspectedKind {
-  Atom(Atom),
-  Bottom(Vec<OrcError>),
-  Opaque,
+	Atom(Atom),
+	Bottom(Vec<OrcError>),
+	Opaque,
 }
 
 #[derive(Clone, Debug, Coding)]
 pub struct Inspected {
-  pub kind: InspectedKind,
-  pub location: Location,
-  pub refcount: u32,
+	pub kind: InspectedKind,
+	pub location: Location,
+	pub refcount: u32,
 }
 
 /// Obtain information about an expression. Used to act upon arguments by
@@ -103,24 +103,24 @@ pub struct Inspected {
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
 #[extends(ExprReq, ExtHostReq)]
 pub struct Inspect {
-  pub target: ExprTicket,
+	pub target: ExprTicket,
 }
 impl Request for Inspect {
-  type Response = Inspected;
+	type Response = Inspected;
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
 #[extends(ExtHostReq)]
 #[extendable]
 pub enum ExprReq {
-  Inspect(Inspect),
+	Inspect(Inspect),
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
 #[extends(ExtHostNotif)]
 #[extendable]
 pub enum ExprNotif {
-  Acquire(Acquire),
-  Release(Release),
-  Move(Move),
+	Acquire(Acquire),
+	Release(Release),
+	Move(Move),
 }

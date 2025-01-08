@@ -1,148 +1,142 @@
 //! Structures that show where code or semantic elements came from
 
-use crate::match_mapping;
 use std::fmt;
 use std::hash::Hash;
 use std::ops::Range;
 
 use trait_set::trait_set;
 
-use crate::interner::{intern, Tok};
+use crate::interner::{Tok, intern};
 use crate::name::Sym;
-use crate::{api, intern, sym};
+use crate::{api, intern, match_mapping, sym};
 
 trait_set! {
-  pub trait GetSrc = FnMut(&Sym) -> Tok<String>;
+	pub trait GetSrc = FnMut(&Sym) -> Tok<String>;
 }
 
 #[derive(Debug, Clone)]
 pub enum Pos {
-  None,
-  SlotTarget,
-  /// Used in functions to denote the generated code that carries on the
-  /// location of the call. Not allowed in the const tree.
-  Inherit,
-  Gen(CodeGenInfo),
-  /// Range and file
-  SourceRange(SourceRange),
-  /// Range only, file implied. Most notably used by parsers
-  Range(Range<u32>),
+	None,
+	SlotTarget,
+	/// Used in functions to denote the generated code that carries on the
+	/// location of the call. Not allowed in the const tree.
+	Inherit,
+	Gen(CodeGenInfo),
+	/// Range and file
+	SourceRange(SourceRange),
+	/// Range only, file implied. Most notably used by parsers
+	Range(Range<u32>),
 }
 impl Pos {
-  pub fn pretty_print(&self, get_src: &mut impl GetSrc) -> String {
-    match self {
-      Self::Gen(g) => g.to_string(),
-      Self::SourceRange(sr) => sr.pretty_print(&get_src(&sr.path)),
-      // Can't pretty print partial and meta-location
-      other => format!("{other:?}"),
-    }
-  }
-  pub fn from_api(api: &api::Location) -> Self {
-    match_mapping!(api, api::Location => Pos {
-      None, Inherit, SlotTarget,
-      Range(r.clone()),
-      Gen(cgi => CodeGenInfo::from_api(cgi)),
-      SourceRange(sr => SourceRange::from_api(sr))
-    })
-  }
-  pub fn to_api(&self) -> api::Location {
-    match_mapping!(self, Pos => api::Location {
-      None, Inherit, SlotTarget,
-      Range(r.clone()),
-      Gen(cgi.to_api()),
-      SourceRange(sr.to_api()),
-    })
-  }
+	pub fn pretty_print(&self, get_src: &mut impl GetSrc) -> String {
+		match self {
+			Self::Gen(g) => g.to_string(),
+			Self::SourceRange(sr) => sr.pretty_print(&get_src(&sr.path)),
+			// Can't pretty print partial and meta-location
+			other => format!("{other:?}"),
+		}
+	}
+	pub fn from_api(api: &api::Location) -> Self {
+		match_mapping!(api, api::Location => Pos {
+			None, Inherit, SlotTarget,
+			Range(r.clone()),
+			Gen(cgi => CodeGenInfo::from_api(cgi)),
+			SourceRange(sr => SourceRange::from_api(sr))
+		})
+	}
+	pub fn to_api(&self) -> api::Location {
+		match_mapping!(self, Pos => api::Location {
+			None, Inherit, SlotTarget,
+			Range(r.clone()),
+			Gen(cgi.to_api()),
+			SourceRange(sr.to_api()),
+		})
+	}
 }
 
 /// Exact source code location. Includes where the code was loaded from, what
 /// the original source code was, and a byte range.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SourceRange {
-  pub(crate) path: Sym,
-  pub(crate) range: Range<u32>,
+	pub(crate) path: Sym,
+	pub(crate) range: Range<u32>,
 }
 impl SourceRange {
-  pub fn new(range: &Range<u32>, path: &Sym) -> Self {
-    Self { range: range.clone(), path: path.clone() }
-  }
-  /// Create a dud [SourceRange] for testing. Its value is unspecified and
-  /// volatile.
-  pub fn mock() -> Self { Self { range: 0..1, path: sym!(test) } }
-  /// Path the source text was loaded from
-  pub fn path(&self) -> Sym { self.path.clone() }
-  /// Byte range
-  pub fn range(&self) -> Range<u32> { self.range.clone() }
-  /// 0-based index of first byte
-  pub fn start(&self) -> u32 { self.range.start }
-  /// 0-based index of last byte + 1
-  pub fn end(&self) -> u32 { self.range.end }
-  /// Syntactic location
-  pub fn pos(&self) -> Pos { Pos::SourceRange(self.clone()) }
-  /// Transform the numeric byte range
-  pub fn map_range(&self, map: impl FnOnce(Range<u32>) -> Range<u32>) -> Self {
-    Self { range: map(self.range()), path: self.path() }
-  }
-  pub fn pretty_print(&self, src: &str) -> String {
-    let (sl, sc) = pos2lc(src, self.range.start);
-    let (el, ec) = pos2lc(src, self.range.end);
-    match (el == sl, ec <= sc + 1) {
-      (true, true) => format!("{sl}:{sc}"),
-      (true, false) => format!("{sl}:{sc}..{ec}"),
-      (false, _) => format!("{sl}:{sc}..{el}:{ec}"),
-    }
-  }
-  pub fn zw(path: Sym, pos: u32) -> Self {
-    Self { path, range: pos..pos }
-  }
-  fn from_api(api: &api::SourceRange) -> Self {
-    Self { path: Sym::from_api(api.path), range: api.range.clone() }
-  }
-  fn to_api(&self) -> api::SourceRange {
-    api::SourceRange { path: self.path.to_api(), range: self.range.clone() }
-  }
+	pub fn new(range: &Range<u32>, path: &Sym) -> Self {
+		Self { range: range.clone(), path: path.clone() }
+	}
+	/// Create a dud [SourceRange] for testing. Its value is unspecified and
+	/// volatile.
+	pub fn mock() -> Self { Self { range: 0..1, path: sym!(test) } }
+	/// Path the source text was loaded from
+	pub fn path(&self) -> Sym { self.path.clone() }
+	/// Byte range
+	pub fn range(&self) -> Range<u32> { self.range.clone() }
+	/// 0-based index of first byte
+	pub fn start(&self) -> u32 { self.range.start }
+	/// 0-based index of last byte + 1
+	pub fn end(&self) -> u32 { self.range.end }
+	/// Syntactic location
+	pub fn pos(&self) -> Pos { Pos::SourceRange(self.clone()) }
+	/// Transform the numeric byte range
+	pub fn map_range(&self, map: impl FnOnce(Range<u32>) -> Range<u32>) -> Self {
+		Self { range: map(self.range()), path: self.path() }
+	}
+	pub fn pretty_print(&self, src: &str) -> String {
+		let (sl, sc) = pos2lc(src, self.range.start);
+		let (el, ec) = pos2lc(src, self.range.end);
+		match (el == sl, ec <= sc + 1) {
+			(true, true) => format!("{sl}:{sc}"),
+			(true, false) => format!("{sl}:{sc}..{ec}"),
+			(false, _) => format!("{sl}:{sc}..{el}:{ec}"),
+		}
+	}
+	pub fn zw(path: Sym, pos: u32) -> Self { Self { path, range: pos..pos } }
+	fn from_api(api: &api::SourceRange) -> Self {
+		Self { path: Sym::from_api(api.path), range: api.range.clone() }
+	}
+	fn to_api(&self) -> api::SourceRange {
+		api::SourceRange { path: self.path.to_api(), range: self.range.clone() }
+	}
 }
 
 /// Information about a code generator attached to the generated code
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct CodeGenInfo {
-  /// formatted like a Rust namespace
-  pub generator: Sym,
-  /// Unformatted user message with relevant circumstances and parameters
-  pub details: Tok<String>,
+	/// formatted like a Rust namespace
+	pub generator: Sym,
+	/// Unformatted user message with relevant circumstances and parameters
+	pub details: Tok<String>,
 }
 impl CodeGenInfo {
-  /// A codegen marker with no user message and parameters
-  pub fn no_details(generator: Sym) -> Self { Self { generator, details: intern!(str: "") } }
-  /// A codegen marker with a user message or parameters
-  pub fn details(generator: Sym, details: impl AsRef<str>) -> Self {
-    Self { generator, details: intern(details.as_ref()) }
-  }
-  /// Syntactic location
-  pub fn pos(&self) -> Pos { Pos::Gen(self.clone()) }
-  fn from_api(api: &api::CodeGenInfo) -> Self {
-    Self {
-      generator: Sym::from_api(api.generator),
-      details: Tok::from_api(api.details),
-    }
-  }
-  fn to_api(&self) -> api::CodeGenInfo {
-    api::CodeGenInfo { generator: self.generator.to_api(), details: self.details.to_api() }
-  }
+	/// A codegen marker with no user message and parameters
+	pub fn no_details(generator: Sym) -> Self { Self { generator, details: intern!(str: "") } }
+	/// A codegen marker with a user message or parameters
+	pub fn details(generator: Sym, details: impl AsRef<str>) -> Self {
+		Self { generator, details: intern(details.as_ref()) }
+	}
+	/// Syntactic location
+	pub fn pos(&self) -> Pos { Pos::Gen(self.clone()) }
+	fn from_api(api: &api::CodeGenInfo) -> Self {
+		Self { generator: Sym::from_api(api.generator), details: Tok::from_api(api.details) }
+	}
+	fn to_api(&self) -> api::CodeGenInfo {
+		api::CodeGenInfo { generator: self.generator.to_api(), details: self.details.to_api() }
+	}
 }
 impl fmt::Debug for CodeGenInfo {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "CodeGenInfo({self})") }
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "CodeGenInfo({self})") }
 }
 impl fmt::Display for CodeGenInfo {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "generated by {}", self.generator)?;
-    if !self.details.is_empty() { write!(f, ", details: {}", self.details) } else { write!(f, ".") }
-  }
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "generated by {}", self.generator)?;
+		if !self.details.is_empty() { write!(f, ", details: {}", self.details) } else { write!(f, ".") }
+	}
 }
 
 #[must_use]
 fn pos2lc(s: &str, i: u32) -> (u32, u32) {
-  s.chars()
-    .take(i.try_into().unwrap())
-    .fold((1, 1), |(line, col), char| if char == '\n' { (line + 1, 1) } else { (line, col + 1) })
+	s.chars()
+		.take(i.try_into().unwrap())
+		.fold((1, 1), |(line, col), char| if char == '\n' { (line + 1, 1) } else { (line, col + 1) })
 }

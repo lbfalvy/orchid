@@ -19,21 +19,21 @@ pub struct SysId(pub NonZeroU16);
 /// extension header, so it cannot rely on the interner.
 #[derive(Debug, Clone, Coding)]
 pub struct SystemDecl {
-  /// ID of the system, unique within the library
-  pub id: SysDeclId,
-  /// This can be depended upon. Exactly one of each kind will be loaded
-  pub name: String,
-  /// If multiple instances of a system are found, the highest priority will be
-  /// used. This can be used for version counting, but also for fallbacks if a
-  /// negative number is found.
-  ///
-  /// Systems cannot depend on specific versions and older versions of systems
-  /// are never loaded. Compatibility can be determined on a per-system basis
-  /// through an algorithm chosen by the provider.
-  pub priority: NotNan<f64>,
-  /// List of systems needed for this one to work correctly. These will be
-  /// looked up, and an error produced if they aren't found.
-  pub depends: Vec<String>,
+	/// ID of the system, unique within the library
+	pub id: SysDeclId,
+	/// This can be depended upon. Exactly one of each kind will be loaded
+	pub name: String,
+	/// If multiple instances of a system are found, the highest priority will be
+	/// used. This can be used for version counting, but also for fallbacks if a
+	/// negative number is found.
+	///
+	/// Systems cannot depend on specific versions and older versions of systems
+	/// are never loaded. Compatibility can be determined on a per-system basis
+	/// through an algorithm chosen by the provider.
+	pub priority: NotNan<f64>,
+	/// List of systems needed for this one to work correctly. These will be
+	/// looked up, and an error produced if they aren't found.
+	pub depends: Vec<String>,
 }
 
 /// Host -> extension; instantiate a system according to its [SystemDecl].
@@ -43,26 +43,26 @@ pub struct SystemDecl {
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(SysReq, HostExtReq)]
 pub struct NewSystem {
-  /// ID of the system
-  pub system: SysDeclId,
-  /// ID of the system instance, unique for the host
-  pub id: SysId,
-  /// Instance IDs for dependencies, in the order that the names appear in the
-  /// declaration
-  pub depends: Vec<SysId>,
+	/// ID of the system
+	pub system: SysDeclId,
+	/// ID of the system instance, unique for the host
+	pub id: SysId,
+	/// Instance IDs for dependencies, in the order that the names appear in the
+	/// declaration
+	pub depends: Vec<SysId>,
 }
 impl Request for NewSystem {
-  type Response = SystemInst;
+	type Response = SystemInst;
 }
 
 #[derive(Clone, Debug, Coding)]
 pub struct SystemInst {
-  /// The set of possible starting characters of tokens the lexer of this system
-  /// can process. The lexer will notify this system if it encounters one of
-  /// these characters.9
-  pub lex_filter: CharFilter,
-  pub line_types: Vec<TStr>,
-  pub const_root: HashMap<TStr, MemberKind>,
+	/// The set of possible starting characters of tokens the lexer of this system
+	/// can process. The lexer will notify this system if it encounters one of
+	/// these characters.9
+	pub lex_filter: CharFilter,
+	pub line_types: Vec<TStr>,
+	pub const_root: HashMap<TStr, MemberKind>,
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
@@ -73,20 +73,20 @@ pub struct SystemDrop(pub SysId);
 #[extends(SysReq, HostExtReq)]
 pub struct SysFwded(pub SysId, pub Vec<u8>);
 impl Request for SysFwded {
-  type Response = Vec<u8>;
+	type Response = Vec<u8>;
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(ExtHostReq)]
 pub struct SysFwd(pub SysId, pub Vec<u8>);
 impl Request for SysFwd {
-  type Response = Vec<u8>;
+	type Response = Vec<u8>;
 }
 
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(HostExtReq)]
 #[extendable]
 pub enum SysReq {
-  NewSystem(NewSystem),
-  SysFwded(SysFwded),
+	NewSystem(NewSystem),
+	SysFwded(SysFwded),
 }
