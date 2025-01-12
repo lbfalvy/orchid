@@ -39,7 +39,7 @@ fn main() {
 		Commands::Lex { file } => {
 			let extensions = (args.extension.iter())
 				.map(|f| Subprocess::new(Command::new(f.as_os_str()), logger.clone()).unwrap())
-				.map(|cmd| Extension::new_process(Arc::new(cmd), logger.clone()).unwrap())
+				.map(|cmd| Extension::new(Arc::new(cmd), logger.clone()).unwrap())
 				.collect_vec();
 			let systems = init_systems(&args.system, &extensions).unwrap();
 			let mut file = File::open(file.as_std_path()).unwrap();

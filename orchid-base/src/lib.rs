@@ -2,6 +2,7 @@ use orchid_api as api;
 
 pub mod box_cow;
 pub mod boxed_iter;
+pub mod builtin;
 pub mod char_filter;
 pub mod clone;
 pub mod combine;

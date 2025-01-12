@@ -10,7 +10,7 @@ use trait_set::trait_set;
 use crate::api;
 use crate::extension::AtomHand;
 use crate::rule::matcher::{NamedMatcher, PriodMatcher};
-use crate::rule::state::{MatchState, OwnedState};
+use crate::rule::state::MatchState;
 use crate::tree::Code;
 
 pub type MacTok = MTok<'static, AtomHand>;

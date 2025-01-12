@@ -12,6 +12,7 @@ use hashbrown::hash_map::Entry;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use orchid_api_traits::Request;
+use orchid_base::builtin::{ExtFactory, ExtPort};
 use orchid_base::char_filter::char_filter_match;
 use orchid_base::clone;
 use orchid_base::error::{OrcErrv, OrcRes};
@@ -106,27 +107,13 @@ impl fmt::Display for AtomHand {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.print()) }
 }
 
-pub type OnMessage = Box<dyn FnMut(&[u8]) + Send>;
-
-/// The 3 primary contact points with an extension are
-/// - send a message
-/// - wait for a message to arrive
-/// - wait for the extension to stop after exit (this is the implicit Drop)
-///
-/// There are no ordering guarantees about these
-pub trait ExtensionPort: Send + Sync {
-	fn set_onmessage(&self, callback: OnMessage);
-	fn send(&self, msg: &[u8]);
-	fn header(&self) -> &api::ExtensionHeader;
-}
-
 /// Data held about an Extension. This is refcounted within [Extension]. It's
 /// important to only ever access parts of this struct through the [Arc] because
 /// the components reference each other through [Weak]s of it, and will panic if
 /// upgrading fails.
 #[derive(destructure)]
 pub struct ExtensionData {
-	port: Arc<dyn ExtensionPort>,
+	port: Mutex<Box<dyn ExtPort>>,
 	// child: Mutex<process::Child>,
 	// child_stdin: Mutex<ChildStdin>,
 	reqnot: ReqNot<api::HostMsgSet>,
@@ -153,84 +140,81 @@ fn rel_expr(sys: api::SysId, extk: api::ExprTicket) {
 #[derive(Clone)]
 pub struct Extension(Arc<ExtensionData>);
 impl Extension {
-	pub fn new_process(port: Arc<dyn ExtensionPort>, logger: Logger) -> io::Result<Self> {
-		let eh = port.header();
-		let ret = Arc::new_cyclic(|weak: &Weak<ExtensionData>| ExtensionData {
-			systems: (eh.systems.iter().cloned())
-				.map(|decl| SystemCtor { decl, ext: weak.clone() })
-				.collect(),
-			logger,
-			port: port.clone(),
-			reqnot: ReqNot::new(
-				clone!(weak; move |sfn, _| {
-					let data = weak.upgrade().unwrap();
-					data.logger.log_buf("Downsending", sfn);
-					data.port.send(sfn);
-				}),
-				clone!(weak; move |notif, _| match notif {
-					api::ExtHostNotif::ExprNotif(api::ExprNotif::Acquire(acq)) => acq_expr(acq.0, acq.1),
-					api::ExtHostNotif::ExprNotif(api::ExprNotif::Release(rel)) => rel_expr(rel.0, rel.1),
-					api::ExtHostNotif::ExprNotif(api::ExprNotif::Move(mov)) => {
-						acq_expr(mov.inc, mov.expr);
-						rel_expr(mov.dec, mov.expr);
-					},
-					api::ExtHostNotif::Log(api::Log(str)) => weak.upgrade().unwrap().logger.log(str),
-				}),
-				|hand, req| match req {
-					api::ExtHostReq::Ping(ping) => hand.handle(&ping, &()),
-					api::ExtHostReq::IntReq(intreq) => match intreq {
-						api::IntReq::InternStr(s) => hand.handle(&s, &intern(&**s.0).to_api()),
-						api::IntReq::InternStrv(v) => hand.handle(&v, &intern(&*v.0).to_api()),
-						api::IntReq::ExternStr(si) => hand.handle(&si, &Tok::<String>::from_api(si.0).arc()),
-						api::IntReq::ExternStrv(vi) => hand.handle(
-							&vi,
-							&Arc::new(
-								Tok::<Vec<Tok<String>>>::from_api(vi.0).iter().map(|t| t.to_api()).collect_vec(),
+	pub fn new(fac: Box<dyn ExtFactory>, logger: Logger) -> io::Result<Self> {
+		Ok(Self(Arc::new_cyclic(|weak: &Weak<ExtensionData>| {
+			let (eh, port) = fac.run(Box::new(clone!(weak; move |msg| {
+				weak.upgrade().inspect(|xd| xd.reqnot.receive(msg));
+			})));
+			ExtensionData {
+				systems: (eh.systems.iter().cloned())
+					.map(|decl| SystemCtor { decl, ext: weak.clone() })
+					.collect(),
+				logger,
+				port: Mutex::new(port),
+				reqnot: ReqNot::new(
+					clone!(weak; move |sfn, _| {
+						let data = weak.upgrade().unwrap();
+						data.logger.log_buf("Downsending", sfn);
+						data.port.lock().unwrap().send(sfn);
+					}),
+					clone!(weak; move |notif, _| match notif {
+						api::ExtHostNotif::ExprNotif(api::ExprNotif::Acquire(acq)) => acq_expr(acq.0, acq.1),
+						api::ExtHostNotif::ExprNotif(api::ExprNotif::Release(rel)) => rel_expr(rel.0, rel.1),
+						api::ExtHostNotif::ExprNotif(api::ExprNotif::Move(mov)) => {
+							acq_expr(mov.inc, mov.expr);
+							rel_expr(mov.dec, mov.expr);
+						},
+						api::ExtHostNotif::Log(api::Log(str)) => weak.upgrade().unwrap().logger.log(str),
+					}),
+					|hand, req| match req {
+						api::ExtHostReq::Ping(ping) => hand.handle(&ping, &()),
+						api::ExtHostReq::IntReq(intreq) => match intreq {
+							api::IntReq::InternStr(s) => hand.handle(&s, &intern(&**s.0).to_api()),
+							api::IntReq::InternStrv(v) => hand.handle(&v, &intern(&*v.0).to_api()),
+							api::IntReq::ExternStr(si) => hand.handle(&si, &Tok::<String>::from_api(si.0).arc()),
+							api::IntReq::ExternStrv(vi) => hand.handle(
+								&vi,
+								&Arc::new(
+									Tok::<Vec<Tok<String>>>::from_api(vi.0).iter().map(|t| t.to_api()).collect_vec(),
+								),
 							),
-						),
+						},
+						api::ExtHostReq::Fwd(ref fw @ api::Fwd(ref atom, ref key, ref body)) => {
+							let sys = System::resolve(atom.owner).unwrap();
+							hand.handle(fw, &sys.reqnot().request(api::Fwded(fw.0.clone(), *key, body.clone())))
+						},
+						api::ExtHostReq::SysFwd(ref fw @ api::SysFwd(id, ref body)) => {
+							let sys = System::resolve(id).unwrap();
+							hand.handle(fw, &sys.request(body.clone()))
+						},
+						api::ExtHostReq::SubLex(sl) => {
+							let (rep_in, rep_out) = sync_channel(0);
+							let lex_g = LEX_RECUR.lock().unwrap();
+							let req_in = lex_g.get(&sl.id).expect("Sublex for nonexistent lexid");
+							req_in.send(ReqPair(sl.clone(), rep_in)).unwrap();
+							hand.handle(&sl, &rep_out.recv().unwrap())
+						},
+						api::ExtHostReq::ExprReq(api::ExprReq::Inspect(ins @ api::Inspect { target })) => {
+							let expr = Expr::resolve(target).expect("Invalid ticket");
+							hand.handle(&ins, &api::Inspected {
+								refcount: expr.strong_count() as u32,
+								location: expr.pos().to_api(),
+								kind: expr.to_api(),
+							})
+						},
+						api::ExtHostReq::RunMacros(ref rm @ api::RunMacros { ref run_id, ref query }) => hand
+							.handle(
+								rm,
+								&macro_recur(
+									*run_id,
+									mtreev_from_api(query, &mut |_| panic!("Recursion never contains atoms")),
+								)
+								.map(|x| macro_treev_to_api(*run_id, x)),
+							),
 					},
-					api::ExtHostReq::Fwd(ref fw @ api::Fwd(ref atom, ref key, ref body)) => {
-						let sys = System::resolve(atom.owner).unwrap();
-						hand.handle(fw, &sys.reqnot().request(api::Fwded(fw.0.clone(), *key, body.clone())))
-					},
-					api::ExtHostReq::SysFwd(ref fw @ api::SysFwd(id, ref body)) => {
-						let sys = System::resolve(id).unwrap();
-						hand.handle(fw, &sys.request(body.clone()))
-					},
-					api::ExtHostReq::SubLex(sl) => {
-						let (rep_in, rep_out) = sync_channel(0);
-						let lex_g = LEX_RECUR.lock().unwrap();
-						let req_in = lex_g.get(&sl.id).expect("Sublex for nonexistent lexid");
-						req_in.send(ReqPair(sl.clone(), rep_in)).unwrap();
-						hand.handle(&sl, &rep_out.recv().unwrap())
-					},
-					api::ExtHostReq::ExprReq(api::ExprReq::Inspect(ins @ api::Inspect { target })) => {
-						let expr = Expr::resolve(target).expect("Invalid ticket");
-						hand.handle(&ins, &api::Inspected {
-							refcount: expr.strong_count() as u32,
-							location: expr.pos().to_api(),
-							kind: expr.to_api(),
-						})
-					},
-					api::ExtHostReq::RunMacros(ref rm @ api::RunMacros { ref run_id, ref query }) => hand
-						.handle(
-							rm,
-							&macro_recur(
-								*run_id,
-								mtreev_from_api(query, &mut |_| panic!("Recursion never contains atoms")),
-							)
-							.map(|x| macro_treev_to_api(*run_id, x)),
-						),
-				},
-			),
-		});
-		let weak = Arc::downgrade(&ret);
-		port.set_onmessage(Box::new(move |msg| {
-			if let Some(xd) = weak.upgrade() {
-				xd.reqnot.receive(msg)
+				),
 			}
-		}));
-		Ok(Self(ret))
+		})))
 	}
 	pub fn systems(&self) -> impl Iterator<Item = &SystemCtor> { self.0.systems.iter() }
 }
@@ -380,7 +364,7 @@ impl fmt::Debug for System {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		let ctor = (self.0.ext.0.systems.iter().find(|c| c.decl.id == self.0.decl_id))
 			.expect("System instance with no associated constructor");
-		write!(f, "System({} @ {} #{}, ", ctor.decl.name, ctor.decl.priority, self.0.id.0)?;
+		write!(f, "System({} @ {} #{})", ctor.decl.name, ctor.decl.priority, self.0.id.0)?;
 		match self.0.exprs.read() {
 			Err(_) => write!(f, "expressions unavailable"),
 			Ok(r) => {

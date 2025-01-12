@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-std = "1.13.0"
 derive_destructure = "1.0.0"
 dyn-clone = "1.0.17"
 hashbrown = "0.15.2"

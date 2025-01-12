@@ -81,6 +81,11 @@ pub fn extension_main(data: ExtensionData) {
 	}
 }
 
+pub struct ExtensionOwner {
+	rn: ReqNot<api::ExtMsgSet>,
+	onmessage: Mutex<OnMessage>,
+}
+
 fn extension_main_logic(data: ExtensionData) {
 	let api::HostHeader { log_strategy } = api::HostHeader::decode(&mut std::io::stdin().lock());
 	let mut buf = Vec::new();

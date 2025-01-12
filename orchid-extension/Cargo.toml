@@ -7,8 +7,10 @@ edition = "2021"
 
 [dependencies]
 ahash = "0.8.11"
+async-std = "1.13.0"
 derive_destructure = "1.0.0"
 dyn-clone = "1.0.17"
+futures = "0.3.31"
 hashbrown = "0.15.2"
 itertools = "0.14.0"
 konst = "0.3.16"

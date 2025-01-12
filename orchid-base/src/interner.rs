@@ -248,6 +248,7 @@ pub fn interner() -> impl DerefMut<Target = Interner> {
 	G(g)
 }
 
+/// Initialize the interner in replica mode. No messages are sent at this point.
 pub fn init_replica(req: impl DynRequester<Transfer = api::IntReq> + 'static) {
 	let mut g = INTERNER.lock().unwrap();
 	assert!(g.is_none(), "Attempted to initialize replica interner after first use");
