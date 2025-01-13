@@ -1,8 +1,0 @@
-{
-    "rust-analyzer.check.command": "check",
-    "rust-analyzer.rustfmt.extraArgs": ["+nightly"],
-    "[rust]": {
-        "editor.tabSize": 2,
-        "editor.insertSpaces": true,
-    }
-}

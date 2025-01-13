@@ -1,2 +1,0 @@
-type-complexity-threshold = 300
-avoid-breaking-exported-api = false
