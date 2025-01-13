@@ -1,38 +1,6 @@
-# meta
-format_code_in_doc_comments = true
 unstable_features = true
 style_edition = "2024"
 
-# space
-tab_spaces = 2
 hard_tabs = true
-max_width = 100
 error_on_line_overflow = true
 error_on_unformatted = true
-format_macro_matchers = true
-newline_style = "Unix"
-normalize_comments = true
-wrap_comments = true
-comment_width = 80
-doc_comment_code_block_width = 80
-overflow_delimited_expr = true
-use_small_heuristics = "Max"
-fn_single_line = true
-where_single_line = true
-
-# literals
-hex_literal_case = "Lower"
-
-# delimiters
-match_arm_blocks = false
-match_block_trailing_comma = true
-
-# structure
-condense_wildcard_suffixes = true
-use_field_init_shorthand = true
-use_try_shorthand = true
-
-# Modules
-group_imports = "StdExternalCrate"
-imports_granularity = "Module"
-reorder_modules = true
