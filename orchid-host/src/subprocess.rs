@@ -74,8 +74,6 @@ impl ExtPort for Subprocess {
 		send_msg(&mut *self.stdin.lock().unwrap(), msg).unwrap()
 	}
 	fn recv<'a>(&self, cb: Box<dyn FnOnce(&[u8]) + Send + 'a>) -> futures::future::BoxFuture<()> {
-		async {
-      
-    }
+		async {}
 	}
 }

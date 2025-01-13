@@ -31,14 +31,15 @@ fn main() -> io::Result<ExitCode> {
 				let mut contents = String::new();
 				File::open(file.path())?.read_to_string(&mut contents)?;
 				for (l, line) in contents.lines().enumerate() {
-					if line.trim().starts_with("use") {
-						if let Some(c) = line.find("orchid_api") {
-							if Some(c) != line.find("orchid_api_") {
-								let dname = file.path().to_string_lossy().to_string();
-								eprintln!("orchid_api imported in {dname} at {};{}", l + 1, c + 1)
-							}
-						}
+					if !line.trim().starts_with("use") {
+						continue;
 					}
+					let Some(c) = line.find("orchid_api") else { continue };
+					if Some(c) == line.find("orchid_api_") {
+						continue;
+					}
+					let dname = file.path().to_string_lossy().to_string();
+					eprintln!("orchid_api imported in {dname} at {};{}", l + 1, c + 1)
 				}
 			}
 			Ok(())

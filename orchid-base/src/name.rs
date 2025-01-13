@@ -436,11 +436,12 @@ impl NameLike for VName {}
 /// cloning the token.
 #[macro_export]
 macro_rules! sym {
-  ($seg1:tt $( :: $seg:tt)*) => {
-    $crate::name::Sym::from_tok($crate::intern!([$crate::interner::Tok<String>]: &[
-      $crate::intern!(str: stringify!($seg1))
-      $( , $crate::intern!(str: stringify!($seg)) )*
-    ])).unwrap()
+  ($seg1:tt $( :: $seg:tt)*) => { async {
+		$crate::name::Sym::from_tok($crate::intern!([$crate::interner::Tok<String>]: &[
+			$crate::intern!(str: stringify!($seg1)).await
+      $( , $crate::intern!(str: stringify!($seg)).await )*
+			])).unwrap()
+		}
   };
   (@NAME $seg:tt) => {}
 }

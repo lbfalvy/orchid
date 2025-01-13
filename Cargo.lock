@@ -169,6 +169,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-once-cell"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4288f83726785267c6f2ef073a3d83dc3f9b81464e9f99898240cced85fce35a"
+
+[[package]]
 name = "async-std"
 version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -250,6 +256,15 @@ dependencies = [
  "futures-io",
  "futures-lite",
  "piper",
+]
+
+[[package]]
+name = "blocking_semaphore"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88376f98b48312155a0ba2f868ad705f5d5b9a1065514b1f827e31c1d2f3dbb0"
+dependencies = [
+ "logwise",
 ]
 
 [[package]]
@@ -832,6 +847,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "logwise"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3f379dc0daef8061f0beab09c7d3528c1e238754e937bb640daec3553e1bceb"
+dependencies = [
+ "logwise_proc",
+ "wasm-bindgen",
+ "web-sys",
+ "web-time",
+]
+
+[[package]]
+name = "logwise_proc"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ba61263a12347d87ece9286fab931b7f3407b06a94ab952e676b350d7054a57"
+
+[[package]]
 name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -892,9 +925,11 @@ dependencies = [
 name = "orchid-base"
 version = "0.1.0"
 dependencies = [
+ "async-once-cell",
  "async-std",
  "derive_destructure",
  "dyn-clone",
+ "futures",
  "hashbrown 0.15.2",
  "itertools",
  "lazy_static",
@@ -907,6 +942,7 @@ dependencies = [
  "rust-embed",
  "rust_decimal",
  "substack",
+ "test_executors",
  "trait-set",
 ]
 
@@ -1049,6 +1085,12 @@ checksum = "77957b295656769bb8ad2b6a6b09d897d94f05c41b069aede1fcdaa675eaea04"
 dependencies = [
  "zerocopy",
 ]
+
+[[package]]
+name = "priority"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3331288c73a29bd726cd92d947059399bf8e4b01f13d24f02caecd5187e5b5d5"
 
 [[package]]
 name = "proc-macro-crate"
@@ -1332,6 +1374,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "some_executor"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dde6a7a1595533e5bd451727a6f9c679e54160fc67a9efbaed30a9e8f7e79a01"
+dependencies = [
+ "priority",
+ "wasm-bindgen",
+ "web-time",
+]
+
+[[package]]
 name = "stdio-perftest"
 version = "0.1.0"
 
@@ -1385,6 +1438,31 @@ name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
+
+[[package]]
+name = "test_executors"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23ce2c67509cbc71cf72942e95a6ef76309f418fccd966b7540c96a6f6db3435"
+dependencies = [
+ "blocking_semaphore",
+ "logwise",
+ "priority",
+ "some_executor",
+ "test_executors_proc",
+ "wasm-bindgen",
+ "web-time",
+]
+
+[[package]]
+name = "test_executors_proc"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b59087b1e1332227b88c6e0ac2ca8fefccb3e2ae2caa48690a5f9cca851a2e7e"
+dependencies = [
+ "quote 1.0.38",
+ "syn 2.0.95",
+]
 
 [[package]]
 name = "tinyvec"
@@ -1590,6 +1668,16 @@ name = "web-sys"
 version = "0.3.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04dd7223427d52553d3702c004d3b2fe07c148165faa56313cb00211e31c12bc"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "web-time"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",

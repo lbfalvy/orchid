@@ -6,9 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-once-cell = "0.5.4"
 async-std = "1.13.0"
 derive_destructure = "1.0.0"
 dyn-clone = "1.0.17"
+futures = "0.3.31"
 hashbrown = "0.15.2"
 itertools = "0.14.0"
 lazy_static = "1.5.0"
@@ -21,4 +23,5 @@ ordered-float = "4.6.0"
 rust-embed = "8.5.0"
 rust_decimal = "1.36.0"
 substack = "1.1.1"
+test_executors = "0.3.2"
 trait-set = "0.3.0"

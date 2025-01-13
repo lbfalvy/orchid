@@ -24,7 +24,7 @@ trait_set! {
 		for<'a> FnMut(&'a [u8], ReqNot<T>) -> Pin<Box<dyn Future<Output = ()> + 'a>>
 		+ DynClone + Send + 'static;
 	pub trait ReqFn<T: MsgSet> =
-		for<'a> FnMut(RequestHandle<T>, <T::In as Channel>::Req) -> Pin<Box<dyn Future<Output = Receipt>>>
+		for<'a> FnMut(RequestHandle<'a, T>, <T::In as Channel>::Req) -> Pin<Box<dyn Future<Output = Receipt<'a>>>>
 		+ DynClone + Send + Sync + 'static;
 	pub trait NotifFn<T: MsgSet> =
 		for<'a> FnMut(<T::In as Channel>::Notif, ReqNot<T>) -> Pin<Box<dyn Future<Output = ()>>>
@@ -213,6 +213,7 @@ mod test {
 	use async_std::future;
 	use orchid_api_derive::Coding;
 	use orchid_api_traits::{Channel, Request};
+	use test_executors::spin_on;
 
 	use super::{MsgSet, ReqNot};
 	use crate::clone;
@@ -248,9 +249,9 @@ mod test {
 			|_, _| panic!("Not receiving a request"),
 		);
 		let sender = ReqNot::<TestMsgSet>::new(
-			clone!(receiver; move |d, _| Box::pin(async {
+			clone!(receiver; move |d, _| clone!(receiver; Box::pin(async move {
 				receiver.receive(d).await
-			})),
+			}))),
 			|_, _| panic!("Should not receive notif"),
 			|_, _| panic!("Should not receive request"),
 		);
@@ -264,25 +265,23 @@ mod test {
 	fn request() {
 		let receiver = Arc::new(Mutex::<Option<ReqNot<TestMsgSet>>>::new(None));
 		let sender = Arc::new(ReqNot::<TestMsgSet>::new(
-			{
-				let receiver = receiver.clone();
-				move |d, _| receiver.lock().unwrap().as_ref().unwrap().receive(d)
-			},
+			clone!(receiver; move |d, _| clone!(receiver; Box::pin(async move {
+				receiver.lock().unwrap().as_ref().unwrap().receive(d).await
+			}))),
 			|_, _| panic!("Should not receive notif"),
 			|_, _| panic!("Should not receive request"),
 		));
 		*receiver.lock().unwrap() = Some(ReqNot::new(
-			{
-				let sender = sender.clone();
-				move |d, _| sender.receive(d)
-			},
+			clone!(sender; move |d, _| clone!(sender; Box::pin(async move { sender.receive(d).await }))),
 			|_, _| panic!("Not receiving notifs"),
 			|hand, req| {
-				assert_eq!(req, TestReq(5));
-				hand.respond(&6u8)
+				Box::pin(async move {
+					assert_eq!(req, TestReq(5));
+					hand.respond(&6u8).await
+				})
 			},
 		));
-		let response = sender.request(TestReq(5));
+		let response = spin_on(sender.request(TestReq(5)));
 		assert_eq!(response, 6);
 	}
 }
