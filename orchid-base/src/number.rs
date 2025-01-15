@@ -82,6 +82,7 @@ pub fn parse_num(string: &str) -> Result<Numeric, NumError> {
 		.or_else(|| string.strip_prefix("0b").map(|s| (2u8, s, 2)))
 		.or_else(|| string.strip_prefix("0o").map(|s| (8u8, s, 2)))
 		.unwrap_or((10u8, string, 0));
+	eprintln!("({radix}, {noprefix}, {pos})");
 	// identity
 	let (base, exponent) = match noprefix.split_once('p') {
 		Some((b, e)) => {
@@ -90,6 +91,7 @@ pub fn parse_num(string: &str) -> Result<Numeric, NumError> {
 		},
 		None => (noprefix, 0),
 	};
+	eprintln!("({base},{exponent})");
 	match base.split_once('.') {
 		None => {
 			let base_usize = int_parse(base, radix, pos)?;
@@ -108,10 +110,19 @@ pub fn parse_num(string: &str) -> Result<Numeric, NumError> {
 			let part_n = int_parse(part, radix, pos + whole.len() + 1)?;
 			let scale = part.chars().filter(|c| *c != '_').count() as u32;
 			if radix == 10 {
-				let mut scaled_unit = Decimal::ONE;
-				(scaled_unit.set_scale(scale))
-					.map_err(|_| NumError { range: 0..string.len(), kind: NumErrorKind::Overflow })?;
-				Ok(Numeric::Decimal(Decimal::from(whole_n) + scaled_unit * Decimal::from(part_n)))
+				let scaled_unit = 10u64.checked_pow(scale).ok_or(overflow_err.clone())?;
+				let scaled_n = i128::from(whole_n) * i128::from(scaled_unit) + i128::from(part_n);
+				let decimal = Decimal::from_i128_with_scale(scaled_n, scale);
+				let p = if let Ok(uexp) = u32::try_from(exponent) {
+					let e_multiplier = 10i64.checked_pow(uexp).ok_or(overflow_err)?;
+					Decimal::new(e_multiplier, 0)
+				} else {
+					let inv_oom = u32::try_from(-exponent).map_err(|_| overflow_err)?;
+					eprintln!("inv_oom: {inv_oom}");
+					Decimal::new(1, inv_oom)
+				};
+				eprintln!("({scaled_n}, {scale}, {p})");
+				Ok(Numeric::Decimal(decimal * p))
 			} else {
 				let real_val = whole_n as f64 + (part_n as f64 / (radix as f64).powi(scale as i32));
 				let f = real_val * (radix as f64).powi(exponent);
