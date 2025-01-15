@@ -7,6 +7,9 @@ use std::ops::Range;
 use std::sync::Arc;
 
 pub use api::PhKind;
+use async_std::stream;
+use async_std::sync::Mutex;
+use futures::StreamExt;
 use itertools::Itertools;
 use never::Never;
 use ordered_float::NotNan;
@@ -70,17 +73,17 @@ pub struct TokTree<'a, A: AtomRepr, X: ExtraTok> {
 	pub range: Range<u32>,
 }
 impl<'a, A: AtomRepr, X: ExtraTok> TokTree<'a, A, X> {
-	pub fn from_api(tt: &api::TokenTree, ctx: &mut A::Ctx) -> Self {
+	pub async fn from_api(tt: &api::TokenTree, ctx: &mut A::Ctx) -> Self {
 		let tok = match_mapping!(&tt.token, api::Token => Token::<'a, A, X> {
 			BR, NS,
 			Atom(a => A::from_api(a, Pos::Range(tt.range.clone()), ctx)),
-			Bottom(e => OrcErrv::from_api(e)),
-			LambdaHead(arg => ttv_from_api(arg, ctx)),
-			Name(n => Tok::from_api(*n)),
-			S(*par, b => ttv_from_api(b, ctx)),
+			Bottom(e => OrcErrv::from_api(e).await),
+			LambdaHead(arg => ttv_from_api(arg, ctx).await),
+			Name(n => Tok::from_api(*n).await),
+			S(*par, b => ttv_from_api(b, ctx).await),
 			Comment(c.clone()),
 			Slot(id => TokHandle::new(*id)),
-			Ph(ph => Ph::from_api(ph)),
+			Ph(ph => Ph::from_api(ph).await),
 			Macro(*prio)
 		});
 		Self { range: tt.range.clone(), tok }
@@ -149,11 +152,18 @@ impl<A: AtomRepr, X: ExtraTok> Display for TokTree<'_, A, X> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.tok) }
 }
 
-pub fn ttv_from_api<A: AtomRepr, X: ExtraTok>(
+pub async fn ttv_from_api<A: AtomRepr, X: ExtraTok>(
 	tokv: impl IntoIterator<Item: Borrow<api::TokenTree>>,
 	ctx: &mut A::Ctx,
 ) -> Vec<TokTree<'static, A, X>> {
-	tokv.into_iter().map(|t| TokTree::<A, X>::from_api(t.borrow(), ctx)).collect()
+	let ctx_lk = Mutex::new(ctx);
+	stream::from_iter(tokv.into_iter())
+		.then(|t| async {
+			let t = t;
+			TokTree::<A, X>::from_api(t.borrow(), *ctx_lk.lock().await).await
+		})
+		.collect()
+		.await
 }
 
 pub fn ttv_to_api<'a, A: AtomRepr, X: ExtraTok>(
@@ -297,8 +307,8 @@ pub struct Ph {
 	pub kind: PhKind,
 }
 impl Ph {
-	pub fn from_api(api: &api::Placeholder) -> Self {
-		Self { name: Tok::from_api(api.name), kind: api.kind }
+	pub async fn from_api(api: &api::Placeholder) -> Self {
+		Self { name: Tok::from_api(api.name).await, kind: api.kind }
 	}
 	pub fn to_api(&self) -> api::Placeholder {
 		api::Placeholder { name: self.name.to_api(), kind: self.kind }

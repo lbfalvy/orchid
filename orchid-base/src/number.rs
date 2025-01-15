@@ -63,9 +63,9 @@ pub struct NumError {
 	pub kind: NumErrorKind,
 }
 
-pub fn num_to_err(NumError { kind, range }: NumError, offset: u32) -> OrcErr {
+pub async fn num_to_err(NumError { kind, range }: NumError, offset: u32) -> OrcErr {
 	mk_err(
-		intern!(str: "Failed to parse number"),
+		intern!(str: "Failed to parse number").await,
 		match kind {
 			NumErrorKind::NaN => "NaN emerged during parsing",
 			NumErrorKind::InvalidDigit => "non-digit character encountered",

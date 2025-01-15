@@ -29,7 +29,7 @@ use crate::system::{SysCtx, atom_by_idx};
 use crate::system_ctor::{CtedObj, DynSystemCtor};
 use crate::tree::{GenTok, GenTokTree, LazyMemberFactory, TIACtxImpl, do_extra};
 
-pub type ExtReq = RequestHandle<api::ExtMsgSet>;
+pub type ExtReq<'a> = RequestHandle<'a, api::ExtMsgSet>;
 pub type ExtReqNot = ReqNot<api::ExtMsgSet>;
 
 pub struct ExtensionData {

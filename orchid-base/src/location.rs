@@ -36,12 +36,12 @@ impl Pos {
 			other => format!("{other:?}"),
 		}
 	}
-	pub fn from_api(api: &api::Location) -> Self {
+	pub async fn from_api(api: &api::Location) -> Self {
 		match_mapping!(api, api::Location => Pos {
 			None, Inherit, SlotTarget,
 			Range(r.clone()),
-			Gen(cgi => CodeGenInfo::from_api(cgi)),
-			SourceRange(sr => SourceRange::from_api(sr))
+			Gen(cgi => CodeGenInfo::from_api(cgi).await),
+			SourceRange(sr => SourceRange::from_api(sr).await)
 		})
 	}
 	pub fn to_api(&self) -> api::Location {
@@ -67,7 +67,7 @@ impl SourceRange {
 	}
 	/// Create a dud [SourceRange] for testing. Its value is unspecified and
 	/// volatile.
-	pub fn mock() -> Self { Self { range: 0..1, path: sym!(test) } }
+	pub async fn mock() -> Self { Self { range: 0..1, path: sym!(test).await } }
 	/// Path the source text was loaded from
 	pub fn path(&self) -> Sym { self.path.clone() }
 	/// Byte range
@@ -92,8 +92,8 @@ impl SourceRange {
 		}
 	}
 	pub fn zw(path: Sym, pos: u32) -> Self { Self { path, range: pos..pos } }
-	fn from_api(api: &api::SourceRange) -> Self {
-		Self { path: Sym::from_api(api.path), range: api.range.clone() }
+	async fn from_api(api: &api::SourceRange) -> Self {
+		Self { path: Sym::from_api(api.path).await, range: api.range.clone() }
 	}
 	fn to_api(&self) -> api::SourceRange {
 		api::SourceRange { path: self.path.to_api(), range: self.range.clone() }
@@ -110,17 +110,22 @@ pub struct CodeGenInfo {
 }
 impl CodeGenInfo {
 	/// A codegen marker with no user message and parameters
-	pub fn no_details(generator: Sym) -> Self { Self { generator, details: intern!(str: "") } }
+	pub async fn new_short(generator: Sym) -> Self {
+		Self { generator, details: intern!(str: "").await }
+	}
 	/// A codegen marker with a user message or parameters
-	pub fn details(generator: Sym, details: impl AsRef<str>) -> Self {
-		Self { generator, details: intern(details.as_ref()) }
+	pub async fn new_details(generator: Sym, details: impl AsRef<str>) -> Self {
+		Self { generator, details: intern(details.as_ref()).await }
 	}
 	/// Syntactic location
 	pub fn pos(&self) -> Pos { Pos::Gen(self.clone()) }
-	fn from_api(api: &api::CodeGenInfo) -> Self {
-		Self { generator: Sym::from_api(api.generator), details: Tok::from_api(api.details) }
+	pub async fn from_api(api: &api::CodeGenInfo) -> Self {
+		Self {
+			generator: Sym::from_api(api.generator).await,
+			details: Tok::from_api(api.details).await,
+		}
 	}
-	fn to_api(&self) -> api::CodeGenInfo {
+	pub fn to_api(&self) -> api::CodeGenInfo {
 		api::CodeGenInfo { generator: self.generator.to_api(), details: self.details.to_api() }
 	}
 }

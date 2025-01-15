@@ -1,6 +1,7 @@
 use std::iter;
 use std::ops::{Deref, Range};
 
+use futures::future::join_all;
 use itertools::Itertools;
 
 use crate::error::{OrcRes, Reporter, mk_err, mk_errv};
@@ -100,12 +101,12 @@ impl Comment {
 	pub fn to_api(&self) -> api::Comment {
 		api::Comment { location: self.pos.to_api(), text: self.text.to_api() }
 	}
-	pub fn from_api(api: &api::Comment) -> Self {
-		Self { pos: Pos::from_api(&api.location), text: Tok::from_api(api.text) }
+	pub async fn from_api(api: &api::Comment) -> Self {
+		Self { pos: Pos::from_api(&api.location).await, text: Tok::from_api(api.text).await }
 	}
 }
 
-pub fn line_items<'a, 'b, A: AtomRepr, X: ExtraTok>(
+pub async fn line_items<'a, 'b, A: AtomRepr, X: ExtraTok>(
 	snip: Snippet<'a, 'b, A, X>,
 ) -> Vec<Parsed<'a, 'b, Vec<Comment>, A, X>> {
 	let mut items = Vec::new();
@@ -120,10 +121,14 @@ pub fn line_items<'a, 'b, A: AtomRepr, X: ExtraTok>(
 			None => comments.extend(line.cur),
 			Some(i) => {
 				let (cmts, tail) = line.split_at(i);
-				let comments = Vec::from_iter(comments.drain(..).chain(cmts.cur).map(|t| match &t.tok {
-					Token::Comment(c) => Comment { text: intern(&**c), pos: Pos::Range(t.range.clone()) },
-					_ => unreachable!("All are comments checked above"),
-				}));
+				let comments = join_all(comments.drain(..).chain(cmts.cur).map(|t| async {
+					match &t.tok {
+						Token::Comment(c) =>
+							Comment { text: intern(&**c).await, pos: Pos::Range(t.range.clone()) },
+						_ => unreachable!("All are comments checked above"),
+					}
+				}))
+				.await;
 				items.push(Parsed { output: comments, tail });
 			},
 		}
@@ -131,22 +136,23 @@ pub fn line_items<'a, 'b, A: AtomRepr, X: ExtraTok>(
 	items
 }
 
-pub fn try_pop_no_fluff<'a, 'b, A: AtomRepr, X: ExtraTok>(
+pub async fn try_pop_no_fluff<'a, 'b, A: AtomRepr, X: ExtraTok>(
 	snip: Snippet<'a, 'b, A, X>,
 ) -> ParseRes<'a, 'b, &'a TokTree<'b, A, X>, A, X> {
-	snip.skip_fluff().pop_front().map(|(output, tail)| Parsed { output, tail }).ok_or_else(|| {
-		mk_errv(
-			intern!(str: "Unexpected end"),
-			"Pattern ends abruptly",
-			[Pos::Range(snip.pos()).into()],
-		)
-	})
+	match snip.skip_fluff().pop_front() {
+		Some((output, tail)) => Ok(Parsed { output, tail }),
+		None =>
+			Err(mk_errv(intern!(str: "Unexpected end").await, "Pattern ends abruptly", [Pos::Range(
+				snip.pos(),
+			)
+			.into()])),
+	}
 }
 
-pub fn expect_end(snip: Snippet<'_, '_, impl AtomRepr, impl ExtraTok>) -> OrcRes<()> {
+pub async fn expect_end(snip: Snippet<'_, '_, impl AtomRepr, impl ExtraTok>) -> OrcRes<()> {
 	match snip.skip_fluff().get(0) {
 		Some(surplus) => Err(mk_errv(
-			intern!(str: "Extra code after end of line"),
+			intern!(str: "Extra code after end of line").await,
 			"Code found after the end of the line",
 			[Pos::Range(surplus.range.clone()).into()],
 		)),
@@ -154,15 +160,15 @@ pub fn expect_end(snip: Snippet<'_, '_, impl AtomRepr, impl ExtraTok>) -> OrcRes
 	}
 }
 
-pub fn expect_tok<'a, 'b, A: AtomRepr, X: ExtraTok>(
+pub async fn expect_tok<'a, 'b, A: AtomRepr, X: ExtraTok>(
 	snip: Snippet<'a, 'b, A, X>,
 	tok: Tok<String>,
 ) -> ParseRes<'a, 'b, (), A, X> {
-	let Parsed { output: head, tail } = try_pop_no_fluff(snip)?;
+	let Parsed { output: head, tail } = try_pop_no_fluff(snip).await?;
 	match &head.tok {
 		Token::Name(n) if *n == tok => Ok(Parsed { output: (), tail }),
 		t => Err(mk_errv(
-			intern!(str: "Expected specific keyword"),
+			intern!(str: "Expected specific keyword").await,
 			format!("Expected {tok} but found {t}"),
 			[Pos::Range(head.range.clone()).into()],
 		)),
@@ -176,31 +182,34 @@ pub struct Parsed<'a, 'b, T, A: AtomRepr, X: ExtraTok> {
 
 pub type ParseRes<'a, 'b, T, A, X> = OrcRes<Parsed<'a, 'b, T, A, X>>;
 
-pub fn parse_multiname<'a, 'b, A: AtomRepr, X: ExtraTok>(
+pub async fn parse_multiname<'a, 'b, A: AtomRepr, X: ExtraTok>(
 	ctx: &impl Reporter,
 	tail: Snippet<'a, 'b, A, X>,
 ) -> ParseRes<'a, 'b, Vec<(Import, Pos)>, A, X> {
-	let ret = rec(ctx, tail);
+	let ret = rec(ctx, tail).await;
 	#[allow(clippy::type_complexity)] // it's an internal function
-	pub fn rec<'a, 'b, A: AtomRepr, X: ExtraTok>(
+	pub async fn rec<'a, 'b, A: AtomRepr, X: ExtraTok>(
 		ctx: &impl Reporter,
 		tail: Snippet<'a, 'b, A, X>,
 	) -> ParseRes<'a, 'b, Vec<(Vec<Tok<String>>, Option<Tok<String>>, Pos)>, A, X> {
-		let comma = intern!(str: ",");
-		let globstar = intern!(str: "*");
-		let (name, tail) = tail.skip_fluff().pop_front().ok_or_else(|| {
-			mk_err(intern!(str: "Expected name"), "Expected a name, a list of names, or a globstar.", [
-				Pos::Range(tail.pos()).into(),
-			])
-		})?;
+		let comma = intern!(str: ",").await;
+		let globstar = intern!(str: "*").await;
+		let Some((name, tail)) = tail.skip_fluff().pop_front() else {
+			return Err(mk_errv(
+				intern!(str: "Expected name").await,
+				"Expected a name, a list of names, or a globstar.",
+				[Pos::Range(tail.pos()).into()],
+			));
+		};
 		if let Some((Token::NS, tail)) = tail.skip_fluff().pop_front().map(|(tt, s)| (&tt.tok, s)) {
 			let n = match &name.tok {
 				Token::Name(n) if n.starts_with(name_start) => Ok(n),
-				_ => Err(mk_err(intern!(str: "Unexpected name prefix"), "Only names can precede ::", [
-					Pos::Range(name.range.clone()).into(),
-				])),
+				_ =>
+					Err(mk_err(intern!(str: "Unexpected name prefix").await, "Only names can precede ::", [
+						Pos::Range(name.range.clone()).into(),
+					])),
 			};
-			match (rec(ctx, tail), n) {
+			match (Box::pin(rec(ctx, tail)).await, n) {
 				(Err(ev), n) => Err(ev.extended(n.err())),
 				(Ok(Parsed { tail, .. }), Err(e)) => {
 					ctx.report(e);
@@ -218,7 +227,7 @@ pub fn parse_multiname<'a, 'b, A: AtomRepr, X: ExtraTok>(
 						n if *n == globstar => None,
 						n if n.starts_with(op_char) => {
 							return Err(mk_errv(
-								intern!(str: "Unescaped operator in multiname"),
+								intern!(str: "Unescaped operator in multiname").await,
 								"Operators in multinames should be enclosed in []",
 								[Pos::Range(name.range.clone()).into()],
 							));
@@ -229,28 +238,30 @@ pub fn parse_multiname<'a, 'b, A: AtomRepr, X: ExtraTok>(
 				},
 				Token::S(Paren::Square, b) => {
 					let mut ok = Vec::new();
-					b.iter().for_each(|tt| match &tt.tok {
-						Token::Name(n) if n.starts_with(op_char) =>
-							ok.push((vec![], Some(n.clone()), Pos::Range(tt.range.clone()))),
-						Token::BR | Token::Comment(_) => (),
-						_ => ctx.report(mk_err(
-							intern!(str: "Non-operator in escapement in multiname"),
-							"In multinames, [] functions as a literal name list reserved for operators",
-							[Pos::Range(name.range.clone()).into()],
-						)),
-					});
+					for tt in b.iter() {
+						match &tt.tok {
+							Token::Name(n) if n.starts_with(op_char) =>
+								ok.push((vec![], Some(n.clone()), Pos::Range(tt.range.clone()))),
+							Token::BR | Token::Comment(_) => (),
+							_ => ctx.report(mk_err(
+								intern!(str: "Non-operator in escapement in multiname").await,
+								"In multinames, [] functions as a literal name list reserved for operators",
+								[Pos::Range(name.range.clone()).into()],
+							)),
+						}
+					}
 					ok
 				},
 				Token::S(Paren::Round, b) => {
 					let mut ok = Vec::new();
 					let body = Snippet::new(name, b);
 					for csent in body.split(|n| matches!(n, Token::Name(n) if *n == comma)) {
-						match rec(ctx, csent) {
+						match Box::pin(rec(ctx, csent)).await {
 							Err(e) => ctx.report(e),
 							Ok(Parsed { output, tail }) => match tail.get(0) {
 								None => ok.extend(output),
 								Some(t) => ctx.report(mk_err(
-									intern!(str: "Unexpected token in multiname group"),
+									intern!(str: "Unexpected token in multiname group").await,
 									"Unexpected token. Likely missing a :: or , or wanted [] instead of ()",
 									[Pos::Range(t.range.clone()).into()],
 								)),
@@ -261,7 +272,7 @@ pub fn parse_multiname<'a, 'b, A: AtomRepr, X: ExtraTok>(
 				},
 				t => {
 					return Err(mk_errv(
-						intern!(str: "Unrecognized name end"),
+						intern!(str: "Unrecognized name end").await,
 						format!("Names cannot end with {t} tokens"),
 						[Pos::Range(name.range.clone()).into()],
 					));

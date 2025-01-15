@@ -1,5 +1,5 @@
 use std::borrow::Borrow;
-use std::future::IntoFuture;
+use std::future::Future;
 use std::hash::BuildHasher as _;
 use std::num::NonZeroU64;
 use std::ops::{Deref, DerefMut};
@@ -9,7 +9,7 @@ use std::{fmt, hash, mem};
 use async_once_cell::Lazy;
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools as _;
-use orchid_api_traits::{Decode, Encode, Request};
+use orchid_api_traits::Request;
 
 use crate::api;
 use crate::reqnot::{DynRequester, Requester};
@@ -61,19 +61,13 @@ impl<T: Interned + fmt::Debug> fmt::Debug for Tok<T> {
 		write!(f, "Token({} -> {:?})", self.to_api().get_id(), self.data.as_ref())
 	}
 }
-impl<T: Interned + Encode> Encode for Tok<T> {
-	fn encode<W: std::io::Write + ?Sized>(&self, write: &mut W) { self.data.encode(write) }
-}
-impl<T: Interned + Decode> Decode for Tok<T> {
-	fn decode<R: std::io::Read + ?Sized>(read: &mut R) -> Self { intern(&T::decode(read)) }
-}
 
 pub trait Interned: Eq + hash::Hash + Clone + fmt::Debug + Internable<Interned = Self> {
 	type Marker: InternMarker<Interned = Self> + Sized;
-	async fn intern(
+	fn intern(
 		self: Arc<Self>,
 		req: &(impl DynRequester<Transfer = api::IntReq> + ?Sized),
-	) -> Self::Marker;
+	) -> impl Future<Output = Self::Marker>;
 	fn bimap(interner: &mut TypedInterners) -> &mut Bimap<Self>;
 }
 
@@ -84,10 +78,10 @@ pub trait Internable: fmt::Debug {
 
 pub trait InternMarker: Copy + PartialEq + Eq + PartialOrd + Ord + hash::Hash + Sized {
 	type Interned: Interned<Marker = Self>;
-	async fn resolve(
+	fn resolve(
 		self,
 		req: &(impl DynRequester<Transfer = api::IntReq> + ?Sized),
-	) -> Tok<Self::Interned>;
+	) -> impl Future<Output = Tok<Self::Interned>>;
 	fn get_id(self) -> NonZeroU64;
 	fn from_id(id: NonZeroU64) -> Self;
 }
@@ -138,9 +132,9 @@ impl InternMarker for api::TStrv {
 		self,
 		req: &(impl DynRequester<Transfer = api::IntReq> + ?Sized),
 	) -> Tok<Self::Interned> {
-		let data =
-			Arc::new(req.request(api::ExternStrv(self)).await.iter().map(|m| deintern(*m)).collect_vec());
-		Tok::new(data, self)
+		let rep = req.request(api::ExternStrv(self)).await;
+		let data = futures::future::join_all(rep.iter().map(|m| deintern(*m))).await;
+		Tok::new(Arc::new(data), self)
 	}
 	fn get_id(self) -> NonZeroU64 { self.0 }
 	fn from_id(id: NonZeroU64) -> Self { Self(id) }
@@ -314,21 +308,19 @@ pub fn sweep_replica() -> api::Retained {
 macro_rules! intern {
 	($ty:ty : $expr:expr) => {{
 		use std::future::Future;
+		use std::ops::Deref as _;
 		use std::pin::Pin;
 		type Interned = <$ty as $crate::interner::Internable>::Interned;
 		type Output = $crate::interner::Tok<Interned>;
 		type InternFuture = Pin<Box<dyn Future<Output = Output>>>;
 		thread_local! {
 			static VALUE:
-				Pin<std::rc::Rc<async_once_cell::Lazy<Output, InternFuture>>> =
-				std::rc::Rc::pin(async_once_cell::Lazy::new(Box::pin(async {
+				Pin<std::rc::Rc<$crate::async_once_cell::Lazy<Output, InternFuture>>> =
+				std::rc::Rc::pin($crate::async_once_cell::Lazy::new(Box::pin(async {
 					$crate::interner::intern::<Interned>($expr as &$ty).await
 				}) as InternFuture));
 		}
-		VALUE.with(|val| {
-			let val: Pin<std::rc::Rc<async_once_cell::Lazy<Output, InternFuture>>> = val.clone();
-			async move { val.as_ref().await.deref().clone() }
-		})
+		VALUE.with(|v| $crate::clone!(v; async move { v.as_ref().await.deref().clone() }))
 	}};
 }
 

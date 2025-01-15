@@ -10,18 +10,20 @@ use orchid_base::tree::TokHandle;
 use crate::api;
 use crate::tree::{GenTok, GenTokTree};
 
-pub fn err_cascade() -> OrcErr {
+pub async fn err_cascade() -> OrcErr {
 	mk_err(
-		intern!(str: "An error cascading from a recursive call"),
-		"This error should not surface. If you are seeing it, something is wrong",
+		intern!(str: "An error cascading from a recursive call").await,
+		"This error is a sentinel for the extension library.\
+		it should not be emitted by the extension.",
 		[Pos::None.into()],
 	)
 }
 
-pub fn err_not_applicable() -> OrcErr {
+pub async fn err_not_applicable() -> OrcErr {
 	mk_err(
-		intern!(str: "Pseudo-error to communicate that the current branch in a dispatch doesn't apply"),
-		&*err_cascade().message,
+		intern!(str: "Pseudo-error to communicate that the current branch in a dispatch doesn't apply")
+			.await,
+		&*err_cascade().await.message,
 		[Pos::None.into()],
 	)
 }

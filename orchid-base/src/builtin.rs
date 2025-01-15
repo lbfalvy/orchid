@@ -1,6 +1,6 @@
-use std::future::Future;
 use std::ops::Deref;
-use std::pin::Pin;
+
+use futures::future::LocalBoxFuture;
 
 use crate::api;
 
@@ -11,8 +11,8 @@ use crate::api;
 ///
 /// There are no ordering guarantees about these
 pub trait ExtPort {
-	fn send(&self, msg: &[u8]) -> Pin<Box<dyn Future<Output = ()>>>;
-	fn recv<'a>(&self, cb: Box<dyn FnOnce(&[u8]) + Send + 'a>) -> Pin<Box<dyn Future<Output = ()>>>;
+	fn send(&self, msg: &[u8]) -> LocalBoxFuture<'_, ()>;
+	fn recv<'s, 'a: 's>(&'s self, cb: Box<dyn FnOnce(&[u8]) + 'a>) -> LocalBoxFuture<'a, ()>;
 }
 
 pub struct ExtInit {

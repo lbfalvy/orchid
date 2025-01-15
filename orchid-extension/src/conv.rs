@@ -20,12 +20,14 @@ impl<T: TryFromExpr, U: TryFromExpr> TryFromExpr for (T, U) {
 	}
 }
 
-fn err_not_atom(pos: Pos) -> OrcErr {
-	mk_err(intern!(str: "Expected an atom"), "This expression is not an atom", [pos.into()])
+async fn err_not_atom(pos: Pos) -> OrcErr {
+	mk_err(intern!(str: "Expected an atom").await, "This expression is not an atom", [pos.into()])
 }
 
-fn err_type(pos: Pos) -> OrcErr {
-	mk_err(intern!(str: "Type error"), "The atom is a different type than expected", [pos.into()])
+async fn err_type(pos: Pos) -> OrcErr {
+	mk_err(intern!(str: "Type error").await, "The atom is a different type than expected", [
+		pos.into()
+	])
 }
 
 impl<A: AtomicFeatures> TryFromExpr for TypAtom<'_, A> {

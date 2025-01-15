@@ -89,12 +89,13 @@ impl ForeignAtom<'static> {
 	pub(crate) fn new(handle: Arc<ExprHandle>, atom: api::Atom, pos: Pos) -> Self {
 		ForeignAtom { _life: PhantomData, atom, ctx: handle.ctx.clone(), expr: Some(handle), pos }
 	}
-	pub fn request<M: AtomMethod>(&self, m: M) -> Option<M::Response> {
-		let rep = self.ctx.reqnot.request(api::Fwd(
+	pub async fn request<M: AtomMethod>(&self, m: M) -> Option<M::Response> {
+		let rep = (self.ctx.reqnot.request(api::Fwd(
 			self.atom.clone(),
-			Sym::parse(M::NAME).unwrap().tok().to_api(),
+			Sym::parse(M::NAME).await.unwrap().tok().to_api(),
 			enc_vec(&m),
-		))?;
+		)))
+		.await?;
 		Some(M::Response::decode(&mut &rep[..]))
 	}
 }
@@ -116,9 +117,9 @@ impl AtomRepr for ForeignAtom<'_> {
 
 pub struct NotTypAtom(pub Pos, pub Expr, pub Box<dyn AtomDynfo>);
 impl NotTypAtom {
-	pub fn mk_err(&self) -> OrcErr {
+	pub async fn mk_err(&self) -> OrcErr {
 		mk_err(
-			intern!(str: "Not the expected type"),
+			intern!(str: "Not the expected type").await,
 			format!("This expression is not a {}", self.2.name()),
 			[self.0.clone().into()],
 		)
@@ -147,10 +148,10 @@ pub struct MethodSet<A: AtomCard> {
 impl<A: AtomCard> MethodSet<A> {
 	pub fn new() -> Self { Self { handlers: vec![] } }
 
-	pub fn handle<M: AtomMethod>(mut self) -> Self
+	pub async fn handle<M: AtomMethod>(mut self) -> Self
 	where A: Supports<M> {
 		self.handlers.push(AtomReqHandler {
-			key: Sym::parse(M::NAME).expect("AtomMethod::NAME cannoot be empty"),
+			key: Sym::parse(M::NAME).await.expect("AtomMethod::NAME cannoot be empty"),
 			cb: Box::new(move |a: &A, ctx: SysCtx, req: &mut dyn Read, rep: &mut dyn Write| {
 				Supports::<M>::handle(a, ctx, M::decode(req)).encode(rep);
 			}),
@@ -197,19 +198,16 @@ impl<A: AtomicFeatures> TypAtom<'static, A> {
 	}
 }
 impl<A: AtomicFeatures> TypAtom<'_, A> {
-	pub fn request<M: AtomMethod>(&self, req: M) -> M::Response
+	pub async fn request<M: AtomMethod>(&self, req: M) -> M::Response
 	where A: Supports<M> {
 		M::Response::decode(
-			&mut &self
-				.data
-				.ctx
-				.reqnot
-				.request(api::Fwd(
-					self.data.atom.clone(),
-					Sym::parse(M::NAME).unwrap().tok().to_api(),
-					enc_vec(&req),
-				))
-				.unwrap()[..],
+			&mut &(self.data.ctx.reqnot.request(api::Fwd(
+				self.data.atom.clone(),
+				Sym::parse(M::NAME).await.unwrap().tok().to_api(),
+				enc_vec(&req),
+			)))
+			.await
+			.unwrap()[..],
 		)
 	}
 }
@@ -255,10 +253,11 @@ impl fmt::Display for AtomFactory {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "AtomFactory") }
 }
 
-pub fn err_not_callable() -> OrcErr {
-	mk_err(intern!(str: "This atom is not callable"), "Attempted to apply value as function", [])
+pub async fn err_not_callable() -> OrcErr {
+	mk_err(intern!(str: "This atom is not callable").await, "Attempted to apply value as function", [
+	])
 }
 
-pub fn err_not_command() -> OrcErr {
-	mk_err(intern!(str: "This atom is not a command"), "Settled on an inactionable value", [])
+pub async fn err_not_command() -> OrcErr {
+	mk_err(intern!(str: "This atom is not a command").await, "Settled on an inactionable value", [])
 }
