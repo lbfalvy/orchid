@@ -11,8 +11,11 @@ use crate::api;
 ///
 /// There are no ordering guarantees about these
 pub trait ExtPort {
-	fn send(&self, msg: &[u8]) -> LocalBoxFuture<'_, ()>;
-	fn recv<'s, 'a: 's>(&'s self, cb: Box<dyn FnOnce(&[u8]) + 'a>) -> LocalBoxFuture<'a, ()>;
+	fn send<'a>(&'a self, msg: &'a [u8]) -> LocalBoxFuture<'a, ()>;
+	fn recv<'a, 's: 'a>(
+		&'s self,
+		cb: Box<dyn FnOnce(&[u8]) -> LocalBoxFuture<'a, ()> + 'a>,
+	) -> LocalBoxFuture<'a, ()>;
 }
 
 pub struct ExtInit {
@@ -21,7 +24,12 @@ pub struct ExtInit {
 }
 impl ExtInit {
 	pub async fn send(&self, msg: &[u8]) { self.port.send(msg).await }
-	pub async fn recv(&self, cb: impl FnOnce(&[u8]) + Send) { self.port.recv(Box::new(cb)).await }
+	pub async fn recv<'a, 's: 'a>(
+		&'s self,
+		cb: Box<dyn FnOnce(&[u8]) -> LocalBoxFuture<'a, ()> + 'a>,
+	) {
+		self.port.recv(Box::new(cb)).await
+	}
 }
 impl Deref for ExtInit {
 	type Target = api::ExtensionHeader;

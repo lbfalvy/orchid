@@ -24,8 +24,8 @@ trait_set! {
 	pub trait SendFn<T: MsgSet> =
 		for<'a> FnMut(&'a [u8], ReqNot<T>) -> LocalBoxFuture<'a, ()>
 		+ DynClone + Send + 'static;
-	pub trait ReqFn<T: MsgSet> =
-		for<'a> FnMut(RequestHandle<'a, T>, <T::In as Channel>::Req) -> LocalBoxFuture<'a, Receipt<'a>>
+	pub trait ReqFn<T: MsgSet> = for<'a> FnMut(RequestHandle<'a, T>, <T::In as Channel>::Req)
+		-> LocalBoxFuture<'a, Receipt<'a>>
 		+ DynClone + Send + Sync + 'static;
 	pub trait NotifFn<T: MsgSet> =
 		FnMut(<T::In as Channel>::Notif, ReqNot<T>) -> LocalBoxFuture<'static, ()>
