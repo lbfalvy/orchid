@@ -1,7 +1,10 @@
+use std::future::Future;
 use std::num::NonZero;
 use std::ops::Range;
 
 use dyn_clone::{DynClone, clone_box};
+use futures::FutureExt;
+use futures::future::{LocalBoxFuture, join_all};
 use hashbrown::HashMap;
 use itertools::Itertools;
 use orchid_base::interner::{Tok, intern};
@@ -56,19 +59,19 @@ impl GenItem {
 	}
 }
 
-pub fn cnst(public: bool, name: &str, value: impl ToExpr) -> Vec<GenItem> {
-	with_export(GenMember { name: intern(name), kind: MemKind::Const(value.to_expr()) }, public)
+pub async fn cnst(public: bool, name: &str, value: impl ToExpr) -> Vec<GenItem> {
+	with_export(GenMember { name: intern(name).await, kind: MemKind::Const(value.to_expr()) }, public)
 }
-pub fn module(
+pub async fn module(
 	public: bool,
 	name: &str,
 	imports: impl IntoIterator<Item = Sym>,
 	items: impl IntoIterator<Item = Vec<GenItem>>,
 ) -> Vec<GenItem> {
-	let (name, kind) = root_mod(name, imports, items);
+	let (name, kind) = root_mod(name, imports, items).await;
 	with_export(GenMember { name, kind }, public)
 }
-pub fn root_mod(
+pub async fn root_mod(
 	name: &str,
 	imports: impl IntoIterator<Item = Sym>,
 	items: impl IntoIterator<Item = Vec<GenItem>>,
@@ -77,37 +80,44 @@ pub fn root_mod(
 		imports: imports.into_iter().collect(),
 		items: items.into_iter().flatten().collect(),
 	};
-	(intern(name), kind)
+	(intern(name).await, kind)
 }
-pub fn fun<I, O>(exported: bool, name: &str, xf: impl ExprFunc<I, O>) -> Vec<GenItem> {
-	let fac = LazyMemberFactory::new(move |sym| MemKind::Const(Fun::new(sym, xf).to_expr()));
-	with_export(GenMember { name: intern(name), kind: MemKind::Lazy(fac) }, exported)
+pub async fn fun<I, O>(exported: bool, name: &str, xf: impl ExprFunc<I, O>) -> Vec<GenItem> {
+	let fac =
+		LazyMemberFactory::new(move |sym| async { MemKind::Const(Fun::new(sym, xf).to_expr()) });
+	with_export(GenMember { name: intern(name).await, kind: MemKind::Lazy(fac) }, exported)
 }
 pub fn macro_block(prio: Option<f64>, rules: impl IntoIterator<Item = Rule>) -> Vec<GenItem> {
 	let prio = prio.map(|p| NotNan::new(p).unwrap());
 	vec![GenItemKind::Macro(prio, rules.into_iter().collect_vec()).gen()]
 }
 
-pub fn comments<'a>(
-	cmts: impl IntoIterator<Item = &'a str> + Clone,
+pub async fn comments<'a>(
+	cmts: impl IntoIterator<Item = &'a str>,
 	mut val: Vec<GenItem>,
 ) -> Vec<GenItem> {
+	let cmts = join_all(
+		cmts.into_iter().map(|c| async { Comment { text: intern(c).await, pos: Pos::Inherit } }),
+	)
+	.await;
 	for v in val.iter_mut() {
-		v.comments
-			.extend(cmts.clone().into_iter().map(|c| Comment { text: intern(c), pos: Pos::Inherit }));
+		v.comments.extend(cmts.iter().cloned());
 	}
 	val
 }
 
 trait_set! {
-	trait LazyMemberCallback = FnOnce(Sym) -> MemKind + Send + Sync + DynClone
+	trait LazyMemberCallback =
+		FnOnce(Sym) -> LocalBoxFuture<'static, MemKind> + Send + Sync + DynClone
 }
 pub struct LazyMemberFactory(Box<dyn LazyMemberCallback>);
 impl LazyMemberFactory {
-	pub fn new(cb: impl FnOnce(Sym) -> MemKind + Send + Sync + Clone + 'static) -> Self {
-		Self(Box::new(cb))
+	pub fn new<F: Future<Output = MemKind> + 'static>(
+		cb: impl FnOnce(Sym) -> F + Send + Sync + Clone + 'static,
+	) -> Self {
+		Self(Box::new(|s| cb(s).boxed_local()))
 	}
-	pub fn build(self, path: Sym) -> MemKind { (self.0)(path) }
+	pub async fn build(self, path: Sym) -> MemKind { (self.0)(path).await }
 }
 impl Clone for LazyMemberFactory {
 	fn clone(&self) -> Self { Self(clone_box(&*self.0)) }
@@ -187,7 +197,7 @@ impl<'a, 'b> TreeIntoApiCtx for TIACtxImpl<'a, 'b> {
 	}
 	fn with_lazy(&mut self, fac: LazyMemberFactory) -> api::TreeId {
 		let id = api::TreeId(NonZero::new((self.lazy.len() + 2) as u64).unwrap());
-		let path = Sym::new(self.basepath.iter().cloned().chain(self.path.unreverse())).unwrap();
+		let path = self.basepath.iter().cloned().chain(self.path.unreverse()).collect_vec();
 		self.lazy.insert(id, MemberRecord::Gen(path, fac));
 		id
 	}

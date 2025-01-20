@@ -941,6 +941,7 @@ dependencies = [
  "ordered-float",
  "rust-embed",
  "rust_decimal",
+ "some_executor 0.4.0",
  "substack",
  "test_executors",
  "trait-set",
@@ -951,6 +952,7 @@ name = "orchid-extension"
 version = "0.1.0"
 dependencies = [
  "ahash 0.8.11",
+ "async-once-cell",
  "async-std",
  "derive_destructure",
  "dyn-clone",
@@ -967,6 +969,7 @@ dependencies = [
  "orchid-base",
  "ordered-float",
  "paste",
+ "some_executor 0.4.0",
  "substack",
  "trait-set",
 ]
@@ -1385,6 +1388,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "some_executor"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8df557f5c4423b8c7b5efa248bd911d3908c095f6a64a002df51230534fd7bdf"
+dependencies = [
+ "atomic-waker",
+ "priority",
+ "wasm-bindgen",
+ "wasm_thread",
+ "web-sys",
+ "web-time",
+]
+
+[[package]]
 name = "stdio-perftest"
 version = "0.1.0"
 
@@ -1448,7 +1465,7 @@ dependencies = [
  "blocking_semaphore",
  "logwise",
  "priority",
- "some_executor",
+ "some_executor 0.3.0",
  "test_executors_proc",
  "wasm-bindgen",
  "web-time",
@@ -1662,6 +1679,18 @@ name = "wasm-bindgen-shared"
 version = "0.2.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "943aab3fdaaa029a6e0271b35ea10b72b943135afe9bffca82384098ad0e06a6"
+
+[[package]]
+name = "wasm_thread"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7516db7f32decdadb1c3b8deb1b7d78b9df7606c5cc2f6241737c2ab3a0258e"
+dependencies = [
+ "futures",
+ "js-sys",
+ "wasm-bindgen",
+ "web-sys",
+]
 
 [[package]]
 name = "web-sys"

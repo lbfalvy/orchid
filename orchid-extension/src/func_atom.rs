@@ -1,14 +1,17 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::future::Future;
 use std::io;
 use std::sync::{Arc, Mutex};
 
+use futures::FutureExt;
+use futures::future::LocalBoxFuture;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use never::Never;
 use orchid_api_traits::Encode;
+use orchid_base::clone;
 use orchid_base::error::OrcRes;
-use orchid_base::interner::Tok;
 use orchid_base::name::Sym;
 use trait_set::trait_set;
 
@@ -19,12 +22,12 @@ use crate::expr::{Expr, ExprHandle};
 use crate::system::SysCtx;
 
 trait_set! {
-	trait FunCB = Fn(Vec<Expr>) -> OrcRes<Expr> + Send + Sync + 'static;
+	trait FunCB = Fn(Vec<Expr>) -> LocalBoxFuture<'static, OrcRes<Expr>> + Send + Sync + 'static;
 }
 
 pub trait ExprFunc<I, O>: Clone + Send + Sync + 'static {
 	const ARITY: u8;
-	fn apply(&self, v: Vec<Expr>) -> OrcRes<Expr>;
+	fn apply(&self, v: Vec<Expr>) -> impl Future<Output = OrcRes<Expr>>;
 }
 
 lazy_static! {
@@ -49,7 +52,7 @@ impl Fun {
 		let fun = if let Some(x) = fung.get(&path) {
 			x.1.clone()
 		} else {
-			let fun = Arc::new(move |v| f.apply(v));
+			let fun = Arc::new(move |v| clone!(f; async move { f.apply(v).await }.boxed_local()));
 			fung.insert(path.clone(), (F::ARITY, fun.clone()));
 			fun
 		};
@@ -63,23 +66,24 @@ impl Atomic for Fun {
 }
 impl OwnedAtom for Fun {
 	type Refs = Vec<Expr>;
-	fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(()) }
-	fn call_ref(&self, arg: ExprHandle) -> Expr {
-		let new_args = self.args.iter().cloned().chain([Expr::new(Arc::new(arg))]).collect_vec();
+	async fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(()) }
+	async fn call_ref(&self, arg: ExprHandle) -> Expr {
+		let new_args =
+			self.args.iter().cloned().chain([Expr::from_handle(Arc::new(arg))]).collect_vec();
 		if new_args.len() == self.arity.into() {
-			(self.fun)(new_args).to_expr()
+			(self.fun)(new_args).await.to_expr()
 		} else {
 			Self { args: new_args, arity: self.arity, fun: self.fun.clone(), path: self.path.clone() }
 				.to_expr()
 		}
 	}
-	fn call(self, arg: ExprHandle) -> Expr { self.call_ref(arg) }
-	fn serialize(&self, _: SysCtx, sink: &mut (impl io::Write + ?Sized)) -> Self::Refs {
-		self.path.encode(sink);
+	async fn call(self, arg: ExprHandle) -> Expr { self.call_ref(arg).await }
+	async fn serialize(&self, _: SysCtx, sink: &mut (impl io::Write + ?Sized)) -> Self::Refs {
+		self.path.to_api().encode(sink);
 		self.args.clone()
 	}
-	fn deserialize(ctx: impl DeserializeCtx, args: Self::Refs) -> Self {
-		let path = Sym::new(ctx.decode::<Vec<Tok<String>>>()).unwrap();
+	async fn deserialize(ctx: impl DeserializeCtx, args: Self::Refs) -> Self {
+		let path = Sym::from_api(ctx.decode()).await;
 		let (arity, fun) = FUNS.lock().unwrap().get(&path).unwrap().clone();
 		Self { args, arity, path, fun }
 	}
@@ -97,7 +101,7 @@ pub struct Lambda {
 }
 impl Lambda {
 	pub fn new<I, O, F: ExprFunc<I, O>>(f: F) -> Self {
-		let fun = Arc::new(move |v| f.apply(v));
+		let fun = Arc::new(move |v| clone!(f; async move { f.apply(v).await }.boxed_local()));
 		Self { args: vec![], arity: F::ARITY, fun }
 	}
 }
@@ -108,16 +112,17 @@ impl Atomic for Lambda {
 }
 impl OwnedAtom for Lambda {
 	type Refs = Never;
-	fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(()) }
-	fn call_ref(&self, arg: ExprHandle) -> Expr {
-		let new_args = self.args.iter().cloned().chain([Expr::new(Arc::new(arg))]).collect_vec();
+	async fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(()) }
+	async fn call_ref(&self, arg: ExprHandle) -> Expr {
+		let new_args =
+			self.args.iter().cloned().chain([Expr::from_handle(Arc::new(arg))]).collect_vec();
 		if new_args.len() == self.arity.into() {
-			(self.fun)(new_args).to_expr()
+			(self.fun)(new_args).await.to_expr()
 		} else {
 			Self { args: new_args, arity: self.arity, fun: self.fun.clone() }.to_expr()
 		}
 	}
-	fn call(self, arg: ExprHandle) -> Expr { self.call_ref(arg) }
+	async fn call(self, arg: ExprHandle) -> Expr { self.call_ref(arg).await }
 }
 
 mod expr_func_derives {
@@ -136,10 +141,10 @@ mod expr_func_derives {
           Func: Fn($($t,)*) -> Out + Clone + Send + Sync + 'static
         > ExprFunc<($($t,)*), Out> for Func {
           const ARITY: u8 = $arity;
-          fn apply(&self, v: Vec<Expr>) -> OrcRes<Expr> {
+          async fn apply(&self, v: Vec<Expr>) -> OrcRes<Expr> {
             assert_eq!(v.len(), Self::ARITY.into(), "Arity mismatch");
             let [$([< $t:lower >],)*] = v.try_into().unwrap_or_else(|_| panic!("Checked above"));
-            Ok(self($($t::try_from_expr([< $t:lower >])?,)*).to_expr())
+            Ok(self($($t::try_from_expr([< $t:lower >]).await?,)*).to_expr())
           }
         }
       }

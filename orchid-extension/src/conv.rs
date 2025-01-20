@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use orchid_base::error::{OrcErr, OrcRes, mk_err};
 use orchid_base::intern;
 use orchid_base::location::Pos;
@@ -7,16 +9,16 @@ use crate::expr::{Expr, atom, bot};
 use crate::system::downcast_atom;
 
 pub trait TryFromExpr: Sized {
-	fn try_from_expr(expr: Expr) -> OrcRes<Self>;
+	fn try_from_expr(expr: Expr) -> impl Future<Output = OrcRes<Self>>;
 }
 
 impl TryFromExpr for Expr {
-	fn try_from_expr(expr: Expr) -> OrcRes<Self> { Ok(expr) }
+	async fn try_from_expr(expr: Expr) -> OrcRes<Self> { Ok(expr) }
 }
 
 impl<T: TryFromExpr, U: TryFromExpr> TryFromExpr for (T, U) {
-	fn try_from_expr(expr: Expr) -> OrcRes<Self> {
-		Ok((T::try_from_expr(expr.clone())?, U::try_from_expr(expr)?))
+	async fn try_from_expr(expr: Expr) -> OrcRes<Self> {
+		Ok((T::try_from_expr(expr.clone()).await?, U::try_from_expr(expr).await?))
 	}
 }
 
@@ -32,9 +34,12 @@ async fn err_type(pos: Pos) -> OrcErr {
 
 impl<A: AtomicFeatures> TryFromExpr for TypAtom<'_, A> {
 	async fn try_from_expr(expr: Expr) -> OrcRes<Self> {
-		match expr.foreign_atom() {
-			Err(ex) => Err(err_not_atom(ex.pos.clone()).await.into()),
-			Ok(f) => match downcast_atom(f) \.map_err(|f| err_type(f.pos).into()),
+		match expr.atom().await {
+			Err(ex) => Err(err_not_atom(ex.data().await.pos.clone()).await.into()),
+			Ok(f) => match downcast_atom(f) {
+				Ok(a) => Ok(a),
+				Err(f) => Err(err_type(f.pos).await.into()),
+			},
 		}
 	}
 }

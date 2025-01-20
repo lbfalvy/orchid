@@ -1,11 +1,15 @@
 use std::any::{Any, TypeId, type_name};
 use std::borrow::Cow;
+use std::future::Future;
 use std::io::{Read, Write};
 use std::sync::Arc;
 
+use futures::FutureExt;
+use futures::future::{LocalBoxFuture, ready};
 use itertools::Itertools;
 use never::Never;
 use orchid_api_traits::{Decode, Encode, enc_vec};
+use orchid_base::clone;
 use orchid_base::error::OrcRes;
 use orchid_base::id_store::{IdRecord, IdStore};
 use orchid_base::name::Sym;
@@ -23,7 +27,7 @@ impl AtomicVariant for OwnedVariant {}
 impl<A: OwnedAtom + Atomic<Variant = OwnedVariant>> AtomicFeaturesImpl<OwnedVariant> for A {
 	fn _factory(self) -> AtomFactory {
 		AtomFactory::new(move |ctx| {
-			let rec = OBJ_STORE.add(Box::new(self));
+			let rec = ctx.obj_store.add(Box::new(self));
 			let (id, _) = get_info::<A>(ctx.cted.inst().card());
 			let mut data = enc_vec(&id);
 			rec.encode(&mut data);
@@ -34,57 +38,96 @@ impl<A: OwnedAtom + Atomic<Variant = OwnedVariant>> AtomicFeaturesImpl<OwnedVari
 	type _Info = OwnedAtomDynfo<A>;
 }
 
-fn with_atom<U>(id: api::AtomId, f: impl FnOnce(IdRecord<'_, Box<dyn DynOwnedAtom>>) -> U) -> U {
-	f(OBJ_STORE.get(id.0).unwrap_or_else(|| panic!("Received invalid atom ID: {}", id.0)))
+fn with_atom<'a, U>(
+	id: api::AtomId,
+	ctx: &'a SysCtx,
+	f: impl FnOnce(IdRecord<'a, Box<dyn DynOwnedAtom>>) -> U,
+) -> U {
+	f(ctx.obj_store.get(id.0).unwrap_or_else(|| panic!("Received invalid atom ID: {}", id.0)))
 }
 
 pub struct OwnedAtomDynfo<T: OwnedAtom>(MethodSet<T>);
 impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
-	fn print(&self, AtomCtx(_, id, ctx): AtomCtx<'_>) -> String {
-		with_atom(id.unwrap(), |a| a.dyn_print(ctx))
-	}
 	fn tid(&self) -> TypeId { TypeId::of::<T>() }
 	fn name(&self) -> &'static str { type_name::<T>() }
 	fn decode(&self, AtomCtx(data, ..): AtomCtx) -> Box<dyn Any> {
 		Box::new(<T as AtomCard>::Data::decode(&mut &data[..]))
 	}
-	fn call(&self, AtomCtx(_, id, ctx): AtomCtx, arg: api::ExprTicket) -> Expr {
-		with_atom(id.unwrap(), |a| a.remove().dyn_call(ctx, arg))
+	fn call(&self, AtomCtx(_, id, ctx): AtomCtx, arg: api::ExprTicket) -> LocalBoxFuture<'_, Expr> {
+		with_atom(id.unwrap(), &ctx, |a| a.remove()).dyn_call(ctx.clone(), arg)
 	}
-	fn call_ref(&self, AtomCtx(_, id, ctx): AtomCtx, arg: api::ExprTicket) -> Expr {
-		with_atom(id.unwrap(), |a| a.dyn_call_ref(ctx, arg))
+	fn call_ref<'a>(
+		&'a self,
+		AtomCtx(_, id, ctx): AtomCtx<'a>,
+		arg: api::ExprTicket,
+	) -> LocalBoxFuture<'a, Expr> {
+		async move {
+			with_atom(id.unwrap(), &ctx, |a| clone!(ctx; async move { a.dyn_call_ref(ctx, arg).await }))
+				.await
+		}
+		.boxed_local()
 	}
-	fn handle_req(
-		&self,
+	fn print(&self, AtomCtx(_, id, ctx): AtomCtx<'_>) -> LocalBoxFuture<'_, String> {
+		async move {
+			with_atom(id.unwrap(), &ctx, |a| clone!(ctx; async move { a.dyn_print(ctx).await })).await
+		}
+		.boxed_local()
+	}
+	fn handle_req<'a, 'b: 'a, 'c: 'a>(
+		&'a self,
 		AtomCtx(_, id, ctx): AtomCtx,
 		key: Sym,
-		req: &mut dyn Read,
-		rep: &mut dyn Write,
-	) -> bool {
-		with_atom(id.unwrap(), |a| {
-			self.0.dispatch(a.as_any_ref().downcast_ref().unwrap(), ctx, key, req, rep)
-		})
+		req: &'b mut dyn Read,
+		rep: &'c mut dyn Write,
+	) -> LocalBoxFuture<'a, bool> {
+		async move {
+			with_atom(id.unwrap(), &ctx, |a| {
+				clone!(ctx; async move {
+					self.0.dispatch(a.as_any_ref().downcast_ref().unwrap(), ctx, key, req, rep).await
+				})
+			})
+			.await
+		}
+		.boxed_local()
 	}
-	fn command(&self, AtomCtx(_, id, ctx): AtomCtx<'_>) -> OrcRes<Option<Expr>> {
-		with_atom(id.unwrap(), |a| a.remove().dyn_command(ctx))
+	fn command<'a>(
+		&'a self,
+		AtomCtx(_, id, ctx): AtomCtx<'a>,
+	) -> LocalBoxFuture<'a, OrcRes<Option<Expr>>> {
+		async move { with_atom(id.unwrap(), &ctx, |a| a.remove().dyn_command(ctx.clone())).await }
+			.boxed_local()
 	}
-	fn drop(&self, AtomCtx(_, id, ctx): AtomCtx) {
-		with_atom(id.unwrap(), |a| a.remove().dyn_free(ctx))
+	fn drop(&self, AtomCtx(_, id, ctx): AtomCtx) -> LocalBoxFuture<'_, ()> {
+		async move { with_atom(id.unwrap(), &ctx, |a| a.remove().dyn_free(ctx.clone())).await }
+			.boxed_local()
 	}
-	fn serialize(
-		&self,
-		AtomCtx(_, id, ctx): AtomCtx<'_>,
-		write: &mut dyn Write,
-	) -> Option<Vec<api::ExprTicket>> {
-		let id = id.unwrap();
-		id.encode(write);
-		with_atom(id, |a| a.dyn_serialize(ctx, write))
-			.map(|v| v.into_iter().map(|t| t.handle.unwrap().tk).collect_vec())
+	fn serialize<'a, 'b: 'a>(
+		&'a self,
+		AtomCtx(_, id, ctx): AtomCtx<'a>,
+		write: &'b mut dyn Write,
+	) -> LocalBoxFuture<'a, Option<Vec<api::ExprTicket>>> {
+		async move {
+			let id = id.unwrap();
+			id.encode(write);
+			with_atom(id, &ctx, |a| clone!(ctx; async move { a.dyn_serialize(ctx, write).await }))
+				.await
+				.map(|v| v.into_iter().map(|t| t.handle().unwrap().tk).collect_vec())
+		}
+		.boxed_local()
 	}
-	fn deserialize(&self, ctx: SysCtx, data: &[u8], refs: &[api::ExprTicket]) -> orchid_api::Atom {
-		let refs = refs.iter().map(|tk| Expr::new(Arc::new(ExprHandle::from_args(ctx.clone(), *tk))));
-		let obj = T::deserialize(DeserCtxImpl(data, &ctx), T::Refs::from_iter(refs));
-		obj._factory().build(ctx)
+	fn deserialize<'a>(
+		&'a self,
+		ctx: SysCtx,
+		data: &'a [u8],
+		refs: &'a [api::ExprTicket],
+	) -> LocalBoxFuture<'a, api::Atom> {
+		async move {
+			let refs =
+				refs.iter().map(|tk| Expr::from_handle(Arc::new(ExprHandle::from_args(ctx.clone(), *tk))));
+			let obj = T::deserialize(DeserCtxImpl(data, &ctx), T::Refs::from_iter(refs)).await;
+			obj._factory().build(ctx)
+		}
+		.boxed_local()
 	}
 }
 
@@ -140,7 +183,7 @@ impl<const N: usize> RefSet for [Expr; N] {
 }
 
 /// Atoms that have a [Drop]
-pub trait OwnedAtom: Atomic<Variant = OwnedVariant> + Send + Sync + Any + Clone + 'static {
+pub trait OwnedAtom: Atomic<Variant = OwnedVariant> + Any + Clone + 'static {
 	/// If serializable, the collection that best stores subexpression references
 	/// for this atom.
 	///
@@ -152,66 +195,96 @@ pub trait OwnedAtom: Atomic<Variant = OwnedVariant> + Send + Sync + Any + Clone 
 	/// If this isn't `Never`, you must override the default, panicking
 	/// `serialize` and `deserialize` implementation
 	type Refs: RefSet;
-	fn val(&self) -> Cow<'_, Self::Data>;
+	fn val(&self) -> impl Future<Output = Cow<'_, Self::Data>>;
 	#[allow(unused_variables)]
-	fn call_ref(&self, arg: ExprHandle) -> Expr { bot([err_not_callable()]) }
-	fn call(self, arg: ExprHandle) -> Expr {
-		let ctx = arg.get_ctx();
-		let gcl = self.call_ref(arg);
-		self.free(ctx);
-		gcl
+	fn call_ref(&self, arg: ExprHandle) -> impl Future<Output = Expr> {
+		async { bot([err_not_callable().await]) }
+	}
+	fn call(self, arg: ExprHandle) -> impl Future<Output = Expr> {
+		async {
+			let ctx = arg.get_ctx();
+			let gcl = self.call_ref(arg).await;
+			self.free(ctx);
+			gcl
+		}
 	}
 	#[allow(unused_variables)]
-	fn command(self, ctx: SysCtx) -> OrcRes<Option<Expr>> { Err(err_not_command().into()) }
-	#[allow(unused_variables)]
-	fn free(self, ctx: SysCtx) {}
-	#[allow(unused_variables)]
-	fn print(&self, ctx: SysCtx) -> String { format!("OwnedAtom({})", type_name::<Self>()) }
-	#[allow(unused_variables)]
-	fn serialize(&self, ctx: SysCtx, write: &mut (impl Write + ?Sized)) -> Self::Refs {
-		assert!(
-			TypeId::of::<Self::Refs>() != TypeId::of::<Never>(),
-			"The extension scaffold is broken, this function should never be called on Never Refs"
-		);
-		panic!("Either implement serialize or set Refs to Never for {}", type_name::<Self>())
+	fn command(self, ctx: SysCtx) -> impl Future<Output = OrcRes<Option<Expr>>> {
+		async { Err(err_not_command().await.into()) }
 	}
 	#[allow(unused_variables)]
-	fn deserialize(ctx: impl DeserializeCtx, refs: Self::Refs) -> Self {
-		assert!(
-			TypeId::of::<Self::Refs>() != TypeId::of::<Never>(),
-			"The extension scaffold is broken, this function should never be called on Never Refs"
-		);
-		panic!("Either implement deserialize or set Refs to Never for {}", type_name::<Self>())
+	fn free(self, ctx: SysCtx) -> impl Future<Output = ()> { async {} }
+	#[allow(unused_variables)]
+	fn print(&self, ctx: SysCtx) -> impl Future<Output = String> {
+		async { format!("OwnedAtom({})", type_name::<Self>()) }
+	}
+	#[allow(unused_variables)]
+	fn serialize(
+		&self,
+		ctx: SysCtx,
+		write: &mut (impl Write + ?Sized),
+	) -> impl Future<Output = Self::Refs> {
+		assert_serializable::<Self>();
+		async { panic!("Either implement serialize or set Refs to Never for {}", type_name::<Self>()) }
+	}
+	#[allow(unused_variables)]
+	fn deserialize(ctx: impl DeserializeCtx, refs: Self::Refs) -> impl Future<Output = Self> {
+		assert_serializable::<Self>();
+		async {
+			panic!("Either implement deserialize or set Refs to Never for {}", type_name::<Self>())
+		}
 	}
 }
-pub trait DynOwnedAtom: Send + Sync + 'static {
+
+fn assert_serializable<T: OwnedAtom>() {
+	static MSG: &str = "The extension scaffold is broken, Never Refs should prevent serialization";
+	assert_ne!(TypeId::of::<T::Refs>(), TypeId::of::<Never>(), "{MSG}");
+}
+
+pub trait DynOwnedAtom: 'static {
 	fn atom_tid(&self) -> TypeId;
 	fn as_any_ref(&self) -> &dyn Any;
-	fn encode(&self, buffer: &mut dyn Write);
-	fn dyn_call_ref(&self, ctx: SysCtx, arg: api::ExprTicket) -> Expr;
-	fn dyn_call(self: Box<Self>, ctx: SysCtx, arg: api::ExprTicket) -> Expr;
-	fn dyn_command(self: Box<Self>, ctx: SysCtx) -> OrcRes<Option<Expr>>;
-	fn dyn_free(self: Box<Self>, ctx: SysCtx);
-	fn dyn_print(&self, ctx: SysCtx) -> String;
-	fn dyn_serialize(&self, ctx: SysCtx, sink: &mut dyn Write) -> Option<Vec<Expr>>;
+	fn encode<'a>(&'a self, buffer: &'a mut dyn Write) -> LocalBoxFuture<'a, ()>;
+	fn dyn_call_ref(&self, ctx: SysCtx, arg: api::ExprTicket) -> LocalBoxFuture<'_, Expr>;
+	fn dyn_call(self: Box<Self>, ctx: SysCtx, arg: api::ExprTicket) -> LocalBoxFuture<'static, Expr>;
+	fn dyn_command(self: Box<Self>, ctx: SysCtx) -> LocalBoxFuture<'static, OrcRes<Option<Expr>>>;
+	fn dyn_free(self: Box<Self>, ctx: SysCtx) -> LocalBoxFuture<'static, ()>;
+	fn dyn_print(&self, ctx: SysCtx) -> LocalBoxFuture<'_, String>;
+	fn dyn_serialize<'a>(
+		&'a self,
+		ctx: SysCtx,
+		sink: &'a mut dyn Write,
+	) -> LocalBoxFuture<'a, Option<Vec<Expr>>>;
 }
 impl<T: OwnedAtom> DynOwnedAtom for T {
 	fn atom_tid(&self) -> TypeId { TypeId::of::<T>() }
 	fn as_any_ref(&self) -> &dyn Any { self }
-	fn encode(&self, buffer: &mut dyn Write) { self.val().as_ref().encode(buffer) }
-	fn dyn_call_ref(&self, ctx: SysCtx, arg: api::ExprTicket) -> Expr {
-		self.call_ref(ExprHandle::from_args(ctx, arg))
+	fn encode<'a>(&'a self, buffer: &'a mut dyn Write) -> LocalBoxFuture<'a, ()> {
+		async { self.val().await.as_ref().encode(buffer) }.boxed_local()
 	}
-	fn dyn_call(self: Box<Self>, ctx: SysCtx, arg: api::ExprTicket) -> Expr {
-		self.call(ExprHandle::from_args(ctx, arg))
+	fn dyn_call_ref(&self, ctx: SysCtx, arg: api::ExprTicket) -> LocalBoxFuture<'_, Expr> {
+		self.call_ref(ExprHandle::from_args(ctx, arg)).boxed_local()
 	}
-	fn dyn_command(self: Box<Self>, ctx: SysCtx) -> OrcRes<Option<Expr>> { self.command(ctx) }
-	fn dyn_free(self: Box<Self>, ctx: SysCtx) { self.free(ctx) }
-	fn dyn_print(&self, ctx: SysCtx) -> String { self.print(ctx) }
-	fn dyn_serialize(&self, ctx: SysCtx, sink: &mut dyn Write) -> Option<Vec<Expr>> {
-		(TypeId::of::<Never>() != TypeId::of::<<Self as OwnedAtom>::Refs>())
-			.then(|| self.serialize(ctx, sink).to_vec())
+	fn dyn_call(self: Box<Self>, ctx: SysCtx, arg: api::ExprTicket) -> LocalBoxFuture<'static, Expr> {
+		self.call(ExprHandle::from_args(ctx, arg)).boxed_local()
+	}
+	fn dyn_command(self: Box<Self>, ctx: SysCtx) -> LocalBoxFuture<'static, OrcRes<Option<Expr>>> {
+		self.command(ctx).boxed_local()
+	}
+	fn dyn_free(self: Box<Self>, ctx: SysCtx) -> LocalBoxFuture<'static, ()> {
+		self.free(ctx).boxed_local()
+	}
+	fn dyn_print(&self, ctx: SysCtx) -> LocalBoxFuture<'_, String> { self.print(ctx).boxed_local() }
+	fn dyn_serialize<'a>(
+		&'a self,
+		ctx: SysCtx,
+		sink: &'a mut dyn Write,
+	) -> LocalBoxFuture<'a, Option<Vec<Expr>>> {
+		match TypeId::of::<Never>() == TypeId::of::<<Self as OwnedAtom>::Refs>() {
+			true => ready(None).boxed_local(),
+			false => async { Some(self.serialize(ctx, sink).await.to_vec()) }.boxed_local(),
+		}
 	}
 }
 
-pub(crate) static OBJ_STORE: IdStore<Box<dyn DynOwnedAtom>> = IdStore::new();
+pub type ObjStore = Arc<IdStore<Box<dyn DynOwnedAtom>>>;

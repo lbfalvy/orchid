@@ -1,8 +1,9 @@
 use std::fmt;
-use std::ops::Deref;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
+use async_once_cell::OnceCell;
 use derive_destructure::destructure;
+use futures::task::LocalSpawnExt;
 use orchid_base::error::{OrcErr, OrcErrv};
 use orchid_base::interner::Tok;
 use orchid_base::location::Pos;
@@ -35,33 +36,44 @@ impl Clone for ExprHandle {
 	}
 }
 impl Drop for ExprHandle {
-	fn drop(&mut self) { self.ctx.reqnot.notify(api::Release(self.ctx.id, self.tk)) }
+	fn drop(&mut self) {
+		let notif = api::Release(self.ctx.id, self.tk);
+		let SysCtx { reqnot, spawner, logger, .. } = self.ctx.clone();
+		if let Err(e) = spawner.spawn_local(async move { reqnot.notify(notif).await }) {
+			writeln!(logger, "Failed to schedule notification about resource release: {e}");
+		}
+	}
 }
 
 #[derive(Clone, Debug, destructure)]
 pub struct Expr {
-	pub handle: Option<Arc<ExprHandle>>,
-	pub val: OnceLock<ExprData>,
+	handle: Option<Arc<ExprHandle>>,
+	data: Arc<OnceCell<ExprData>>,
 }
 impl Expr {
-	pub fn new(hand: Arc<ExprHandle>) -> Self { Self { handle: Some(hand), val: OnceLock::new() } }
-	pub fn from_data(val: ExprData) -> Self { Self { handle: None, val: OnceLock::from(val) } }
-	pub fn get_data(&self) -> &ExprData {
-		self.val.get_or_init(|| {
+	pub fn new(h: Arc<ExprHandle>, d: ExprData) -> Self {
+		Self { handle: Some(h), data: Arc::new(OnceCell::from(d)) }
+	}
+	pub fn from_handle(h: Arc<ExprHandle>) -> Self { Self { handle: Some(h), data: Arc::default() } }
+	pub fn from_data(d: ExprData) -> Self { Self { handle: None, data: Arc::new(OnceCell::from(d)) } }
+
+	pub async fn data(&self) -> &ExprData {
+		(self.data.get_or_init(async {
 			let handle = self.handle.as_ref().expect("Either the value or the handle must be set");
-			let details = handle.ctx.reqnot.request(api::Inspect { target: handle.tk });
-			let pos = Pos::from_api(&details.location);
+			let details = handle.ctx.reqnot.request(api::Inspect { target: handle.tk }).await;
+			let pos = Pos::from_api(&details.location).await;
 			let kind = match details.kind {
 				api::InspectedKind::Atom(a) =>
 					ExprKind::Atom(ForeignAtom::new(handle.clone(), a, pos.clone())),
-				api::InspectedKind::Bottom(b) => ExprKind::Bottom(OrcErrv::from_api(&b)),
+				api::InspectedKind::Bottom(b) => ExprKind::Bottom(OrcErrv::from_api(&b).await),
 				api::InspectedKind::Opaque => ExprKind::Opaque,
 			};
 			ExprData { pos, kind }
-		})
+		}))
+		.await
 	}
-	pub fn foreign_atom(self) -> Result<ForeignAtom<'static>, Self> {
-		match (self.get_data(), &self.handle) {
+	pub async fn atom(self) -> Result<ForeignAtom<'static>, Self> {
+		match (self.data().await, &self.handle) {
 			(ExprData { kind: ExprKind::Atom(atom), .. }, Some(_)) => Ok(atom.clone()),
 			_ => Err(self),
 		}
@@ -75,14 +87,11 @@ impl Expr {
 			do_slot(h.clone());
 			api::Expression { location: api::Location::SlotTarget, kind: api::ExpressionKind::Slot(h.tk) }
 		} else {
-			self.val.into_inner().expect("Either value or handle must be set").api_return(ctx, do_slot)
+			let data = self.data.get().expect("Either value or handle must be set");
+			data.clone().api_return(ctx, do_slot)
 		}
 	}
 	pub fn handle(&self) -> Option<Arc<ExprHandle>> { self.handle.clone() }
-}
-impl Deref for Expr {
-	type Target = ExprData;
-	fn deref(&self) -> &Self::Target { self.get_data() }
 }
 
 #[derive(Clone, Debug)]

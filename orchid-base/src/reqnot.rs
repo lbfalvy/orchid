@@ -23,13 +23,14 @@ pub struct Receipt<'a>(PhantomData<&'a mut ()>);
 trait_set! {
 	pub trait SendFn<T: MsgSet> =
 		for<'a> FnMut(&'a [u8], ReqNot<T>) -> LocalBoxFuture<'a, ()>
-		+ DynClone + Send + 'static;
-	pub trait ReqFn<T: MsgSet> = for<'a> FnMut(RequestHandle<'a, T>, <T::In as Channel>::Req)
-		-> LocalBoxFuture<'a, Receipt<'a>>
-		+ DynClone + Send + Sync + 'static;
+		+ DynClone + 'static;
+	pub trait ReqFn<T: MsgSet> =
+		for<'a> FnMut(RequestHandle<'a, T>, <T::In as Channel>::Req)
+			-> LocalBoxFuture<'a, Receipt<'a>>
+		+ DynClone + 'static;
 	pub trait NotifFn<T: MsgSet> =
 		FnMut(<T::In as Channel>::Notif, ReqNot<T>) -> LocalBoxFuture<'static, ()>
-		+ DynClone + Send + Sync + 'static;
+		+ DynClone + 'static;
 }
 
 fn get_id(message: &[u8]) -> (u64, &[u8]) {
@@ -145,15 +146,13 @@ impl<T: MsgSet> ReqNot<T> {
 	}
 }
 
-pub trait DynRequester: Send + Sync {
+pub trait DynRequester {
 	type Transfer;
 	/// Encode and send a request, then receive the response buffer.
 	fn raw_request(&self, data: Self::Transfer) -> LocalBoxFuture<'_, RawReply>;
 }
 
-pub struct MappedRequester<'a, T: 'a>(
-	Box<dyn Fn(T) -> LocalBoxFuture<'a, RawReply> + Send + Sync + 'a>,
-);
+pub struct MappedRequester<'a, T: 'a>(Box<dyn Fn(T) -> LocalBoxFuture<'a, RawReply> + 'a>);
 impl<'a, T> MappedRequester<'a, T> {
 	fn new<U: DynRequester + 'a>(req: U) -> Self
 	where T: Into<U::Transfer> {
@@ -280,7 +279,9 @@ mod test {
 				|_, _| panic!("Should not receive request"),
 			));
 			*receiver.lock().await = Some(ReqNot::new(
-				clone!(sender; move |d, _| clone!(sender; Box::pin(async move { sender.receive(d).await }))),
+				clone!(sender; move |d, _| clone!(sender; Box::pin(async move {
+					sender.receive(d).await
+				}))),
 				|_, _| panic!("Not receiving notifs"),
 				|hand, req| {
 					Box::pin(async move {

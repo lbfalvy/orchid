@@ -1,8 +1,10 @@
 use std::borrow::Borrow;
 use std::future::Future;
 use std::hash::BuildHasher as _;
+use std::marker::PhantomData;
 use std::num::NonZeroU64;
 use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex, MutexGuard, atomic};
 use std::{fmt, hash, mem};
 
@@ -21,17 +23,17 @@ struct ForceSized<T>(T);
 
 #[derive(Clone)]
 pub struct Tok<T: Interned> {
-	data: Arc<T>,
+	data: Rc<T>,
 	marker: ForceSized<T::Marker>,
 }
 impl<T: Interned> Tok<T> {
-	pub fn new(data: Arc<T>, marker: T::Marker) -> Self { Self { data, marker: ForceSized(marker) } }
+	pub fn new(data: Rc<T>, marker: T::Marker) -> Self { Self { data, marker: ForceSized(marker) } }
 	pub fn to_api(&self) -> T::Marker { self.marker.0 }
-	pub async fn from_api<M>(marker: M) -> Self
+	pub async fn from_api<M>(marker: M, i: &mut Interner) -> Self
 	where M: InternMarker<Interned = T> {
-		deintern(marker).await
+		i.deintern(marker).await
 	}
-	pub fn arc(&self) -> Arc<T> { self.data.clone() }
+	pub fn rc(&self) -> Rc<T> { self.data.clone() }
 }
 impl<T: Interned> Deref for Tok<T> {
 	type Target = T;
@@ -224,115 +226,63 @@ pub struct Interner {
 	interners: TypedInterners,
 	master: Option<Box<dyn DynRequester<Transfer = api::IntReq>>>,
 }
-
-static ID: atomic::AtomicU64 = atomic::AtomicU64::new(1);
-static INTERNER: Mutex<Option<Interner>> = Mutex::new(None);
-
-pub fn interner() -> impl DerefMut<Target = Interner> {
-	struct G(MutexGuard<'static, Option<Interner>>);
-	impl Deref for G {
-		type Target = Interner;
-		fn deref(&self) -> &Self::Target { self.0.as_ref().expect("Guard pre-initialized") }
-	}
-	impl DerefMut for G {
-		fn deref_mut(&mut self) -> &mut Self::Target {
-			self.0.as_mut().expect("Guard pre-iniitialized")
+impl Interner {
+	pub fn new_master() -> Self { Self::default() }
+	pub fn new_replica(req: impl DynRequester<Transfer = api::IntReq> + 'static) -> Self {
+		Self {
+			master: Some(Box::new(req)),
+			interners: TypedInterners { strings: Bimap::default(), vecs: Bimap::default() },
 		}
 	}
-	let mut g = INTERNER.lock().unwrap();
-	g.get_or_insert_with(Interner::default);
-	G(g)
-}
-
-/// Initialize the interner in replica mode. No messages are sent at this point.
-pub fn init_replica(req: impl DynRequester<Transfer = api::IntReq> + 'static) {
-	let mut g = INTERNER.lock().unwrap();
-	assert!(g.is_none(), "Attempted to initialize replica interner after first use");
-	*g = Some(Interner {
-		master: Some(Box::new(req)),
-		interners: TypedInterners { strings: Bimap::default(), vecs: Bimap::default() },
-	})
-}
-
-pub async fn intern<T: Interned>(t: &(impl Internable<Interned = T> + ?Sized)) -> Tok<T> {
-	let data = t.get_owned();
-	let mut g = interner();
-	let job = format!("{t:?} in {}", if g.master.is_some() { "replica" } else { "master" });
-	eprintln!("Interning {job}");
-	let typed = T::bimap(&mut g.interners);
-	if let Some(tok) = typed.by_value(&data) {
-		return tok;
+	pub async fn intern<T: Interned>(
+		&mut self,
+		t: &(impl Internable<Interned = T> + ?Sized),
+	) -> Tok<T> {
+		let data = t.get_owned();
+		let job = format!("{t:?} in {}", if self.master.is_some() { "replica" } else { "master" });
+		eprintln!("Interning {job}");
+		let typed = T::bimap(&mut self.interners);
+		if let Some(tok) = typed.by_value(&data) {
+			return tok;
+		}
+		let marker = match &mut self.master {
+			Some(c) => data.clone().intern(&**c).await,
+			None =>
+				T::Marker::from_id(NonZeroU64::new(ID.fetch_add(1, atomic::Ordering::Relaxed)).unwrap()),
+		};
+		let tok = Tok::new(data, marker);
+		T::bimap(&mut self.interners).insert(tok.clone());
+		eprintln!("Interned {job}");
+		tok
 	}
-	let marker = match &mut g.master {
-		Some(c) => data.clone().intern(&**c).await,
-		None =>
-			T::Marker::from_id(NonZeroU64::new(ID.fetch_add(1, atomic::Ordering::Relaxed)).unwrap()),
-	};
-	let tok = Tok::new(data, marker);
-	T::bimap(&mut g.interners).insert(tok.clone());
-	mem::drop(g);
-	eprintln!("Interned {job}");
-	tok
+	async fn deintern<M: InternMarker>(&mut self, marker: M) -> Tok<M::Interned> {
+		if let Some(tok) = M::Interned::bimap(&mut self.interners).by_marker(marker) {
+			return tok;
+		}
+		let master = self.master.as_mut().expect("ID not in local interner and this is master");
+		let token = marker.resolve(&**master).await;
+		M::Interned::bimap(&mut self.interners).insert(token.clone());
+		token
+	}
+	pub fn sweep_replica(&mut self) -> api::Retained {
+		assert!(self.master.is_some(), "Not a replica");
+		api::Retained {
+			strings: self.interners.strings.sweep_replica(),
+			vecs: self.interners.vecs.sweep_replica(),
+		}
+	}
+	pub fn sweep_master(&mut self, retained: api::Retained) {
+		assert!(self.master.is_none(), "Not master");
+		self.interners.strings.sweep_master(retained.strings.into_iter().collect());
+		self.interners.vecs.sweep_master(retained.vecs.into_iter().collect());
+	}
 }
 
-async fn deintern<M: InternMarker>(marker: M) -> Tok<M::Interned> {
-	let mut g = interner();
-	if let Some(tok) = M::Interned::bimap(&mut g.interners).by_marker(marker) {
-		return tok;
-	}
-	let master = g.master.as_mut().expect("ID not in local interner and this is master");
-	let token = marker.resolve(&**master).await;
-	M::Interned::bimap(&mut g.interners).insert(token.clone());
-	token
-}
+static ID: atomic::AtomicU64 = atomic::AtomicU64::new(1);
 
 pub fn merge_retained(into: &mut api::Retained, from: &api::Retained) {
 	into.strings = into.strings.iter().chain(&from.strings).copied().unique().collect();
 	into.vecs = into.vecs.iter().chain(&from.vecs).copied().unique().collect();
-}
-
-pub fn sweep_replica() -> api::Retained {
-	let mut g = interner();
-	assert!(g.master.is_some(), "Not a replica");
-	api::Retained {
-		strings: g.interners.strings.sweep_replica(),
-		vecs: g.interners.vecs.sweep_replica(),
-	}
-}
-
-/// Create a thread-local token instance and copy it. This ensures that the
-/// interner will only be called the first time the expresion is executed,
-/// and subsequent calls will just copy the token. Accepts a single static
-/// expression (i.e. a literal).
-#[macro_export]
-macro_rules! intern {
-	($ty:ty : $expr:expr) => {{
-		use std::future::Future;
-		use std::ops::Deref as _;
-		use std::pin::Pin;
-		type Interned = <$ty as $crate::interner::Internable>::Interned;
-		type Output = $crate::interner::Tok<Interned>;
-		type InternFuture = Pin<Box<dyn Future<Output = Output>>>;
-		thread_local! {
-			static VALUE:
-				Pin<std::rc::Rc<$crate::async_once_cell::Lazy<Output, InternFuture>>> =
-				std::rc::Rc::pin($crate::async_once_cell::Lazy::new(Box::pin(async {
-					$crate::interner::intern::<Interned>($expr as &$ty).await
-				}) as InternFuture));
-		}
-		VALUE.with(|v| $crate::clone!(v; async move { v.as_ref().await.deref().clone() }))
-	}};
-}
-
-pub async fn scratch() -> String {
-	Arc::pin(Lazy::new(async { "foobar".to_string() })).as_ref().await.deref().clone()
-}
-
-pub fn sweep_master(retained: api::Retained) {
-	let mut g = interner();
-	assert!(g.master.is_none(), "Not master");
-	g.interners.strings.sweep_master(retained.strings.into_iter().collect());
-	g.interners.vecs.sweep_master(retained.vecs.into_iter().collect());
 }
 
 #[cfg(test)]

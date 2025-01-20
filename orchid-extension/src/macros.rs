@@ -2,6 +2,7 @@ use std::num::NonZero;
 use std::sync::RwLock;
 
 use ahash::HashMap;
+use futures::future::join_all;
 use lazy_static::lazy_static;
 use never::Never;
 use orchid_base::error::OrcRes;
@@ -40,12 +41,13 @@ pub struct RuleCtx<'a> {
 	pub(crate) sys: SysCtx,
 }
 impl<'a> RuleCtx<'a> {
-	pub fn recurse(&mut self, tree: &[MTree<'a, Never>]) -> OrcRes<Vec<MTree<'a, Never>>> {
+	pub async fn recurse(&mut self, tree: &[MTree<'a, Never>]) -> OrcRes<Vec<MTree<'a, Never>>> {
 		let req =
 			api::RunMacros { run_id: self.run_id, query: mtreev_to_api(tree, &mut |b| match *b {}) };
-		Ok(mtreev_from_api(&self.sys.reqnot.request(req).ok_or_else(err_cascade)?, &mut |_| {
-			panic!("Returned atom from Rule recursion")
-		}))
+		let Some(treev) = self.sys.reqnot.request(req).await else {
+			return Err(err_cascade().await.into());
+		};
+		Ok(mtreev_from_api(&treev, &mut |_| panic!("Returned atom from Rule recursion")).await)
 	}
 	pub fn getv(&mut self, key: &Tok<String>) -> Vec<MTree<'a, Never>> {
 		self.args.remove(key).expect("Key not found")
@@ -86,7 +88,7 @@ impl Rule {
 	}
 }
 
-pub fn rule_cmt<'a>(
+pub async fn rule_cmt<'a>(
 	cmt: impl IntoIterator<Item = &'a str>,
 	pattern: Vec<MTree<'static, Never>>,
 	apply: impl RuleCB + 'static,
@@ -94,12 +96,15 @@ pub fn rule_cmt<'a>(
 	let mut rules = RULES.write().unwrap();
 	let id = api::MacroId(NonZero::new(rules.len() as u64 + 1).unwrap());
 	rules.insert(id, Box::new(apply));
-	let comments = cmt.into_iter().map(|s| Comment { pos: Pos::Inherit, text: intern(s) }).collect();
+	let comments = join_all(
+		cmt.into_iter().map(|s| async { Comment { pos: Pos::Inherit, text: intern(s).await } }),
+	)
+	.await;
 	Rule { comments, pattern, id }
 }
 
-pub fn rule(pattern: Vec<MTree<'static, Never>>, apply: impl RuleCB + 'static) -> Rule {
-	rule_cmt([], pattern, apply)
+pub async fn rule(pattern: Vec<MTree<'static, Never>>, apply: impl RuleCB + 'static) -> Rule {
+	rule_cmt([], pattern, apply).await
 }
 
 pub(crate) fn apply_rule(

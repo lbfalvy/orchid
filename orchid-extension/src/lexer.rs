@@ -36,10 +36,11 @@ pub struct LexContext<'a> {
 	pub reqnot: ReqNot<api::ExtMsgSet>,
 }
 impl<'a> LexContext<'a> {
-	pub fn recurse(&self, tail: &'a str) -> OrcRes<(&'a str, GenTokTree<'a>)> {
+	pub async fn recurse(&self, tail: &'a str) -> OrcRes<(&'a str, GenTokTree<'a>)> {
 		let start = self.pos(tail);
-		let lx =
-			self.reqnot.request(api::SubLex { pos: start, id: self.id }).ok_or_else(err_cascade)?;
+		let Some(lx) = self.reqnot.request(api::SubLex { pos: start, id: self.id }).await else {
+			return Err(err_cascade().await.into());
+		};
 		Ok((&self.text[lx.pos as usize..], GenTok::Slot(TokHandle::new(lx.ticket)).at(start..lx.pos)))
 	}
 

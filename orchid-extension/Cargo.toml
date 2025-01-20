@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 ahash = "0.8.11"
+async-once-cell = "0.5.4"
 async-std = "1.13.0"
 derive_destructure = "1.0.0"
 dyn-clone = "1.0.17"
@@ -23,5 +24,6 @@ orchid-api-traits = { version = "0.1.0", path = "../orchid-api-traits" }
 orchid-base = { version = "0.1.0", path = "../orchid-base" }
 ordered-float = "4.6.0"
 paste = "1.0.15"
+some_executor = "0.4.0"
 substack = "1.1.1"
 trait-set = "0.3.0"

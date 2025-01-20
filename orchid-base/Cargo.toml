@@ -22,6 +22,7 @@ orchid-api-traits = { version = "0.1.0", path = "../orchid-api-traits" }
 ordered-float = "4.6.0"
 rust-embed = "8.5.0"
 rust_decimal = "1.36.0"
+some_executor = "0.4.0"
 substack = "1.1.1"
 test_executors = "0.3.2"
 trait-set = "0.3.0"
