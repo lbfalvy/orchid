@@ -1,8 +1,10 @@
+use std::future::Future;
 use std::ops::{Range, RangeInclusive};
 
+use futures::FutureExt;
+use futures::future::LocalBoxFuture;
 use orchid_base::error::{OrcErr, OrcRes, mk_err};
-use orchid_base::intern;
-use orchid_base::interner::Tok;
+use orchid_base::interner::{Interner, Tok};
 use orchid_base::location::Pos;
 use orchid_base::reqnot::{ReqNot, Requester};
 use orchid_base::tree::TokHandle;
@@ -10,20 +12,19 @@ use orchid_base::tree::TokHandle;
 use crate::api;
 use crate::tree::{GenTok, GenTokTree};
 
-pub async fn err_cascade() -> OrcErr {
+pub async fn err_cascade(i: &Interner) -> OrcErr {
 	mk_err(
-		intern!(str: "An error cascading from a recursive call").await,
+		i.i("An error cascading from a recursive call").await,
 		"This error is a sentinel for the extension library.\
 		it should not be emitted by the extension.",
 		[Pos::None.into()],
 	)
 }
 
-pub async fn err_not_applicable() -> OrcErr {
+pub async fn err_not_applicable(i: &Interner) -> OrcErr {
 	mk_err(
-		intern!(str: "Pseudo-error to communicate that the current branch in a dispatch doesn't apply")
-			.await,
-		&*err_cascade().await.message,
+		i.i("Pseudo-error to communicate that the current branch in a dispatch doesn't apply").await,
+		&*err_cascade(i).await.message,
 		[Pos::None.into()],
 	)
 }
@@ -34,12 +35,13 @@ pub struct LexContext<'a> {
 	pub id: api::ParsId,
 	pub pos: u32,
 	pub reqnot: ReqNot<api::ExtMsgSet>,
+	pub i: &'a Interner,
 }
 impl<'a> LexContext<'a> {
 	pub async fn recurse(&self, tail: &'a str) -> OrcRes<(&'a str, GenTokTree<'a>)> {
 		let start = self.pos(tail);
 		let Some(lx) = self.reqnot.request(api::SubLex { pos: start, id: self.id }).await else {
-			return Err(err_cascade().await.into());
+			return Err(err_cascade(self.i).await.into());
 		};
 		Ok((&self.text[lx.pos as usize..], GenTok::Slot(TokHandle::new(lx.ticket)).at(start..lx.pos)))
 	}
@@ -53,18 +55,29 @@ impl<'a> LexContext<'a> {
 
 pub trait Lexer: Send + Sync + Sized + Default + 'static {
 	const CHAR_FILTER: &'static [RangeInclusive<char>];
-	fn lex<'a>(tail: &'a str, ctx: &'a LexContext<'a>) -> OrcRes<(&'a str, GenTokTree<'a>)>;
+	fn lex<'a>(
+		tail: &'a str,
+		ctx: &'a LexContext<'a>,
+	) -> impl Future<Output = OrcRes<(&'a str, GenTokTree<'a>)>>;
 }
 
 pub trait DynLexer: Send + Sync + 'static {
 	fn char_filter(&self) -> &'static [RangeInclusive<char>];
-	fn lex<'a>(&self, tail: &'a str, ctx: &'a LexContext<'a>) -> OrcRes<(&'a str, GenTokTree<'a>)>;
+	fn lex<'a>(
+		&self,
+		tail: &'a str,
+		ctx: &'a LexContext<'a>,
+	) -> LocalBoxFuture<'a, OrcRes<(&'a str, GenTokTree<'a>)>>;
 }
 
 impl<T: Lexer> DynLexer for T {
 	fn char_filter(&self) -> &'static [RangeInclusive<char>] { T::CHAR_FILTER }
-	fn lex<'a>(&self, tail: &'a str, ctx: &'a LexContext<'a>) -> OrcRes<(&'a str, GenTokTree<'a>)> {
-		T::lex(tail, ctx)
+	fn lex<'a>(
+		&self,
+		tail: &'a str,
+		ctx: &'a LexContext<'a>,
+	) -> LocalBoxFuture<'a, OrcRes<(&'a str, GenTokTree<'a>)>> {
+		T::lex(tail, ctx).boxed_local()
 	}
 }
 

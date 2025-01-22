@@ -9,14 +9,15 @@ use std::sync::Arc;
 pub use api::PhKind;
 use async_std::stream;
 use async_std::sync::Mutex;
-use futures::StreamExt;
+use futures::future::LocalBoxFuture;
+use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
 use never::Never;
 use ordered_float::NotNan;
 use trait_set::trait_set;
 
 use crate::error::OrcErrv;
-use crate::interner::Tok;
+use crate::interner::{Interner, Tok};
 use crate::location::Pos;
 use crate::name::PathSlice;
 use crate::parse::Snippet;
@@ -26,6 +27,8 @@ use crate::{api, match_mapping};
 trait_set! {
 	pub trait RecurCB<'a, A: AtomRepr, X: ExtraTok> = Fn(TokTree<'a, A, X>) -> TokTree<'a, A, X>;
 	pub trait ExtraTok = Display + Clone + fmt::Debug;
+	pub trait RefDoExtra<X> =
+		for<'b> FnMut(&'b X, Range<u32>) -> LocalBoxFuture<'b, api::TokenTree>;
 }
 
 pub fn recur<'a, A: AtomRepr, X: ExtraTok>(
@@ -72,41 +75,38 @@ pub struct TokTree<'a, A: AtomRepr, X: ExtraTok> {
 	pub tok: Token<'a, A, X>,
 	pub range: Range<u32>,
 }
-impl<'a, A: AtomRepr, X: ExtraTok> TokTree<'a, A, X> {
-	pub async fn from_api(tt: &api::TokenTree, ctx: &mut A::Ctx) -> Self {
-		let tok = match_mapping!(&tt.token, api::Token => Token::<'a, A, X> {
+impl<'b, A: AtomRepr, X: ExtraTok> TokTree<'b, A, X> {
+	pub async fn from_api(tt: &api::TokenTree, ctx: &mut A::Ctx, i: &Interner) -> Self {
+		let tok = match_mapping!(&tt.token, api::Token => Token::<'b, A, X> {
 			BR, NS,
 			Atom(a => A::from_api(a, Pos::Range(tt.range.clone()), ctx)),
-			Bottom(e => OrcErrv::from_api(e).await),
-			LambdaHead(arg => ttv_from_api(arg, ctx).await),
-			Name(n => Tok::from_api(*n).await),
-			S(*par, b => ttv_from_api(b, ctx).await),
+			Bottom(e => OrcErrv::from_api(e, i).await),
+			LambdaHead(arg => ttv_from_api(arg, ctx, i).await),
+			Name(n => Tok::from_api(*n, i).await),
+			S(*par, b => ttv_from_api(b, ctx, i).await),
 			Comment(c.clone()),
 			Slot(id => TokHandle::new(*id)),
-			Ph(ph => Ph::from_api(ph).await),
+			Ph(ph => Ph::from_api(ph, i).await),
 			Macro(*prio)
 		});
 		Self { range: tt.range.clone(), tok }
 	}
 
-	pub fn to_api(
-		&self,
-		do_extra: &mut impl FnMut(&X, Range<u32>) -> api::TokenTree,
-	) -> api::TokenTree {
+	pub async fn to_api(&self, do_extra: &mut impl RefDoExtra<X>) -> api::TokenTree {
 		let token = match_mapping!(&self.tok, Token => api::Token {
 			Atom(a.to_api()),
 			BR,
 			NS,
 			Bottom(e.to_api()),
 			Comment(c.clone()),
-			LambdaHead(arg => ttv_to_api(arg, do_extra)),
+			LambdaHead(arg => ttv_to_api(arg, do_extra).boxed_local().await),
 			Name(n.to_api()),
 			Slot(tt.ticket()),
-			S(*p, b => ttv_to_api(b, do_extra)),
+			S(*p, b => ttv_to_api(b, do_extra).boxed_local().await),
 			Ph(ph.to_api()),
 			Macro(*prio),
 		} {
-			Token::X(x) => return do_extra(x, self.range.clone())
+			Token::X(x) => return do_extra(x, self.range.clone()).await
 		});
 		api::TokenTree { range: self.range.clone(), token }
 	}
@@ -137,8 +137,8 @@ impl<'a, A: AtomRepr, X: ExtraTok> TokTree<'a, A, X> {
 	pub fn as_name(&self) -> Option<Tok<String>> {
 		if let Token::Name(n) = &self.tok { Some(n.clone()) } else { None }
 	}
-	pub fn as_s(&self, par: Paren) -> Option<Snippet<'_, 'a, A, X>> {
-		self.tok.as_s(par).map(|slc| Snippet::new(self, slc))
+	pub fn as_s<'a>(&'a self, par: Paren, i: &'a Interner) -> Option<Snippet<'a, 'b, A, X>> {
+		self.tok.as_s(par).map(|slc| Snippet::new(self, slc, i))
 	}
 	pub fn lambda(arg: Vec<Self>, mut body: Vec<Self>) -> Self {
 		let arg_range = ttv_range(&arg);
@@ -155,22 +155,27 @@ impl<A: AtomRepr, X: ExtraTok> Display for TokTree<'_, A, X> {
 pub async fn ttv_from_api<A: AtomRepr, X: ExtraTok>(
 	tokv: impl IntoIterator<Item: Borrow<api::TokenTree>>,
 	ctx: &mut A::Ctx,
+	i: &Interner,
 ) -> Vec<TokTree<'static, A, X>> {
 	let ctx_lk = Mutex::new(ctx);
 	stream::from_iter(tokv.into_iter())
 		.then(|t| async {
 			let t = t;
-			TokTree::<A, X>::from_api(t.borrow(), *ctx_lk.lock().await).await
+			TokTree::<A, X>::from_api(t.borrow(), *ctx_lk.lock().await, i).await
 		})
 		.collect()
 		.await
 }
 
-pub fn ttv_to_api<'a, A: AtomRepr, X: ExtraTok>(
+pub async fn ttv_to_api<'a, A: AtomRepr, X: ExtraTok>(
 	tokv: impl IntoIterator<Item: Borrow<TokTree<'a, A, X>>>,
-	do_extra: &mut impl FnMut(&X, Range<u32>) -> api::TokenTree,
+	do_extra: &mut impl RefDoExtra<X>,
 ) -> Vec<api::TokenTree> {
-	tokv.into_iter().map(|tok| Borrow::<TokTree<A, X>>::borrow(&tok).to_api(do_extra)).collect_vec()
+	let mut output = Vec::new();
+	for tok in tokv {
+		output.push(Borrow::<TokTree<A, X>>::borrow(&tok).to_api(do_extra).await)
+	}
+	output
 }
 
 pub fn ttv_into_api<'a, A: AtomRepr, X: ExtraTok>(
@@ -307,8 +312,8 @@ pub struct Ph {
 	pub kind: PhKind,
 }
 impl Ph {
-	pub async fn from_api(api: &api::Placeholder) -> Self {
-		Self { name: Tok::from_api(api.name).await, kind: api.kind }
+	pub async fn from_api(api: &api::Placeholder, i: &Interner) -> Self {
+		Self { name: Tok::from_api(api.name, i).await, kind: api.kind }
 	}
 	pub fn to_api(&self) -> api::Placeholder {
 		api::Placeholder { name: self.name.to_api(), kind: self.kind }

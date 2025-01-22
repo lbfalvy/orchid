@@ -6,7 +6,7 @@ use ordered_float::NotNan;
 use rust_decimal::Decimal;
 
 use crate::error::{OrcErr, mk_err};
-use crate::intern;
+use crate::interner::Interner;
 use crate::location::Pos;
 
 /// A number, either floating point or unsigned int, parsed by Orchid.
@@ -63,9 +63,9 @@ pub struct NumError {
 	pub kind: NumErrorKind,
 }
 
-pub async fn num_to_err(NumError { kind, range }: NumError, offset: u32) -> OrcErr {
+pub async fn num_to_err(NumError { kind, range }: NumError, offset: u32, i: &Interner) -> OrcErr {
 	mk_err(
-		intern!(str: "Failed to parse number").await,
+		i.i("Failed to parse number").await,
 		match kind {
 			NumErrorKind::NaN => "NaN emerged during parsing",
 			NumErrorKind::InvalidDigit => "non-digit character encountered",

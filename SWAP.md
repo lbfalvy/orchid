@@ -1,11 +1,8 @@
-Must figure out how preprocessor can both be a System and referenced in the interpreter
+## Async conversion
 
-Must actually write macro system as recorded in note
+convert host to async non-send
 
-At this point swappable preprocessors aren't a target because interaction with module system sounds complicated
-
-Check if any of this needs interpreter, if so, start with that
-
+convert extension's SysCtx to a typed context bag
 
 ## alternate extension mechanism
 
@@ -15,3 +12,12 @@ Ideally, it should reuse `orchid-extension` for message routing and decoding.
 
 `orchid-host` accepts extensions as `impl ExtensionPort`
 
+## Preprocessor extension
+
+Must figure out how preprocessor can both be a System and referenced in the interpreter
+
+Must actually write macro system as recorded in note
+
+At this point swappable preprocessors aren't a target because interaction with module system sounds complicated
+
+Check if any of this needs interpreter, if so, start with that

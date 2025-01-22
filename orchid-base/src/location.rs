@@ -6,9 +6,9 @@ use std::ops::Range;
 
 use trait_set::trait_set;
 
-use crate::interner::{Tok, intern};
+use crate::interner::{Interner, Tok};
 use crate::name::Sym;
-use crate::{api, intern, match_mapping, sym};
+use crate::{api, match_mapping, sym};
 
 trait_set! {
 	pub trait GetSrc = FnMut(&Sym) -> Tok<String>;
@@ -36,12 +36,12 @@ impl Pos {
 			other => format!("{other:?}"),
 		}
 	}
-	pub async fn from_api(api: &api::Location) -> Self {
+	pub async fn from_api(api: &api::Location, i: &Interner) -> Self {
 		match_mapping!(api, api::Location => Pos {
 			None, Inherit, SlotTarget,
 			Range(r.clone()),
-			Gen(cgi => CodeGenInfo::from_api(cgi).await),
-			SourceRange(sr => SourceRange::from_api(sr).await)
+			Gen(cgi => CodeGenInfo::from_api(cgi, i).await),
+			SourceRange(sr => SourceRange::from_api(sr, i).await)
 		})
 	}
 	pub fn to_api(&self) -> api::Location {
@@ -67,7 +67,7 @@ impl SourceRange {
 	}
 	/// Create a dud [SourceRange] for testing. Its value is unspecified and
 	/// volatile.
-	pub async fn mock() -> Self { Self { range: 0..1, path: sym!(test).await } }
+	pub async fn mock(i: &Interner) -> Self { Self { range: 0..1, path: sym!(test; i).await } }
 	/// Path the source text was loaded from
 	pub fn path(&self) -> Sym { self.path.clone() }
 	/// Byte range
@@ -92,8 +92,8 @@ impl SourceRange {
 		}
 	}
 	pub fn zw(path: Sym, pos: u32) -> Self { Self { path, range: pos..pos } }
-	async fn from_api(api: &api::SourceRange) -> Self {
-		Self { path: Sym::from_api(api.path).await, range: api.range.clone() }
+	async fn from_api(api: &api::SourceRange, i: &Interner) -> Self {
+		Self { path: Sym::from_api(api.path, i).await, range: api.range.clone() }
 	}
 	fn to_api(&self) -> api::SourceRange {
 		api::SourceRange { path: self.path.to_api(), range: self.range.clone() }
@@ -110,19 +110,19 @@ pub struct CodeGenInfo {
 }
 impl CodeGenInfo {
 	/// A codegen marker with no user message and parameters
-	pub async fn new_short(generator: Sym) -> Self {
-		Self { generator, details: intern!(str: "").await }
+	pub async fn new_short(generator: Sym, i: &Interner) -> Self {
+		Self { generator, details: i.i("").await }
 	}
 	/// A codegen marker with a user message or parameters
-	pub async fn new_details(generator: Sym, details: impl AsRef<str>) -> Self {
-		Self { generator, details: intern(details.as_ref()).await }
+	pub async fn new_details(generator: Sym, details: impl AsRef<str>, i: &Interner) -> Self {
+		Self { generator, details: i.i(details.as_ref()).await }
 	}
 	/// Syntactic location
 	pub fn pos(&self) -> Pos { Pos::Gen(self.clone()) }
-	pub async fn from_api(api: &api::CodeGenInfo) -> Self {
+	pub async fn from_api(api: &api::CodeGenInfo, i: &Interner) -> Self {
 		Self {
-			generator: Sym::from_api(api.generator).await,
-			details: Tok::from_api(api.details).await,
+			generator: Sym::from_api(api.generator, i).await,
+			details: Tok::from_api(api.details, i).await,
 		}
 	}
 	pub fn to_api(&self) -> api::CodeGenInfo {

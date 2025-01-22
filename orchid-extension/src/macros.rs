@@ -1,15 +1,12 @@
-use std::num::NonZero;
-use std::sync::RwLock;
+use std::rc::Rc;
 
 use ahash::HashMap;
-use futures::future::join_all;
-use lazy_static::lazy_static;
+use futures::future::{LocalBoxFuture, join_all};
+use itertools::Itertools;
 use never::Never;
 use orchid_base::error::OrcRes;
-use orchid_base::interner::{Tok, intern};
-use orchid_base::location::Pos;
+use orchid_base::interner::Tok;
 use orchid_base::macros::{MTree, mtreev_from_api, mtreev_to_api};
-use orchid_base::parse::Comment;
 use orchid_base::reqnot::Requester;
 use trait_set::trait_set;
 
@@ -17,6 +14,7 @@ use crate::api;
 use crate::atom::AtomFactory;
 use crate::lexer::err_cascade;
 use crate::system::SysCtx;
+use crate::tree::TreeIntoApiCtx;
 
 pub trait Macro {
 	fn pattern() -> MTree<'static, Never>;
@@ -42,12 +40,15 @@ pub struct RuleCtx<'a> {
 }
 impl<'a> RuleCtx<'a> {
 	pub async fn recurse(&mut self, tree: &[MTree<'a, Never>]) -> OrcRes<Vec<MTree<'a, Never>>> {
-		let req =
-			api::RunMacros { run_id: self.run_id, query: mtreev_to_api(tree, &mut |b| match *b {}) };
-		let Some(treev) = self.sys.reqnot.request(req).await else {
-			return Err(err_cascade().await.into());
+		let req = api::RunMacros {
+			run_id: self.run_id,
+			query: mtreev_to_api(tree, &mut |b| match *b {}).await,
 		};
-		Ok(mtreev_from_api(&treev, &mut |_| panic!("Returned atom from Rule recursion")).await)
+		let Some(treev) = self.sys.reqnot.request(req).await else {
+			return Err(err_cascade(&self.sys.i).await.into());
+		};
+		static ATOM_MSG: &str = "Returned atom from Rule recursion";
+		Ok(mtreev_from_api(&treev, &mut |_| panic!("{ATOM_MSG}"), &self.sys.i).await)
 	}
 	pub fn getv(&mut self, key: &Tok<String>) -> Vec<MTree<'a, Never>> {
 		self.args.remove(key).expect("Key not found")
@@ -65,52 +66,37 @@ impl<'a> RuleCtx<'a> {
 }
 
 trait_set! {
-	pub trait RuleCB = for<'a> Fn(RuleCtx<'a>) -> OrcRes<Vec<MTree<'a, AtomFactory>>> + Send + Sync;
-}
-
-lazy_static! {
-	static ref RULES: RwLock<HashMap<api::MacroId, Box<dyn RuleCB>>> = RwLock::default();
+	pub trait RuleCB = for<'a> Fn(RuleCtx<'a>) -> LocalBoxFuture<'a, OrcRes<Vec<MTree<'a, AtomFactory>>>>;
 }
 
 pub struct Rule {
-	pub(crate) comments: Vec<Comment>,
+	pub(crate) comments: Vec<String>,
 	pub(crate) pattern: Vec<MTree<'static, Never>>,
-	pub(crate) id: api::MacroId,
+	pub(crate) apply: Rc<dyn RuleCB>,
 }
 impl Rule {
-	pub(crate) fn to_api(&self) -> api::MacroRule {
+	pub(crate) async fn into_api(self, ctx: &mut impl TreeIntoApiCtx) -> api::MacroRule {
 		api::MacroRule {
-			comments: self.comments.iter().map(|c| c.to_api()).collect(),
+			comments: join_all(self.comments.iter().map(|c| async {
+				api::Comment { text: ctx.sys().i.i(c).await.to_api(), location: api::Location::Inherit }
+			}))
+			.await,
 			location: api::Location::Inherit,
-			pattern: mtreev_to_api(&self.pattern, &mut |b| match *b {}),
-			id: self.id,
+			pattern: mtreev_to_api(&self.pattern, &mut |b| match *b {}).await,
+			id: ctx.with_rule(Rc::new(self)),
 		}
 	}
 }
 
-pub async fn rule_cmt<'a>(
+pub fn rule_cmt<'a>(
 	cmt: impl IntoIterator<Item = &'a str>,
 	pattern: Vec<MTree<'static, Never>>,
 	apply: impl RuleCB + 'static,
 ) -> Rule {
-	let mut rules = RULES.write().unwrap();
-	let id = api::MacroId(NonZero::new(rules.len() as u64 + 1).unwrap());
-	rules.insert(id, Box::new(apply));
-	let comments = join_all(
-		cmt.into_iter().map(|s| async { Comment { pos: Pos::Inherit, text: intern(s).await } }),
-	)
-	.await;
-	Rule { comments, pattern, id }
+	let comments = cmt.into_iter().map(|s| s.to_string()).collect_vec();
+	Rule { comments, pattern, apply: Rc::new(apply) }
 }
 
-pub async fn rule(pattern: Vec<MTree<'static, Never>>, apply: impl RuleCB + 'static) -> Rule {
-	rule_cmt([], pattern, apply).await
-}
-
-pub(crate) fn apply_rule(
-	id: api::MacroId,
-	ctx: RuleCtx<'static>,
-) -> OrcRes<Vec<MTree<'static, AtomFactory>>> {
-	let rules = RULES.read().unwrap();
-	rules[&id](ctx)
+pub fn rule(pattern: Vec<MTree<'static, Never>>, apply: impl RuleCB + 'static) -> Rule {
+	rule_cmt([], pattern, apply)
 }

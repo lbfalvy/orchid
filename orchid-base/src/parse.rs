@@ -4,12 +4,12 @@ use std::ops::{Deref, Range};
 use futures::future::join_all;
 use itertools::Itertools;
 
+use crate::api;
 use crate::error::{OrcRes, Reporter, mk_err, mk_errv};
-use crate::interner::{Tok, intern};
+use crate::interner::{Internable, Interned, Interner, Tok};
 use crate::location::Pos;
 use crate::name::VPath;
 use crate::tree::{AtomRepr, ExtraTok, Paren, TokTree, Token};
-use crate::{api, intern};
 
 pub fn name_start(c: char) -> bool { c.is_alphabetic() || c == '_' }
 pub fn name_char(c: char) -> bool { name_start(c) || c.is_numeric() }
@@ -20,15 +20,24 @@ pub fn unrep_space(c: char) -> bool { c.is_whitespace() && !"\r\n".contains(c) }
 pub struct Snippet<'a, 'b, A: AtomRepr, X: ExtraTok> {
 	prev: &'a TokTree<'b, A, X>,
 	cur: &'a [TokTree<'b, A, X>],
+	interner: &'a Interner,
 }
 impl<'a, 'b, A: AtomRepr, X: ExtraTok> Snippet<'a, 'b, A, X> {
-	pub fn new(prev: &'a TokTree<'b, A, X>, cur: &'a [TokTree<'b, A, X>]) -> Self {
-		Self { prev, cur }
+	pub fn new(
+		prev: &'a TokTree<'b, A, X>,
+		cur: &'a [TokTree<'b, A, X>],
+		interner: &'a Interner,
+	) -> Self {
+		Self { prev, cur, interner }
+	}
+	pub async fn i<T: Interned>(&self, arg: &(impl Internable<Interned = T> + ?Sized)) -> Tok<T> {
+		self.interner.i(arg).await
 	}
 	pub fn split_at(self, pos: u32) -> (Self, Self) {
-		let fst = Self { prev: self.prev, cur: &self.cur[..pos as usize] };
+		let Self { prev, cur, interner } = self;
+		let fst = Self { prev, cur: &cur[..pos as usize], interner };
 		let new_prev = if pos == 0 { self.prev } else { &self.cur[pos as usize - 1] };
-		let snd = Self { prev: new_prev, cur: &self.cur[pos as usize..] };
+		let snd = Self { prev: new_prev, cur: &self.cur[pos as usize..], interner };
 		(fst, snd)
 	}
 	pub fn find_idx(self, mut f: impl FnMut(&Token<'b, A, X>) -> bool) -> Option<u32> {
@@ -101,8 +110,8 @@ impl Comment {
 	pub fn to_api(&self) -> api::Comment {
 		api::Comment { location: self.pos.to_api(), text: self.text.to_api() }
 	}
-	pub async fn from_api(api: &api::Comment) -> Self {
-		Self { pos: Pos::from_api(&api.location).await, text: Tok::from_api(api.text).await }
+	pub async fn from_api(api: &api::Comment, i: &Interner) -> Self {
+		Self { pos: Pos::from_api(&api.location, i).await, text: Tok::from_api(api.text, i).await }
 	}
 }
 
@@ -124,7 +133,7 @@ pub async fn line_items<'a, 'b, A: AtomRepr, X: ExtraTok>(
 				let comments = join_all(comments.drain(..).chain(cmts.cur).map(|t| async {
 					match &t.tok {
 						Token::Comment(c) =>
-							Comment { text: intern(&**c).await, pos: Pos::Range(t.range.clone()) },
+							Comment { text: tail.i(&**c).await, pos: Pos::Range(t.range.clone()) },
 						_ => unreachable!("All are comments checked above"),
 					}
 				}))
@@ -141,18 +150,17 @@ pub async fn try_pop_no_fluff<'a, 'b, A: AtomRepr, X: ExtraTok>(
 ) -> ParseRes<'a, 'b, &'a TokTree<'b, A, X>, A, X> {
 	match snip.skip_fluff().pop_front() {
 		Some((output, tail)) => Ok(Parsed { output, tail }),
-		None =>
-			Err(mk_errv(intern!(str: "Unexpected end").await, "Pattern ends abruptly", [Pos::Range(
-				snip.pos(),
-			)
-			.into()])),
+		None => Err(mk_errv(snip.i("Unexpected end").await, "Pattern ends abruptly", [Pos::Range(
+			snip.pos(),
+		)
+		.into()])),
 	}
 }
 
 pub async fn expect_end(snip: Snippet<'_, '_, impl AtomRepr, impl ExtraTok>) -> OrcRes<()> {
 	match snip.skip_fluff().get(0) {
 		Some(surplus) => Err(mk_errv(
-			intern!(str: "Extra code after end of line").await,
+			snip.i("Extra code after end of line").await,
 			"Code found after the end of the line",
 			[Pos::Range(surplus.range.clone()).into()],
 		)),
@@ -168,7 +176,7 @@ pub async fn expect_tok<'a, 'b, A: AtomRepr, X: ExtraTok>(
 	match &head.tok {
 		Token::Name(n) if *n == tok => Ok(Parsed { output: (), tail }),
 		t => Err(mk_errv(
-			intern!(str: "Expected specific keyword").await,
+			snip.i("Expected specific keyword").await,
 			format!("Expected {tok} but found {t}"),
 			[Pos::Range(head.range.clone()).into()],
 		)),
@@ -192,11 +200,11 @@ pub async fn parse_multiname<'a, 'b, A: AtomRepr, X: ExtraTok>(
 		ctx: &impl Reporter,
 		tail: Snippet<'a, 'b, A, X>,
 	) -> ParseRes<'a, 'b, Vec<(Vec<Tok<String>>, Option<Tok<String>>, Pos)>, A, X> {
-		let comma = intern!(str: ",").await;
-		let globstar = intern!(str: "*").await;
+		let comma = tail.i(",").await;
+		let globstar = tail.i("*").await;
 		let Some((name, tail)) = tail.skip_fluff().pop_front() else {
 			return Err(mk_errv(
-				intern!(str: "Expected name").await,
+				tail.i("Expected name").await,
 				"Expected a name, a list of names, or a globstar.",
 				[Pos::Range(tail.pos()).into()],
 			));
@@ -204,10 +212,9 @@ pub async fn parse_multiname<'a, 'b, A: AtomRepr, X: ExtraTok>(
 		if let Some((Token::NS, tail)) = tail.skip_fluff().pop_front().map(|(tt, s)| (&tt.tok, s)) {
 			let n = match &name.tok {
 				Token::Name(n) if n.starts_with(name_start) => Ok(n),
-				_ =>
-					Err(mk_err(intern!(str: "Unexpected name prefix").await, "Only names can precede ::", [
-						Pos::Range(name.range.clone()).into(),
-					])),
+				_ => Err(mk_err(tail.i("Unexpected name prefix").await, "Only names can precede ::", [
+					Pos::Range(name.range.clone()).into(),
+				])),
 			};
 			match (Box::pin(rec(ctx, tail)).await, n) {
 				(Err(ev), n) => Err(ev.extended(n.err())),
@@ -227,7 +234,7 @@ pub async fn parse_multiname<'a, 'b, A: AtomRepr, X: ExtraTok>(
 						n if *n == globstar => None,
 						n if n.starts_with(op_char) => {
 							return Err(mk_errv(
-								intern!(str: "Unescaped operator in multiname").await,
+								tail.i("Unescaped operator in multiname").await,
 								"Operators in multinames should be enclosed in []",
 								[Pos::Range(name.range.clone()).into()],
 							));
@@ -244,7 +251,7 @@ pub async fn parse_multiname<'a, 'b, A: AtomRepr, X: ExtraTok>(
 								ok.push((vec![], Some(n.clone()), Pos::Range(tt.range.clone()))),
 							Token::BR | Token::Comment(_) => (),
 							_ => ctx.report(mk_err(
-								intern!(str: "Non-operator in escapement in multiname").await,
+								tail.i("Non-operator in escapement in multiname").await,
 								"In multinames, [] functions as a literal name list reserved for operators",
 								[Pos::Range(name.range.clone()).into()],
 							)),
@@ -254,14 +261,14 @@ pub async fn parse_multiname<'a, 'b, A: AtomRepr, X: ExtraTok>(
 				},
 				Token::S(Paren::Round, b) => {
 					let mut ok = Vec::new();
-					let body = Snippet::new(name, b);
+					let body = Snippet::new(name, b, tail.interner);
 					for csent in body.split(|n| matches!(n, Token::Name(n) if *n == comma)) {
 						match Box::pin(rec(ctx, csent)).await {
 							Err(e) => ctx.report(e),
 							Ok(Parsed { output, tail }) => match tail.get(0) {
 								None => ok.extend(output),
 								Some(t) => ctx.report(mk_err(
-									intern!(str: "Unexpected token in multiname group").await,
+									tail.i("Unexpected token in multiname group").await,
 									"Unexpected token. Likely missing a :: or , or wanted [] instead of ()",
 									[Pos::Range(t.range.clone()).into()],
 								)),
@@ -272,7 +279,7 @@ pub async fn parse_multiname<'a, 'b, A: AtomRepr, X: ExtraTok>(
 				},
 				t => {
 					return Err(mk_errv(
-						intern!(str: "Unrecognized name end").await,
+						tail.i("Unrecognized name end").await,
 						format!("Names cannot end with {t} tokens"),
 						[Pos::Range(name.range.clone()).into()],
 					));

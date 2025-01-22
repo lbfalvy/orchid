@@ -1,18 +1,16 @@
 use std::fmt;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use async_once_cell::OnceCell;
 use derive_destructure::destructure;
 use futures::task::LocalSpawnExt;
-use orchid_base::error::{OrcErr, OrcErrv};
-use orchid_base::interner::Tok;
+use orchid_base::error::OrcErrv;
 use orchid_base::location::Pos;
 use orchid_base::reqnot::Requester;
 
 use crate::api;
-use crate::atom::{AtomFactory, ForeignAtom, ToAtom};
-use crate::conv::{ToExpr, TryFromExpr};
-use crate::func_atom::Lambda;
+use crate::atom::ForeignAtom;
+use crate::gen_expr::{GExpr, GExprKind};
 use crate::system::SysCtx;
 
 #[derive(destructure)]
@@ -31,7 +29,11 @@ impl fmt::Debug for ExprHandle {
 }
 impl Clone for ExprHandle {
 	fn clone(&self) -> Self {
-		self.ctx.reqnot.notify(api::Acquire(self.ctx.id, self.tk));
+		let SysCtx { reqnot, spawner, .. } = self.ctx.clone();
+		let notif = api::Acquire(self.ctx.id, self.tk);
+		if let Err(e) = spawner.spawn_local(async move { reqnot.notify(notif).await }) {
+			panic!("Failed to schedule cloning notification, resource may not exist: {e}");
+		}
 		Self { ctx: self.ctx.clone(), tk: self.tk }
 	}
 }
@@ -47,25 +49,24 @@ impl Drop for ExprHandle {
 
 #[derive(Clone, Debug, destructure)]
 pub struct Expr {
-	handle: Option<Arc<ExprHandle>>,
-	data: Arc<OnceCell<ExprData>>,
+	handle: Rc<ExprHandle>,
+	data: Rc<OnceCell<ExprData>>,
 }
 impl Expr {
-	pub fn new(h: Arc<ExprHandle>, d: ExprData) -> Self {
-		Self { handle: Some(h), data: Arc::new(OnceCell::from(d)) }
+	pub fn from_handle(handle: Rc<ExprHandle>) -> Self { Self { handle, data: Rc::default() } }
+	pub fn new(handle: Rc<ExprHandle>, d: ExprData) -> Self {
+		Self { handle, data: Rc::new(OnceCell::from(d)) }
 	}
-	pub fn from_handle(h: Arc<ExprHandle>) -> Self { Self { handle: Some(h), data: Arc::default() } }
-	pub fn from_data(d: ExprData) -> Self { Self { handle: None, data: Arc::new(OnceCell::from(d)) } }
 
 	pub async fn data(&self) -> &ExprData {
 		(self.data.get_or_init(async {
-			let handle = self.handle.as_ref().expect("Either the value or the handle must be set");
-			let details = handle.ctx.reqnot.request(api::Inspect { target: handle.tk }).await;
-			let pos = Pos::from_api(&details.location).await;
+			let details = self.handle.ctx.reqnot.request(api::Inspect { target: self.handle.tk }).await;
+			let pos = Pos::from_api(&details.location, &self.handle.ctx.i).await;
 			let kind = match details.kind {
 				api::InspectedKind::Atom(a) =>
-					ExprKind::Atom(ForeignAtom::new(handle.clone(), a, pos.clone())),
-				api::InspectedKind::Bottom(b) => ExprKind::Bottom(OrcErrv::from_api(&b).await),
+					ExprKind::Atom(ForeignAtom::new(self.handle.clone(), a, pos.clone())),
+				api::InspectedKind::Bottom(b) =>
+					ExprKind::Bottom(OrcErrv::from_api(&b, &self.handle.ctx.i).await),
 				api::InspectedKind::Opaque => ExprKind::Opaque,
 			};
 			ExprData { pos, kind }
@@ -73,25 +74,15 @@ impl Expr {
 		.await
 	}
 	pub async fn atom(self) -> Result<ForeignAtom<'static>, Self> {
-		match (self.data().await, &self.handle) {
-			(ExprData { kind: ExprKind::Atom(atom), .. }, Some(_)) => Ok(atom.clone()),
+		match self.data().await {
+			ExprData { kind: ExprKind::Atom(atom), .. } => Ok(atom.clone()),
 			_ => Err(self),
 		}
 	}
-	pub fn api_return(
-		self,
-		ctx: SysCtx,
-		do_slot: &mut impl FnMut(Arc<ExprHandle>),
-	) -> api::Expression {
-		if let Some(h) = self.handle {
-			do_slot(h.clone());
-			api::Expression { location: api::Location::SlotTarget, kind: api::ExpressionKind::Slot(h.tk) }
-		} else {
-			let data = self.data.get().expect("Either value or handle must be set");
-			data.clone().api_return(ctx, do_slot)
-		}
-	}
-	pub fn handle(&self) -> Option<Arc<ExprHandle>> { self.handle.clone() }
+	pub fn handle(&self) -> Rc<ExprHandle> { self.handle.clone() }
+	pub fn ctx(&self) -> SysCtx { self.handle.ctx.clone() }
+
+	pub fn gen(&self) -> GExpr { GExpr { pos: Pos::SlotTarget, kind: GExprKind::Slot(self.clone()) } }
 }
 
 #[derive(Clone, Debug)]
@@ -99,84 +90,10 @@ pub struct ExprData {
 	pub pos: Pos,
 	pub kind: ExprKind,
 }
-impl ExprData {
-	pub fn api_return(
-		self,
-		ctx: SysCtx,
-		do_slot: &mut impl FnMut(Arc<ExprHandle>),
-	) -> api::Expression {
-		api::Expression { location: self.pos.to_api(), kind: self.kind.api_return(ctx, do_slot) }
-	}
-}
 
 #[derive(Clone, Debug)]
 pub enum ExprKind {
-	Call(Box<Expr>, Box<Expr>),
-	Lambda(u64, Box<Expr>),
-	Arg(u64),
-	Seq(Box<Expr>, Box<Expr>),
-	Const(Tok<Vec<Tok<String>>>),
-	NewAtom(AtomFactory),
 	Atom(ForeignAtom<'static>),
 	Bottom(OrcErrv),
 	Opaque,
-}
-impl ExprKind {
-	pub fn api_return(
-		self,
-		ctx: SysCtx,
-		do_slot: &mut impl FnMut(Arc<ExprHandle>),
-	) -> api::ExpressionKind {
-		use api::ExpressionKind as K;
-		match self {
-			Self::Call(f, x) =>
-				K::Call(Box::new(f.api_return(ctx.clone(), do_slot)), Box::new(x.api_return(ctx, do_slot))),
-			Self::Seq(a, b) =>
-				K::Seq(Box::new(a.api_return(ctx.clone(), do_slot)), Box::new(b.api_return(ctx, do_slot))),
-			Self::Lambda(arg, body) => K::Lambda(arg, Box::new(body.api_return(ctx, do_slot))),
-			Self::Arg(arg) => K::Arg(arg),
-			Self::Const(name) => K::Const(name.to_api()),
-			Self::Bottom(err) => K::Bottom(err.to_api()),
-			Self::NewAtom(fac) => K::NewAtom(fac.clone().build(ctx)),
-			kind @ (Self::Atom(_) | Self::Opaque) => panic!("{kind:?} should have a token"),
-		}
-	}
-}
-fn inherit(kind: ExprKind) -> Expr { Expr::from_data(ExprData { pos: Pos::Inherit, kind }) }
-
-pub fn sym_ref(path: Tok<Vec<Tok<String>>>) -> Expr { inherit(ExprKind::Const(path)) }
-pub fn atom<A: ToAtom>(atom: A) -> Expr { inherit(ExprKind::NewAtom(atom.to_atom_factory())) }
-
-pub fn seq(ops: impl IntoIterator<Item = Expr>) -> Expr {
-	fn recur(mut ops: impl Iterator<Item = Expr>) -> Option<Expr> {
-		let op = ops.next()?;
-		Some(match recur(ops) {
-			None => op,
-			Some(rec) => inherit(ExprKind::Seq(Box::new(op), Box::new(rec))),
-		})
-	}
-	recur(ops.into_iter()).expect("Empty list provided to seq!")
-}
-
-pub fn arg(n: u64) -> Expr { inherit(ExprKind::Arg(n)) }
-
-pub fn lambda(n: u64, b: impl IntoIterator<Item = Expr>) -> Expr {
-	inherit(ExprKind::Lambda(n, Box::new(call(b))))
-}
-
-pub fn call(v: impl IntoIterator<Item = Expr>) -> Expr {
-	v.into_iter()
-		.reduce(|f, x| inherit(ExprKind::Call(Box::new(f), Box::new(x))))
-		.expect("Empty call expression")
-}
-
-pub fn bot(ev: impl IntoIterator<Item = OrcErr>) -> Expr {
-	inherit(ExprKind::Bottom(OrcErrv::new(ev).unwrap()))
-}
-
-pub fn with<I: TryFromExpr, O: ToExpr>(
-	expr: Expr,
-	cont: impl Fn(I) -> O + Clone + Send + Sync + 'static,
-) -> Expr {
-	call([lambda(0, [seq([arg(0), call([Lambda::new(cont).to_expr(), arg(0)])])]), expr])
 }

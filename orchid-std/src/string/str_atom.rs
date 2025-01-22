@@ -8,7 +8,7 @@ use orchid_api_traits::{Encode, Request};
 use orchid_base::error::{OrcRes, mk_errv};
 use orchid_base::intern;
 use orchid_base::interner::{Tok, intern};
-use orchid_extension::atom::{AtomMethod, Atomic, MethodSet, Supports, TypAtom};
+use orchid_extension::atom::{AtomMethod, Atomic, MethodSetBuilder, Supports, TypAtom};
 use orchid_extension::atom_owned::{DeserializeCtx, OwnedAtom, OwnedVariant};
 use orchid_extension::conv::TryFromExpr;
 use orchid_extension::expr::Expr;
@@ -33,7 +33,7 @@ pub struct StrAtom(Arc<String>);
 impl Atomic for StrAtom {
 	type Variant = OwnedVariant;
 	type Data = ();
-	fn reg_reqs() -> MethodSet<Self> { MethodSet::new().handle::<StringGetVal>() }
+	fn reg_reqs() -> MethodSetBuilder<Self> { MethodSetBuilder::new().handle::<StringGetVal>() }
 }
 impl StrAtom {
 	pub fn new(str: Arc<String>) -> Self { Self(str) }
@@ -59,7 +59,7 @@ pub struct IntStrAtom(Tok<String>);
 impl Atomic for IntStrAtom {
 	type Variant = OwnedVariant;
 	type Data = orchid_api::TStr;
-	fn reg_reqs() -> MethodSet<Self> { MethodSet::new() }
+	fn reg_reqs() -> MethodSetBuilder<Self> { MethodSetBuilder::new() }
 }
 impl From<Tok<String>> for IntStrAtom {
 	fn from(value: Tok<String>) -> Self { Self(value) }

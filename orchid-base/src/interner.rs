@@ -1,14 +1,13 @@
 use std::borrow::Borrow;
 use std::future::Future;
 use std::hash::BuildHasher as _;
-use std::marker::PhantomData;
 use std::num::NonZeroU64;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, MutexGuard, atomic};
-use std::{fmt, hash, mem};
+use std::sync::atomic;
+use std::{fmt, hash};
 
-use async_once_cell::Lazy;
+use async_std::sync::Mutex;
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools as _;
 use orchid_api_traits::Request;
@@ -29,9 +28,9 @@ pub struct Tok<T: Interned> {
 impl<T: Interned> Tok<T> {
 	pub fn new(data: Rc<T>, marker: T::Marker) -> Self { Self { data, marker: ForceSized(marker) } }
 	pub fn to_api(&self) -> T::Marker { self.marker.0 }
-	pub async fn from_api<M>(marker: M, i: &mut Interner) -> Self
+	pub async fn from_api<M>(marker: M, i: &Interner) -> Self
 	where M: InternMarker<Interned = T> {
-		i.deintern(marker).await
+		i.ex(marker).await
 	}
 	pub fn rc(&self) -> Rc<T> { self.data.clone() }
 }
@@ -67,7 +66,7 @@ impl<T: Interned + fmt::Debug> fmt::Debug for Tok<T> {
 pub trait Interned: Eq + hash::Hash + Clone + fmt::Debug + Internable<Interned = Self> {
 	type Marker: InternMarker<Interned = Self> + Sized;
 	fn intern(
-		self: Arc<Self>,
+		self: Rc<Self>,
 		req: &(impl DynRequester<Transfer = api::IntReq> + ?Sized),
 	) -> impl Future<Output = Self::Marker>;
 	fn bimap(interner: &mut TypedInterners) -> &mut Bimap<Self>;
@@ -75,15 +74,13 @@ pub trait Interned: Eq + hash::Hash + Clone + fmt::Debug + Internable<Interned =
 
 pub trait Internable: fmt::Debug {
 	type Interned: Interned;
-	fn get_owned(&self) -> Arc<Self::Interned>;
+	fn get_owned(&self) -> Rc<Self::Interned>;
 }
 
 pub trait InternMarker: Copy + PartialEq + Eq + PartialOrd + Ord + hash::Hash + Sized {
 	type Interned: Interned<Marker = Self>;
-	fn resolve(
-		self,
-		req: &(impl DynRequester<Transfer = api::IntReq> + ?Sized),
-	) -> impl Future<Output = Tok<Self::Interned>>;
+	/// Only called on replicas
+	fn resolve(self, i: &Interner) -> impl Future<Output = Tok<Self::Interned>>;
 	fn get_id(self) -> NonZeroU64;
 	fn from_id(id: NonZeroU64) -> Self;
 }
@@ -91,63 +88,61 @@ pub trait InternMarker: Copy + PartialEq + Eq + PartialOrd + Ord + hash::Hash + 
 impl Interned for String {
 	type Marker = api::TStr;
 	async fn intern(
-		self: Arc<Self>,
+		self: Rc<Self>,
 		req: &(impl DynRequester<Transfer = api::IntReq> + ?Sized),
 	) -> Self::Marker {
-		req.request(api::InternStr(self)).await
+		req.request(api::InternStr(self.to_string())).await
 	}
 	fn bimap(interners: &mut TypedInterners) -> &mut Bimap<Self> { &mut interners.strings }
 }
 impl InternMarker for api::TStr {
 	type Interned = String;
-	async fn resolve(
-		self,
-		req: &(impl DynRequester<Transfer = api::IntReq> + ?Sized),
-	) -> Tok<Self::Interned> {
-		Tok::new(req.request(api::ExternStr(self)).await, self)
+	async fn resolve(self, i: &Interner) -> Tok<Self::Interned> {
+		Tok::new(Rc::new(i.master.as_ref().unwrap().request(api::ExternStr(self)).await), self)
 	}
 	fn get_id(self) -> NonZeroU64 { self.0 }
 	fn from_id(id: NonZeroU64) -> Self { Self(id) }
 }
 impl Internable for str {
 	type Interned = String;
-	fn get_owned(&self) -> Arc<Self::Interned> { Arc::new(self.to_string()) }
+	fn get_owned(&self) -> Rc<Self::Interned> { Rc::new(self.to_string()) }
 }
 impl Internable for String {
 	type Interned = String;
-	fn get_owned(&self) -> Arc<Self::Interned> { Arc::new(self.to_string()) }
+	fn get_owned(&self) -> Rc<Self::Interned> { Rc::new(self.to_string()) }
 }
 
 impl Interned for Vec<Tok<String>> {
 	type Marker = api::TStrv;
 	async fn intern(
-		self: Arc<Self>,
+		self: Rc<Self>,
 		req: &(impl DynRequester<Transfer = api::IntReq> + ?Sized),
 	) -> Self::Marker {
-		req.request(api::InternStrv(Arc::new(self.iter().map(|t| t.to_api()).collect()))).await
+		req.request(api::InternStrv(self.iter().map(|t| t.to_api()).collect())).await
 	}
 	fn bimap(interners: &mut TypedInterners) -> &mut Bimap<Self> { &mut interners.vecs }
 }
 impl InternMarker for api::TStrv {
 	type Interned = Vec<Tok<String>>;
-	async fn resolve(
-		self,
-		req: &(impl DynRequester<Transfer = api::IntReq> + ?Sized),
-	) -> Tok<Self::Interned> {
-		let rep = req.request(api::ExternStrv(self)).await;
-		let data = futures::future::join_all(rep.iter().map(|m| deintern(*m))).await;
-		Tok::new(Arc::new(data), self)
+	async fn resolve(self, i: &Interner) -> Tok<Self::Interned> {
+		let rep = i.master.as_ref().unwrap().request(api::ExternStrv(self)).await;
+		let data = futures::future::join_all(rep.into_iter().map(|m| i.ex(m))).await;
+		Tok::new(Rc::new(data), self)
 	}
 	fn get_id(self) -> NonZeroU64 { self.0 }
 	fn from_id(id: NonZeroU64) -> Self { Self(id) }
 }
 impl Internable for [Tok<String>] {
 	type Interned = Vec<Tok<String>>;
-	fn get_owned(&self) -> Arc<Self::Interned> { Arc::new(self.to_vec()) }
+	fn get_owned(&self) -> Rc<Self::Interned> { Rc::new(self.to_vec()) }
+}
+impl<const N: usize> Internable for [Tok<String>; N] {
+	type Interned = Vec<Tok<String>>;
+	fn get_owned(&self) -> Rc<Self::Interned> { Rc::new(self.to_vec()) }
 }
 impl Internable for Vec<Tok<String>> {
 	type Interned = Vec<Tok<String>>;
-	fn get_owned(&self) -> Arc<Self::Interned> { Arc::new(self.to_vec()) }
+	fn get_owned(&self) -> Rc<Self::Interned> { Rc::new(self.to_vec()) }
 }
 // impl Internable for Vec<api::TStr> {
 // 	type Interned = Vec<Tok<String>>;
@@ -167,14 +162,14 @@ const BASE_RC: usize = 3;
 
 #[test]
 fn base_rc_correct() {
-	let tok = Tok::new(Arc::new("foo".to_string()), api::TStr(1.try_into().unwrap()));
+	let tok = Tok::new(Rc::new("foo".to_string()), api::TStr(1.try_into().unwrap()));
 	let mut bimap = Bimap::default();
 	bimap.insert(tok.clone());
-	assert_eq!(Arc::strong_count(&tok.data), BASE_RC + 1, "the bimap plus the current instance");
+	assert_eq!(Rc::strong_count(&tok.data), BASE_RC + 1, "the bimap plus the current instance");
 }
 
 pub struct Bimap<T: Interned> {
-	intern: HashMap<Arc<T>, Tok<T>>,
+	intern: HashMap<Rc<T>, Tok<T>>,
 	by_id: HashMap<T::Marker, Tok<T>>,
 }
 impl<T: Interned> Bimap<T> {
@@ -194,7 +189,7 @@ impl<T: Interned> Bimap<T> {
 
 	pub fn sweep_replica(&mut self) -> Vec<T::Marker> {
 		(self.intern)
-			.extract_if(|k, _| Arc::strong_count(k) == BASE_RC)
+			.extract_if(|k, _| Rc::strong_count(k) == BASE_RC)
 			.map(|(_, v)| {
 				self.by_id.remove(&v.to_api());
 				v.to_api()
@@ -203,7 +198,7 @@ impl<T: Interned> Bimap<T> {
 	}
 
 	pub fn sweep_master(&mut self, retained: HashSet<T::Marker>) {
-		self.intern.retain(|k, v| BASE_RC < Arc::strong_count(k) || retained.contains(&v.to_api()))
+		self.intern.retain(|k, v| BASE_RC < Rc::strong_count(k) || retained.contains(&v.to_api()))
 	}
 }
 
@@ -223,58 +218,59 @@ pub struct TypedInterners {
 
 #[derive(Default)]
 pub struct Interner {
-	interners: TypedInterners,
+	interners: Mutex<TypedInterners>,
 	master: Option<Box<dyn DynRequester<Transfer = api::IntReq>>>,
 }
 impl Interner {
 	pub fn new_master() -> Self { Self::default() }
 	pub fn new_replica(req: impl DynRequester<Transfer = api::IntReq> + 'static) -> Self {
-		Self {
-			master: Some(Box::new(req)),
-			interners: TypedInterners { strings: Bimap::default(), vecs: Bimap::default() },
-		}
+		Self { master: Some(Box::new(req)), interners: Mutex::default() }
 	}
-	pub async fn intern<T: Interned>(
-		&mut self,
-		t: &(impl Internable<Interned = T> + ?Sized),
-	) -> Tok<T> {
+	/// Intern some data; query its identifier if not known locally
+	pub async fn i<T: Interned>(&self, t: &(impl Internable<Interned = T> + ?Sized)) -> Tok<T> {
 		let data = t.get_owned();
 		let job = format!("{t:?} in {}", if self.master.is_some() { "replica" } else { "master" });
 		eprintln!("Interning {job}");
-		let typed = T::bimap(&mut self.interners);
+		let mut g = self.interners.lock().await;
+		let typed = T::bimap(&mut g);
 		if let Some(tok) = typed.by_value(&data) {
 			return tok;
 		}
-		let marker = match &mut self.master {
+		let marker = match &self.master {
 			Some(c) => data.clone().intern(&**c).await,
 			None =>
 				T::Marker::from_id(NonZeroU64::new(ID.fetch_add(1, atomic::Ordering::Relaxed)).unwrap()),
 		};
 		let tok = Tok::new(data, marker);
-		T::bimap(&mut self.interners).insert(tok.clone());
+		T::bimap(&mut g).insert(tok.clone());
 		eprintln!("Interned {job}");
 		tok
 	}
-	async fn deintern<M: InternMarker>(&mut self, marker: M) -> Tok<M::Interned> {
-		if let Some(tok) = M::Interned::bimap(&mut self.interners).by_marker(marker) {
+	/// Extern an identifier; query the data it represents if not known locally
+	async fn ex<M: InternMarker>(&self, marker: M) -> Tok<M::Interned> {
+		if let Some(tok) = M::Interned::bimap(&mut *self.interners.lock().await).by_marker(marker) {
 			return tok;
 		}
-		let master = self.master.as_mut().expect("ID not in local interner and this is master");
-		let token = marker.resolve(&**master).await;
-		M::Interned::bimap(&mut self.interners).insert(token.clone());
+		assert!(self.master.is_some(), "ID not in local interner and this is master");
+		let token = marker.resolve(self).await;
+		M::Interned::bimap(&mut *self.interners.lock().await).insert(token.clone());
 		token
 	}
-	pub fn sweep_replica(&mut self) -> api::Retained {
+	pub async fn sweep_replica(&self) -> api::Retained {
 		assert!(self.master.is_some(), "Not a replica");
-		api::Retained {
-			strings: self.interners.strings.sweep_replica(),
-			vecs: self.interners.vecs.sweep_replica(),
-		}
+		let mut g = self.interners.lock().await;
+		api::Retained { strings: g.strings.sweep_replica(), vecs: g.vecs.sweep_replica() }
 	}
-	pub fn sweep_master(&mut self, retained: api::Retained) {
+	pub async fn sweep_master(&self, retained: api::Retained) {
 		assert!(self.master.is_none(), "Not master");
-		self.interners.strings.sweep_master(retained.strings.into_iter().collect());
-		self.interners.vecs.sweep_master(retained.vecs.into_iter().collect());
+		let mut g = self.interners.lock().await;
+		g.strings.sweep_master(retained.strings.into_iter().collect());
+		g.vecs.sweep_master(retained.vecs.into_iter().collect());
+	}
+}
+impl fmt::Debug for Interner {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "Interner{{ replica: {} }}", self.master.is_none())
 	}
 }
 
@@ -297,11 +293,9 @@ mod test {
 
 	#[test]
 	fn test_i() {
-		let _: Tok<String> = spin_on(intern!(str: "foo"));
-		let _: Tok<Vec<Tok<String>>> = spin_on(intern!([Tok<String>]: &[
-			spin_on(intern!(str: "bar")),
-			spin_on(intern!(str: "baz"))
-		]));
+		let i = Interner::new_master();
+		let _: Tok<String> = spin_on(i.i("foo"));
+		let _: Tok<Vec<Tok<String>>> = spin_on(i.i(&[spin_on(i.i("bar")), spin_on(i.i("baz"))]));
 	}
 
 	#[test]

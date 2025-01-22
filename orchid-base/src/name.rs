@@ -13,7 +13,7 @@ use itertools::Itertools;
 use trait_set::trait_set;
 
 use crate::api;
-use crate::interner::{InternMarker, Tok, intern};
+use crate::interner::{InternMarker, Interner, Tok};
 
 trait_set! {
 	/// Traits that all name iterators should implement
@@ -174,8 +174,8 @@ impl VPath {
 		Self(self.0.into_iter().chain(items).collect())
 	}
 	/// Partition the string by `::` namespace separators
-	pub async fn parse(s: &str) -> Self {
-		Self(if s.is_empty() { vec![] } else { join_all(s.split("::").map(intern)).await })
+	pub async fn parse(s: &str, i: &Interner) -> Self {
+		Self(if s.is_empty() { vec![] } else { join_all(s.split("::").map(|s| i.i(s))).await })
 	}
 	/// Walk over the segments
 	pub fn str_iter(&self) -> impl Iterator<Item = &'_ str> {
@@ -195,14 +195,15 @@ impl VPath {
 	}
 
 	/// Convert a fs path to a vpath
-	pub async fn from_path(path: &Path, ext: &str) -> Option<(Self, bool)> {
-		async fn to_vpath(p: &Path) -> Option<VPath> {
-			let tok_opt_v = join_all(p.iter().map(|c| OptionFuture::from(c.to_str().map(intern)))).await;
+	pub async fn from_path(path: &Path, ext: &str, i: &Interner) -> Option<(Self, bool)> {
+		async fn to_vpath(p: &Path, i: &Interner) -> Option<VPath> {
+			let tok_opt_v =
+				join_all(p.iter().map(|c| OptionFuture::from(c.to_str().map(|s| i.i(s))))).await;
 			tok_opt_v.into_iter().collect::<Option<_>>().map(VPath)
 		}
 		match path.extension().map(|s| s.to_str()) {
-			Some(Some(s)) if s == ext => Some((to_vpath(&path.with_extension("")).await?, true)),
-			None => Some((to_vpath(path).await?, false)),
+			Some(Some(s)) if s == ext => Some((to_vpath(&path.with_extension(""), i).await?, true)),
+			None => Some((to_vpath(path, i).await?, false)),
 			Some(_) => None,
 		}
 	}
@@ -259,8 +260,11 @@ impl VName {
 		let data: Vec<_> = items.into_iter().collect();
 		if data.is_empty() { Err(EmptyNameError) } else { Ok(Self(data)) }
 	}
-	pub async fn deintern(name: impl IntoIterator<Item = api::TStr>) -> Result<Self, EmptyNameError> {
-		Self::new(join_all(name.into_iter().map(Tok::from_api)).await)
+	pub async fn deintern(
+		name: impl IntoIterator<Item = api::TStr>,
+		i: &Interner,
+	) -> Result<Self, EmptyNameError> {
+		Self::new(join_all(name.into_iter().map(|m| Tok::from_api(m, i))).await)
 	}
 	/// Unwrap the enclosed vector
 	pub fn into_vec(self) -> Vec<Tok<String>> { self.0 }
@@ -270,7 +274,7 @@ impl VName {
 	/// must never be empty.
 	pub fn vec_mut(&mut self) -> &mut Vec<Tok<String>> { &mut self.0 }
 	/// Intern the name and return a [Sym]
-	pub async fn to_sym(&self) -> Sym { Sym(intern(&self.0[..]).await) }
+	pub async fn to_sym(&self, i: &Interner) -> Sym { Sym(i.i(&self.0[..]).await) }
 	/// If this name has only one segment, return it
 	pub fn as_root(&self) -> Option<Tok<String>> { self.0.iter().exactly_one().ok().cloned() }
 	/// Prepend the segments to this name
@@ -284,8 +288,12 @@ impl VName {
 		Self(self.0.into_iter().chain(items).collect())
 	}
 	/// Read a `::` separated namespaced name
-	pub async fn parse(s: &str) -> Result<Self, EmptyNameError> { Self::new(VPath::parse(s).await) }
-	pub async fn literal(s: &'static str) -> Self { Self::parse(s).await.expect("empty literal !?") }
+	pub async fn parse(s: &str, i: &Interner) -> Result<Self, EmptyNameError> {
+		Self::new(VPath::parse(s, i).await)
+	}
+	pub async fn literal(s: &'static str, i: &Interner) -> Self {
+		Self::parse(s, i).await.expect("empty literal !?")
+	}
 	/// Obtain an iterator over the segments of the name
 	pub fn iter(&self) -> impl Iterator<Item = Tok<String>> + '_ { self.0.iter().cloned() }
 }
@@ -341,13 +349,16 @@ pub struct Sym(Tok<Vec<Tok<String>>>);
 impl Sym {
 	/// Assert that the sequence isn't empty, intern it and wrap it in a [Sym] to
 	/// represent this invariant
-	pub async fn new(v: impl IntoIterator<Item = Tok<String>>) -> Result<Self, EmptyNameError> {
+	pub async fn new(
+		v: impl IntoIterator<Item = Tok<String>>,
+		i: &Interner,
+	) -> Result<Self, EmptyNameError> {
 		let items = v.into_iter().collect_vec();
-		Self::from_tok(intern(&items[..]).await)
+		Self::from_tok(i.i(&items).await)
 	}
 	/// Read a `::` separated namespaced name.
-	pub async fn parse(s: &str) -> Result<Self, EmptyNameError> {
-		Ok(Sym(intern(&VName::parse(s).await?.into_vec()[..]).await))
+	pub async fn parse(s: &str, i: &Interner) -> Result<Self, EmptyNameError> {
+		Ok(Sym(i.i(&VName::parse(s, i).await?.into_vec()).await))
 	}
 	/// Assert that a token isn't empty, and wrap it in a [Sym]
 	pub fn from_tok(t: Tok<Vec<Tok<String>>>) -> Result<Self, EmptyNameError> {
@@ -359,8 +370,8 @@ impl Sym {
 	pub fn id(&self) -> NonZeroU64 { self.0.to_api().get_id() }
 	/// Extern the sym for editing
 	pub fn to_vname(&self) -> VName { VName(self[..].to_vec()) }
-	pub async fn from_api(marker: api::TStrv) -> Sym {
-		Self::from_tok(Tok::from_api(marker).await).expect("Empty sequence found for serialized Sym")
+	pub async fn from_api(marker: api::TStrv, i: &Interner) -> Sym {
+		Self::from_tok(Tok::from_api(marker, i).await).expect("Empty sequence found for serialized Sym")
 	}
 	pub fn to_api(&self) -> api::TStrv { self.tok().to_api() }
 }
@@ -439,11 +450,11 @@ impl NameLike for VName {}
 /// cloning the token.
 #[macro_export]
 macro_rules! sym {
-  ($seg1:tt $( :: $seg:tt)*) => { async {
+  ($seg1:tt $( :: $seg:tt)* ; $i:expr) => { async {
 		$crate::name::Sym::from_tok(
-			$crate::intern!([$crate::interner::Tok<String>]: &[
-				$crate::intern!(str: stringify!($seg1)).await
-				$( , $crate::intern!(str: stringify!($seg)).await )*
+			$i.i(&[
+				$i.i(stringify!($seg1)).await
+				$( , $i.i(stringify!($seg)).await )*
 			])
 			.await
 		).unwrap()
@@ -457,10 +468,10 @@ macro_rules! sym {
 /// The components are interned much like in [sym].
 #[macro_export]
 macro_rules! vname {
-  ($seg1:tt $( :: $seg:tt)*) => { async {
+  ($seg1:tt $( :: $seg:tt)* ; $i:expr) => { async {
     $crate::name::VName::new([
-      $crate::intern!(str: stringify!($seg1)).await
-      $( , $crate::intern!(str: stringify!($seg)).await )*
+      $i.i(stringify!($seg1)).await
+      $( , $i.i(stringify!($seg)).await )*
     ]).unwrap()
 	} };
 }
@@ -470,54 +481,14 @@ macro_rules! vname {
 /// The components are interned much like in [sym].
 #[macro_export]
 macro_rules! vpath {
-  ($seg1:tt $( :: $seg:tt)+) => { async {
+  ($seg1:tt $( :: $seg:tt)+ ; $i:expr) => { async {
     $crate::name::VPath(vec![
-      $crate::intern!(str: stringify!($seg1)).await
-      $( , $crate::intern!(str: stringify!($seg)).await )+
+      $i.i(stringify!($seg1)).await
+      $( , $i.i(stringify!($seg)).await )+
 		])
 	} };
   () => {
     $crate::name::VPath(vec![])
-  }
-}
-
-/// Create a &[PathSlice] literal.
-///
-/// The components are interned much like in [sym]
-#[macro_export]
-macro_rules! with_path_slice {
-	(@UNIT $tt:tt) => { () };
-  ($seg1:tt $( :: $seg:tt)* in $expr:expr) => { {
-		use std::future::Future;
-		use std::ops::Deref as _;
-		use std::pin::Pin;
-
-		const fn count_helper<const N: usize>(_: [(); N]) -> usize { N }
-
-		type Output = [Tok<String>; const {
-			count_helper([() $(, $crate::with_path_slice!(@UNIT $seg))*])
-		}];
-		type InternFuture = Pin<Box<dyn Future<Output = Output>>>;
-		thread_local! {
-			static VALUE: Pin<std::rc::Rc<async_once_cell::Lazy<Output, InternFuture>>> =
-				std::rc::Rc::pin(async_once_cell::Lazy::new(Box::pin(async {
-					[
-						$crate::intern!(str: stringify!($seg1)).await
-						$( , $crate::intern!(str: stringify!($seg)).await )+
-					]
-				})));
-		}
-		VALUE.with(|v| $crate::clone!(v; async move {
-			let expr = $expr;
-			let result = v.as_ref().await;
-			let ps: &PathSlice = $crate::name::PathSlice::new(&result.deref()[..]);
-			(expr)(ps).await
-		}))
-
-	} };
-  ($expr:expr) => {
-		let expr = $expr;
-    (expr)($crate::name::PathSlice::new(&[]))
   }
 }
 
@@ -528,13 +499,14 @@ mod test {
 	use test_executors::spin_on;
 
 	use super::{PathSlice, Sym, VName};
-	use crate::interner::{Tok, intern};
+	use crate::interner::{Interner, Tok};
 	use crate::name::VPath;
 
 	#[test]
 	fn recur() {
 		spin_on(async {
-			let myname = vname!(foo::bar).await;
+			let i = Interner::new_master();
+			let myname = vname!(foo::bar; i).await;
 			let _borrowed_slice: &[Tok<String>] = myname.borrow();
 			let _borrowed_pathslice: &PathSlice = myname.borrow();
 			let _deref_pathslice: &PathSlice = &myname;
@@ -545,25 +517,19 @@ mod test {
 	#[test]
 	fn literals() {
 		spin_on(async {
+			let i = Interner::new_master();
 			assert_eq!(
-				sym!(foo::bar::baz).await,
-				Sym::new([intern("foo").await, intern("bar").await, intern("baz").await]).await.unwrap()
+				sym!(foo::bar::baz; i).await,
+				Sym::new([i.i("foo").await, i.i("bar").await, i.i("baz").await], &i).await.unwrap()
 			);
 			assert_eq!(
-				vname!(foo::bar::baz).await,
-				VName::new([intern("foo").await, intern("bar").await, intern("baz").await]).unwrap()
+				vname!(foo::bar::baz; i).await,
+				VName::new([i.i("foo").await, i.i("bar").await, i.i("baz").await]).unwrap()
 			);
 			assert_eq!(
-				vpath!(foo::bar::baz).await,
-				VPath::new([intern("foo").await, intern("bar").await, intern("baz").await])
+				vpath!(foo::bar::baz; i).await,
+				VPath::new([i.i("foo").await, i.i("bar").await, i.i("baz").await])
 			);
-			with_path_slice!(foo::bar::baz in |val| async move {
-				assert_eq!(
-					val,
-					PathSlice::new(&[intern("foo").await, intern("bar").await, intern("baz").await])
-				);
-			})
-			.await
 		})
 	}
 }

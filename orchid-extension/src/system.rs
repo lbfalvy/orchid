@@ -1,6 +1,8 @@
+use core::fmt;
 use std::any::TypeId;
 use std::future::Future;
 use std::num::NonZero;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -9,14 +11,13 @@ use futures::task::LocalSpawn;
 use hashbrown::HashMap;
 use orchid_api_traits::{Coding, Decode};
 use orchid_base::boxed_iter::BoxedIter;
-use orchid_base::id_store::IdStore;
-use orchid_base::interner::Tok;
+use orchid_base::interner::Interner;
 use orchid_base::logging::Logger;
 use orchid_base::reqnot::{Receipt, ReqNot};
 
 use crate::api;
 use crate::atom::{AtomCtx, AtomDynfo, AtomicFeatures, ForeignAtom, TypAtom, get_info};
-use crate::atom_owned::{DynOwnedAtom, ObjStore};
+use crate::atom_owned::ObjStore;
 use crate::entrypoint::ExtReq;
 use crate::fs::DeclFs;
 use crate::func_atom::Fun;
@@ -79,28 +80,28 @@ impl<T: SystemCard> DynSystemCard for T {
 
 /// System as defined by author
 pub trait System: Send + Sync + SystemCard + 'static {
-	fn env() -> Vec<(Tok<String>, MemKind)>;
+	fn env() -> Vec<(String, MemKind)>;
 	fn vfs() -> DeclFs;
 	fn lexers() -> Vec<LexerObj>;
 	fn parsers() -> Vec<ParserObj>;
-	fn request<'a>(hand: ExtReq<'a>, req: Self::Req) -> impl Future<Output = Receipt<'a>>;
+	fn request(hand: ExtReq<'_>, req: Self::Req) -> impl Future<Output = Receipt<'_>>;
 }
 
 pub trait DynSystem: Send + Sync + DynSystemCard + 'static {
-	fn dyn_env(&self) -> HashMap<Tok<String>, MemKind>;
+	fn dyn_env(&self) -> HashMap<String, MemKind>;
 	fn dyn_vfs(&self) -> DeclFs;
 	fn dyn_lexers(&self) -> Vec<LexerObj>;
 	fn dyn_parsers(&self) -> Vec<ParserObj>;
-	fn dyn_request<'a>(&'a self, hand: ExtReq<'a>, req: Vec<u8>) -> LocalBoxFuture<'a, Receipt<'a>>;
+	fn dyn_request<'a>(&self, hand: ExtReq<'a>, req: Vec<u8>) -> LocalBoxFuture<'a, Receipt<'a>>;
 	fn card(&self) -> &dyn DynSystemCard;
 }
 
 impl<T: System> DynSystem for T {
-	fn dyn_env(&self) -> HashMap<Tok<String>, MemKind> { Self::env().into_iter().collect() }
+	fn dyn_env(&self) -> HashMap<String, MemKind> { Self::env().into_iter().collect() }
 	fn dyn_vfs(&self) -> DeclFs { Self::vfs() }
 	fn dyn_lexers(&self) -> Vec<LexerObj> { Self::lexers() }
 	fn dyn_parsers(&self) -> Vec<ParserObj> { Self::parsers() }
-	fn dyn_request<'a>(&'a self, hand: ExtReq<'a>, req: Vec<u8>) -> LocalBoxFuture<'a, Receipt<'a>> {
+	fn dyn_request<'a>(&self, hand: ExtReq<'a>, req: Vec<u8>) -> LocalBoxFuture<'a, Receipt<'a>> {
 		Self::request(hand, <Self as SystemCard>::Req::decode(&mut &req[..])).boxed_local()
 	}
 	fn card(&self) -> &dyn DynSystemCard { self }
@@ -125,9 +126,15 @@ pub fn downcast_atom<A: AtomicFeatures>(foreign: ForeignAtom) -> Result<TypAtom<
 #[derive(Clone)]
 pub struct SysCtx {
 	pub reqnot: ReqNot<api::ExtMsgSet>,
-	pub spawner: Arc<dyn LocalSpawn>,
+	pub spawner: Rc<dyn LocalSpawn>,
 	pub id: api::SysId,
 	pub cted: CtedObj,
 	pub logger: Arc<Logger>,
 	pub obj_store: ObjStore,
+	pub i: Rc<Interner>,
+}
+impl fmt::Debug for SysCtx {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "SysCtx({:?})", self.id)
+	}
 }

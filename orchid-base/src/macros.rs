@@ -3,11 +3,12 @@ use std::sync::Arc;
 
 use async_std::stream;
 use async_std::sync::Mutex;
+use futures::future::LocalBoxFuture;
 use futures::{FutureExt, StreamExt};
-use itertools::Itertools;
 use never::Never;
 use trait_set::trait_set;
 
+use crate::interner::Interner;
 use crate::location::Pos;
 use crate::name::Sym;
 use crate::tree::{Paren, Ph};
@@ -20,7 +21,7 @@ impl MacroSlot<'_> {
 }
 
 trait_set! {
-	pub trait MacroAtomToApi<A> = FnMut(&A) -> api::MacroToken;
+	pub trait MacroAtomToApi<A> = for<'a> FnMut(&'a A) -> LocalBoxFuture<'a, api::MacroToken>;
 	pub trait MacroAtomFromApi<'a, A> = FnMut(&api::Atom) -> MTok<'a, A>;
 }
 
@@ -33,14 +34,18 @@ impl<'a, A> MTree<'a, A> {
 	pub(crate) async fn from_api(
 		api: &api::MacroTree,
 		do_atom: &mut impl MacroAtomFromApi<'a, A>,
+		i: &Interner,
 	) -> Self {
 		Self {
-			pos: Pos::from_api(&api.location).await,
-			tok: Arc::new(MTok::from_api(&api.token, do_atom).await),
+			pos: Pos::from_api(&api.location, i).await,
+			tok: Arc::new(MTok::from_api(&api.token, do_atom, i).await),
 		}
 	}
-	pub(crate) fn to_api(&self, do_atom: &mut impl MacroAtomToApi<A>) -> api::MacroTree {
-		api::MacroTree { location: self.pos.to_api(), token: self.tok.to_api(do_atom) }
+	pub(crate) async fn to_api(&self, do_atom: &mut impl MacroAtomToApi<A>) -> api::MacroTree {
+		api::MacroTree {
+			location: self.pos.to_api(),
+			token: self.tok.to_api(do_atom).boxed_local().await,
+		}
 	}
 }
 
@@ -62,29 +67,30 @@ impl<'a, A> MTok<'a, A> {
 	pub(crate) async fn from_api(
 		api: &api::MacroToken,
 		do_atom: &mut impl MacroAtomFromApi<'a, A>,
+		i: &Interner,
 	) -> Self {
 		match_mapping!(&api, api::MacroToken => MTok::<'a, A> {
-			Lambda(x => mtreev_from_api(x, do_atom).await, b => mtreev_from_api(b, do_atom).await),
-			Name(t => Sym::from_api(*t).await),
+			Lambda(x => mtreev_from_api(x, do_atom, i).await, b => mtreev_from_api(b, do_atom, i).await),
+			Name(t => Sym::from_api(*t, i).await),
 			Slot(tk => MacroSlot(*tk, PhantomData)),
-			S(p.clone(), b => mtreev_from_api(b, do_atom).await),
-			Ph(ph => Ph::from_api(ph).await),
+			S(p.clone(), b => mtreev_from_api(b, do_atom, i).await),
+			Ph(ph => Ph::from_api(ph, i).await),
 		} {
 			api::MacroToken::Atom(a) => do_atom(a)
 		})
 	}
-	pub(crate) fn to_api(&self, do_atom: &mut impl MacroAtomToApi<A>) -> api::MacroToken {
-		fn sink(n: &Never) -> api::MacroToken { match *n {} }
+	pub(crate) async fn to_api(&self, do_atom: &mut impl MacroAtomToApi<A>) -> api::MacroToken {
+		fn sink<T>(n: &Never) -> LocalBoxFuture<'_, T> { match *n {} }
 		match_mapping!(&self, MTok => api::MacroToken {
-			Lambda(x => mtreev_to_api(x, do_atom), b => mtreev_to_api(b, do_atom)),
+			Lambda(x => mtreev_to_api(x, do_atom).await, b => mtreev_to_api(b, do_atom).await),
 			Name(t.tok().to_api()),
 			Ph(ph.to_api()),
-			S(p.clone(), b => mtreev_to_api(b, do_atom)),
+			S(p.clone(), b => mtreev_to_api(b, do_atom).await),
 			Slot(tk.0.clone()),
 		} {
-			MTok::Ref(r) => r.to_api(&mut sink),
-			MTok::Done(t) => t.to_api(do_atom),
-			MTok::Atom(a) => do_atom(a),
+			MTok::Ref(r) => r.to_api(&mut sink).boxed_local().await,
+			MTok::Done(t) => t.to_api(do_atom).boxed_local().await,
+			MTok::Atom(a) => do_atom(a).await,
 		})
 	}
 	pub fn at(self, pos: Pos) -> MTree<'a, A> { MTree { pos, tok: Arc::new(self) } }
@@ -93,17 +99,24 @@ impl<'a, A> MTok<'a, A> {
 pub async fn mtreev_from_api<'a, 'b, A>(
 	api: impl IntoIterator<Item = &'b api::MacroTree>,
 	do_atom: &mut impl MacroAtomFromApi<'a, A>,
+	i: &Interner,
 ) -> Vec<MTree<'a, A>> {
 	let do_atom_lk = Mutex::new(do_atom);
 	stream::from_iter(api)
-		.then(|api| async { MTree::from_api(api, &mut *do_atom_lk.lock().await).boxed_local().await })
+		.then(|api| async {
+			MTree::from_api(api, &mut *do_atom_lk.lock().await, i).boxed_local().await
+		})
 		.collect()
 		.await
 }
 
-pub fn mtreev_to_api<'a: 'b, 'b, A: 'b>(
+pub async fn mtreev_to_api<'a: 'b, 'b, A: 'b>(
 	v: impl IntoIterator<Item = &'b MTree<'a, A>>,
 	do_atom: &mut impl MacroAtomToApi<A>,
 ) -> Vec<api::MacroTree> {
-	v.into_iter().map(|t| t.to_api(do_atom)).collect_vec()
+	let mut out = Vec::new();
+	for t in v {
+		out.push(t.to_api(do_atom).await);
+	}
+	out
 }

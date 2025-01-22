@@ -38,7 +38,11 @@ fn get_id(message: &[u8]) -> (u64, &[u8]) {
 }
 
 pub trait ReqHandlish {
-	fn defer_drop(&self, val: impl Any + 'static);
+	fn defer_drop(&self, val: impl Any + 'static)
+	where Self: Sized {
+		self.defer_drop_objsafe(Box::new(val));
+	}
+	fn defer_drop_objsafe(&self, val: Box<dyn Any>);
 }
 
 #[derive(destructure)]
@@ -77,7 +81,7 @@ impl<'a, MS: MsgSet + 'static> RequestHandle<'a, MS> {
 	}
 }
 impl<MS: MsgSet> ReqHandlish for RequestHandle<'_, MS> {
-	fn defer_drop(&self, val: impl Any) { self.defer_drop.borrow_mut().push(Box::new(val)) }
+	fn defer_drop_objsafe(&self, val: Box<dyn Any>) { self.defer_drop.borrow_mut().push(val); }
 }
 impl<MS: MsgSet> Drop for RequestHandle<'_, MS> {
 	fn drop(&mut self) {
@@ -212,6 +216,7 @@ impl<T: MsgSet> Clone for ReqNot<T> {
 
 #[cfg(test)]
 mod test {
+	use std::rc::Rc;
 	use std::sync::Arc;
 
 	use async_std::sync::Mutex;
@@ -270,8 +275,8 @@ mod test {
 	#[test]
 	fn request() {
 		spin_on(async {
-			let receiver = Arc::new(Mutex::<Option<ReqNot<TestMsgSet>>>::new(None));
-			let sender = Arc::new(ReqNot::<TestMsgSet>::new(
+			let receiver = Rc::new(Mutex::<Option<ReqNot<TestMsgSet>>>::new(None));
+			let sender = Rc::new(ReqNot::<TestMsgSet>::new(
 				clone!(receiver; move |d, _| clone!(receiver; Box::pin(async move {
 					receiver.lock().await.as_ref().unwrap().receive(d).await
 				}))),

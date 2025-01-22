@@ -23,7 +23,7 @@ pub enum IntReq {
 /// See [IntReq]
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
 #[extends(IntReq, ExtHostReq)]
-pub struct InternStr(pub Arc<String>);
+pub struct InternStr(pub String);
 impl Request for InternStr {
 	type Response = TStr;
 }
@@ -37,7 +37,7 @@ impl Request for InternStr {
 #[extends(IntReq, ExtHostReq)]
 pub struct ExternStr(pub TStr);
 impl Request for ExternStr {
-	type Response = Arc<String>;
+	type Response = String;
 }
 /// replica -> master to intern a vector of interned strings
 ///
@@ -46,7 +46,7 @@ impl Request for ExternStr {
 /// See [IntReq]
 #[derive(Clone, Debug, Coding, Hierarchy)]
 #[extends(IntReq, ExtHostReq)]
-pub struct InternStrv(pub Arc<Vec<TStr>>);
+pub struct InternStrv(pub Vec<TStr>);
 impl Request for InternStrv {
 	type Response = TStrv;
 }
@@ -60,7 +60,7 @@ impl Request for InternStrv {
 #[extends(IntReq, ExtHostReq)]
 pub struct ExternStrv(pub TStrv);
 impl Request for ExternStrv {
-	type Response = Arc<Vec<TStr>>;
+	type Response = Vec<TStr>;
 }
 
 /// A substitute for an interned string in serialized datastructures.

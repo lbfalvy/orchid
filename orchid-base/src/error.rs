@@ -6,7 +6,7 @@ use futures::future::join_all;
 use itertools::Itertools;
 
 use crate::api;
-use crate::interner::Tok;
+use crate::interner::{Interner, Tok};
 use crate::location::Pos;
 
 /// A point of interest in resolving the error, such as the point where
@@ -22,10 +22,10 @@ impl ErrPos {
 	pub fn new(msg: &str, position: Pos) -> Self {
 		Self { message: Some(Arc::new(msg.to_string())), position }
 	}
-	async fn from_api(api: &api::ErrLocation) -> Self {
+	async fn from_api(api: &api::ErrLocation, i: &Interner) -> Self {
 		Self {
 			message: Some(api.message.clone()).filter(|s| !s.is_empty()),
-			position: Pos::from_api(&api.location).await,
+			position: Pos::from_api(&api.location, i).await,
 		}
 	}
 	fn to_api(&self) -> api::ErrLocation {
@@ -53,11 +53,11 @@ impl OrcErr {
 			locations: self.positions.iter().map(ErrPos::to_api).collect(),
 		}
 	}
-	async fn from_api(api: &api::OrcError) -> Self {
+	async fn from_api(api: &api::OrcError, i: &Interner) -> Self {
 		Self {
-			description: Tok::from_api(api.description).await,
+			description: Tok::from_api(api.description, i).await,
 			message: api.message.clone(),
-			positions: join_all(api.locations.iter().map(ErrPos::from_api)).await,
+			positions: join_all(api.locations.iter().map(|e| ErrPos::from_api(e, i))).await,
 		}
 	}
 }
@@ -113,8 +113,11 @@ impl OrcErrv {
 		self.0.iter().flat_map(|e| e.positions.iter().cloned())
 	}
 	pub fn to_api(&self) -> Vec<api::OrcError> { self.0.iter().map(OrcErr::to_api).collect() }
-	pub async fn from_api<'a>(api: impl IntoIterator<Item = &'a api::OrcError>) -> Self {
-		Self(join_all(api.into_iter().map(OrcErr::from_api)).await)
+	pub async fn from_api<'a>(
+		api: impl IntoIterator<Item = &'a api::OrcError>,
+		i: &Interner,
+	) -> Self {
+		Self(join_all(api.into_iter().map(|e| OrcErr::from_api(e, i))).await)
 	}
 }
 impl From<OrcErr> for OrcErrv {

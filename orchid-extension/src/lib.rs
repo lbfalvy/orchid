@@ -8,6 +8,7 @@ pub mod entrypoint;
 pub mod expr;
 pub mod fs;
 pub mod func_atom;
+pub mod gen_expr;
 pub mod lexer;
 pub mod macros;
 pub mod msg;

@@ -7,7 +7,7 @@
 /// match_mapping!(self, ThisType => OtherType {
 ///   EmptyVariant,
 ///   TupleVariant(foo => intern(foo), bar.clone()),
-///   StructVariant{ a.to_api(), b => b.}
+///   StructVariant{ a.to_api(), b }
 /// })
 /// ```
 #[macro_export]
@@ -69,6 +69,9 @@ macro_rules! match_mapping {
     $($prefix)::* :: $variant { $($names),* }
   };
   (@PAT_MUNCH $ctx:tt $names:tt $(,)? ) => { match_mapping!($ctx $names) };
+  (@PAT_MUNCH $ctx:tt ($($names:ident)*) $name:ident , $($tail:tt)*) => {
+    match_mapping!(@PAT_MUNCH $ctx ($($names)* $name) $($tail)*)
+  };
   (@PAT_MUNCH $ctx:tt ($($names:ident)*) * $name:ident , $($tail:tt)*) => {
     match_mapping!(@PAT_MUNCH $ctx ($($names)* $name) $($tail)*)
   };
@@ -93,6 +96,9 @@ macro_rules! match_mapping {
   };
   (@VAL $prefix:tt { $($fields:tt)* }) => {
     match_mapping!(@VAL_MUNCH ({} $prefix) () $($fields)* , )
+  };
+  (@VAL_MUNCH $ctx:tt ($($prefix:tt)*) $name:ident , $($tail:tt)*) => {
+    match_mapping!(@VAL_MUNCH $ctx ($($prefix)* ($name ($name)) ) $($tail)*)
   };
   (@VAL_MUNCH $ctx:tt ($($prefix:tt)*) * $name:ident , $($tail:tt)*) => {
     match_mapping!(@VAL_MUNCH $ctx ($($prefix)* ($name (* $name)) ) $($tail)*)

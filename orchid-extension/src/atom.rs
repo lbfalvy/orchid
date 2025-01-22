@@ -4,14 +4,17 @@ use std::future::Future;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::sync::Arc;
+use std::rc::Rc;
 
+use ahash::HashMap;
+use async_std::stream;
 use dyn_clone::{DynClone, clone_box};
-use futures::FutureExt;
 use futures::future::LocalBoxFuture;
+use futures::{FutureExt, StreamExt};
 use orchid_api_traits::{Coding, Decode, Encode, Request, enc_vec};
+use orchid_base::clone;
 use orchid_base::error::{OrcErr, OrcRes, mk_err};
-use orchid_base::intern;
+use orchid_base::interner::Interner;
 use orchid_base::location::Pos;
 use orchid_base::name::Sym;
 use orchid_base::reqnot::Requester;
@@ -21,6 +24,7 @@ use trait_set::trait_set;
 use crate::api;
 // use crate::error::{ProjectError, ProjectResult};
 use crate::expr::{Expr, ExprData, ExprHandle, ExprKind};
+use crate::gen_expr::GExpr;
 use crate::system::{DynSystemCard, SysCtx, atom_info_for, downcast_atom};
 
 pub trait AtomCard: 'static + Sized {
@@ -31,7 +35,7 @@ pub trait AtomicVariant {}
 pub trait Atomic: 'static + Sized {
 	type Variant: AtomicVariant;
 	type Data: Clone + Coding + Sized;
-	fn reg_reqs() -> MethodSet<Self>;
+	fn reg_reqs() -> MethodSetBuilder<Self>;
 }
 impl<A: Atomic> AtomCard for A {
 	type Data = <Self as Atomic>::Data;
@@ -74,11 +78,11 @@ pub fn get_info<A: AtomCard>(
 
 #[derive(Clone)]
 pub struct ForeignAtom<'a> {
-	pub expr: Option<Arc<ExprHandle>>,
-	pub _life: PhantomData<&'a ()>,
-	pub ctx: SysCtx,
-	pub atom: api::Atom,
-	pub pos: Pos,
+	pub(crate) expr: Option<Rc<ExprHandle>>,
+	pub(crate) _life: PhantomData<&'a ()>,
+	pub(crate) ctx: SysCtx,
+	pub(crate) atom: api::Atom,
+	pub(crate) pos: Pos,
 }
 impl ForeignAtom<'_> {
 	pub fn ex_opt(self) -> Option<Expr> {
@@ -86,16 +90,18 @@ impl ForeignAtom<'_> {
 		let data = ExprData { pos, kind: ExprKind::Atom(ForeignAtom { _life: PhantomData, ..self }) };
 		Some(Expr::new(handle, data))
 	}
+	pub fn pos(&self) -> Pos { self.pos.clone() }
+	pub fn ctx(&self) -> SysCtx { self.ctx.clone() }
 }
 impl ForeignAtom<'static> {
 	pub fn ex(self) -> Expr { self.ex_opt().unwrap() }
-	pub(crate) fn new(handle: Arc<ExprHandle>, atom: api::Atom, pos: Pos) -> Self {
+	pub(crate) fn new(handle: Rc<ExprHandle>, atom: api::Atom, pos: Pos) -> Self {
 		ForeignAtom { _life: PhantomData, atom, ctx: handle.ctx.clone(), expr: Some(handle), pos }
 	}
 	pub async fn request<M: AtomMethod>(&self, m: M) -> Option<M::Response> {
 		let rep = (self.ctx.reqnot.request(api::Fwd(
 			self.atom.clone(),
-			Sym::parse(M::NAME).await.unwrap().tok().to_api(),
+			Sym::parse(M::NAME, &self.ctx.i).await.unwrap().tok().to_api(),
 			enc_vec(&m),
 		)))
 		.await?;
@@ -118,13 +124,18 @@ impl AtomRepr for ForeignAtom<'_> {
 	fn to_api(&self) -> orchid_api::Atom { self.atom.clone() }
 }
 
-pub struct NotTypAtom(pub Pos, pub Expr, pub Box<dyn AtomDynfo>);
+pub struct NotTypAtom {
+	pub pos: Pos,
+	pub expr: Expr,
+	pub typ: Box<dyn AtomDynfo>,
+	pub ctx: SysCtx,
+}
 impl NotTypAtom {
 	pub async fn mk_err(&self) -> OrcErr {
 		mk_err(
-			intern!(str: "Not the expected type").await,
-			format!("This expression is not a {}", self.2.name()),
-			[self.0.clone().into()],
+			self.ctx.i.i("Not the expected type").await,
+			format!("This expression is not a {}", self.typ.name()),
+			[self.pos.clone().into()],
 		)
 	}
 }
@@ -142,52 +153,64 @@ trait_set! {
 		SysCtx,
 		&'a mut dyn Read,
 		&'a mut dyn Write
-	) -> LocalBoxFuture<'a, ()> + Send + Sync
+	) -> LocalBoxFuture<'a, ()>
 }
 
-pub struct AtomReqHandler<A: AtomCard> {
-	key: Sym,
-	cb: Box<dyn AtomReqCb<A>>,
+pub struct MethodSetBuilder<A: AtomCard> {
+	handlers: Vec<(&'static str, Rc<dyn AtomReqCb<A>>)>,
 }
-
-pub struct MethodSet<A: AtomCard> {
-	handlers: Vec<AtomReqHandler<A>>,
-}
-impl<A: AtomCard> MethodSet<A> {
+impl<A: AtomCard> MethodSetBuilder<A> {
 	pub fn new() -> Self { Self { handlers: vec![] } }
 
-	pub async fn handle<M: AtomMethod>(mut self) -> Self
+	pub fn handle<M: AtomMethod>(mut self) -> Self
 	where A: Supports<M> {
-		self.handlers.push(AtomReqHandler {
-			key: Sym::parse(M::NAME).await.expect("AtomMethod::NAME cannoot be empty"),
-			cb: Box::new(move |a: &A, ctx: SysCtx, req: &mut dyn Read, rep: &mut dyn Write| {
+		assert!(!M::NAME.is_empty(), "AtomMethod::NAME cannoot be empty");
+		self.handlers.push((
+			M::NAME,
+			Rc::new(move |a: &A, ctx: SysCtx, req: &mut dyn Read, rep: &mut dyn Write| {
 				async { Supports::<M>::handle(a, ctx, M::decode(req)).await.encode(rep) }.boxed_local()
 			}),
-		});
+		));
 		self
 	}
 
-	pub(crate) fn dispatch<'a>(
+	pub async fn pack(&self, ctx: SysCtx) -> MethodSet<A> {
+		MethodSet {
+			handlers: stream::from_iter(self.handlers.iter())
+				.then(|(k, v)| {
+					clone!(ctx; async move {
+						(Sym::parse(k, &ctx.i).await.unwrap(), v.clone())
+					})
+				})
+				.collect()
+				.await,
+		}
+	}
+}
+
+pub struct MethodSet<A: AtomCard> {
+	handlers: HashMap<Sym, Rc<dyn AtomReqCb<A>>>,
+}
+impl<A: AtomCard> MethodSet<A> {
+	pub(crate) async fn dispatch<'a>(
 		&'a self,
 		atom: &'a A,
 		ctx: SysCtx,
 		key: Sym,
 		req: &'a mut dyn Read,
 		rep: &'a mut dyn Write,
-	) -> impl Future<Output = bool> + 'a {
-		async move {
-			match self.handlers.iter().find(|h| h.key == key) {
-				None => false,
-				Some(handler) => {
-					(handler.cb)(atom, ctx, req, rep).await;
-					true
-				},
-			}
+	) -> bool {
+		match self.handlers.get(&key) {
+			None => false,
+			Some(handler) => {
+				handler(atom, ctx, req, rep).await;
+				true
+			},
 		}
 	}
 }
 
-impl<A: AtomCard> Default for MethodSet<A> {
+impl<A: AtomCard> Default for MethodSetBuilder<A> {
 	fn default() -> Self { Self::new() }
 }
 
@@ -197,11 +220,21 @@ pub struct TypAtom<'a, A: AtomicFeatures> {
 	pub value: A::Data,
 }
 impl<A: AtomicFeatures> TypAtom<'static, A> {
-	pub async fn downcast(expr: Arc<ExprHandle>) -> Result<Self, NotTypAtom> {
+	pub async fn downcast(expr: Rc<ExprHandle>) -> Result<Self, NotTypAtom> {
 		match Expr::from_handle(expr).atom().await {
-			Err(oe) => Err(NotTypAtom(oe.data().await.pos.clone(), oe, Box::new(A::info()))),
+			Err(expr) => Err(NotTypAtom {
+				ctx: expr.handle().get_ctx(),
+				pos: expr.data().await.pos.clone(),
+				expr,
+				typ: Box::new(A::info()),
+			}),
 			Ok(atm) => match downcast_atom::<A>(atm) {
-				Err(fa) => Err(NotTypAtom(fa.pos.clone(), fa.ex(), Box::new(A::info()))),
+				Err(fa) => Err(NotTypAtom {
+					pos: fa.pos.clone(),
+					ctx: fa.ctx.clone(),
+					expr: fa.ex(),
+					typ: Box::new(A::info()),
+				}),
 				Ok(tatom) => Ok(tatom),
 			},
 		}
@@ -213,7 +246,7 @@ impl<A: AtomicFeatures> TypAtom<'_, A> {
 		M::Response::decode(
 			&mut &(self.data.ctx.reqnot.request(api::Fwd(
 				self.data.atom.clone(),
-				Sym::parse(M::NAME).await.unwrap().tok().to_api(),
+				Sym::parse(M::NAME, &self.data.ctx.i).await.unwrap().tok().to_api(),
 				enc_vec(&req),
 			)))
 			.await
@@ -228,12 +261,12 @@ impl<A: AtomicFeatures> Deref for TypAtom<'_, A> {
 
 pub struct AtomCtx<'a>(pub &'a [u8], pub Option<api::AtomId>, pub SysCtx);
 
-pub trait AtomDynfo: Send + Sync + 'static {
+pub trait AtomDynfo: 'static {
 	fn tid(&self) -> TypeId;
 	fn name(&self) -> &'static str;
 	fn decode(&self, ctx: AtomCtx<'_>) -> Box<dyn Any>;
-	fn call<'a>(&'a self, ctx: AtomCtx<'a>, arg: api::ExprTicket) -> LocalBoxFuture<'a, Expr>;
-	fn call_ref<'a>(&'a self, ctx: AtomCtx<'a>, arg: api::ExprTicket) -> LocalBoxFuture<'a, Expr>;
+	fn call<'a>(&'a self, ctx: AtomCtx<'a>, arg: api::ExprTicket) -> LocalBoxFuture<'a, GExpr>;
+	fn call_ref<'a>(&'a self, ctx: AtomCtx<'a>, arg: api::ExprTicket) -> LocalBoxFuture<'a, GExpr>;
 	fn print<'a>(&'a self, ctx: AtomCtx<'a>) -> LocalBoxFuture<'a, String>;
 	fn handle_req<'a, 'b: 'a, 'c: 'a>(
 		&'a self,
@@ -242,7 +275,7 @@ pub trait AtomDynfo: Send + Sync + 'static {
 		req: &'b mut dyn Read,
 		rep: &'c mut dyn Write,
 	) -> LocalBoxFuture<'a, bool>;
-	fn command<'a>(&'a self, ctx: AtomCtx<'a>) -> LocalBoxFuture<'a, OrcRes<Option<Expr>>>;
+	fn command<'a>(&'a self, ctx: AtomCtx<'a>) -> LocalBoxFuture<'a, OrcRes<Option<GExpr>>>;
 	fn serialize<'a, 'b: 'a>(
 		&'a self,
 		ctx: AtomCtx<'a>,
@@ -258,12 +291,16 @@ pub trait AtomDynfo: Send + Sync + 'static {
 }
 
 trait_set! {
-	pub trait AtomFactoryFn = FnOnce(SysCtx) -> api::Atom + DynClone;
+	pub trait AtomFactoryFn = FnOnce(SysCtx) -> LocalBoxFuture<'static, api::Atom> + DynClone;
 }
 pub struct AtomFactory(Box<dyn AtomFactoryFn>);
 impl AtomFactory {
-	pub fn new(f: impl FnOnce(SysCtx) -> api::Atom + Clone + 'static) -> Self { Self(Box::new(f)) }
-	pub fn build(self, ctx: SysCtx) -> api::Atom { (self.0)(ctx) }
+	pub fn new<F: Future<Output = api::Atom> + 'static>(
+		f: impl FnOnce(SysCtx) -> F + Clone + 'static,
+	) -> Self {
+		Self(Box::new(|ctx| f(ctx).boxed_local()))
+	}
+	pub async fn build(self, ctx: SysCtx) -> api::Atom { (self.0)(ctx).await }
 }
 impl Clone for AtomFactory {
 	fn clone(&self) -> Self { AtomFactory(clone_box(&*self.0)) }
@@ -275,11 +312,10 @@ impl fmt::Display for AtomFactory {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "AtomFactory") }
 }
 
-pub async fn err_not_callable() -> OrcErr {
-	mk_err(intern!(str: "This atom is not callable").await, "Attempted to apply value as function", [
-	])
+pub async fn err_not_callable(i: &Interner) -> OrcErr {
+	mk_err(i.i("This atom is not callable").await, "Attempted to apply value as function", [])
 }
 
-pub async fn err_not_command() -> OrcErr {
-	mk_err(intern!(str: "This atom is not a command").await, "Settled on an inactionable value", [])
+pub async fn err_not_command(i: &Interner) -> OrcErr {
+	mk_err(i.i("This atom is not a command").await, "Settled on an inactionable value", [])
 }

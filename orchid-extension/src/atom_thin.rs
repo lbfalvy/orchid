@@ -2,6 +2,7 @@ use std::any::{Any, TypeId, type_name};
 use std::future::Future;
 use std::io::Write;
 
+use async_once_cell::OnceCell;
 use futures::FutureExt;
 use futures::future::LocalBoxFuture;
 use orchid_api_traits::{Coding, enc_vec};
@@ -11,27 +12,31 @@ use orchid_base::name::Sym;
 use crate::api;
 use crate::atom::{
 	AtomCard, AtomCtx, AtomDynfo, AtomFactory, Atomic, AtomicFeaturesImpl, AtomicVariant, MethodSet,
-	err_not_callable, err_not_command, get_info,
+	MethodSetBuilder, err_not_callable, err_not_command, get_info,
 };
-use crate::expr::{Expr, ExprHandle, bot};
+use crate::expr::ExprHandle;
+use crate::gen_expr::{GExpr, bot};
 use crate::system::SysCtx;
 
 pub struct ThinVariant;
 impl AtomicVariant for ThinVariant {}
 impl<A: ThinAtom + Atomic<Variant = ThinVariant>> AtomicFeaturesImpl<ThinVariant> for A {
 	fn _factory(self) -> AtomFactory {
-		AtomFactory::new(move |ctx| {
+		AtomFactory::new(move |ctx| async move {
 			let (id, _) = get_info::<A>(ctx.cted.inst().card());
 			let mut buf = enc_vec(&id);
 			self.encode(&mut buf);
 			api::Atom { drop: None, data: buf, owner: ctx.id }
 		})
 	}
-	fn _info() -> Self::_Info { ThinAtomDynfo(Self::reg_reqs()) }
+	fn _info() -> Self::_Info { ThinAtomDynfo { msbuild: Self::reg_reqs(), ms: OnceCell::new() } }
 	type _Info = ThinAtomDynfo<Self>;
 }
 
-pub struct ThinAtomDynfo<T: ThinAtom>(MethodSet<T>);
+pub struct ThinAtomDynfo<T: ThinAtom> {
+	msbuild: MethodSetBuilder<T>,
+	ms: OnceCell<MethodSet<T>>,
+}
 impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
 	fn print<'a>(&self, AtomCtx(buf, _, ctx): AtomCtx<'a>) -> LocalBoxFuture<'a, String> {
 		async move { T::decode(&mut &buf[..]).print(ctx).await }.boxed_local()
@@ -43,7 +48,7 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
 		&'a self,
 		AtomCtx(buf, _, ctx): AtomCtx<'a>,
 		arg: api::ExprTicket,
-	) -> LocalBoxFuture<'a, Expr> {
+	) -> LocalBoxFuture<'a, GExpr> {
 		async move { T::decode(&mut &buf[..]).call(ExprHandle::from_args(ctx, arg)).await }
 			.boxed_local()
 	}
@@ -51,7 +56,7 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
 		&'a self,
 		AtomCtx(buf, _, ctx): AtomCtx<'a>,
 		arg: api::ExprTicket,
-	) -> LocalBoxFuture<'a, Expr> {
+	) -> LocalBoxFuture<'a, GExpr> {
 		async move { T::decode(&mut &buf[..]).call(ExprHandle::from_args(ctx, arg)).await }
 			.boxed_local()
 	}
@@ -62,13 +67,16 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
 		req: &'m1 mut dyn std::io::Read,
 		rep: &'m2 mut dyn Write,
 	) -> LocalBoxFuture<'a, bool> {
-		async move { self.0.dispatch(&T::decode(&mut &buf[..]), sys, key, req, rep).await }
-			.boxed_local()
+		async move {
+			let ms = self.ms.get_or_init(self.msbuild.pack(sys.clone())).await;
+			ms.dispatch(&T::decode(&mut &buf[..]), sys, key, req, rep).await
+		}
+		.boxed_local()
 	}
 	fn command<'a>(
 		&'a self,
 		AtomCtx(buf, _, ctx): AtomCtx<'a>,
-	) -> LocalBoxFuture<'a, OrcRes<Option<Expr>>> {
+	) -> LocalBoxFuture<'a, OrcRes<Option<GExpr>>> {
 		async move { T::decode(&mut &buf[..]).command(ctx).await }.boxed_local()
 	}
 	fn serialize<'a, 'b: 'a>(
@@ -86,7 +94,7 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
 		refs: &'a [api::ExprTicket],
 	) -> LocalBoxFuture<'a, api::Atom> {
 		assert!(refs.is_empty(), "Refs found when deserializing thin atom");
-		async { T::decode(&mut &data[..])._factory().build(ctx) }.boxed_local()
+		async { T::decode(&mut &data[..])._factory().build(ctx).await }.boxed_local()
 	}
 	fn drop<'a>(&'a self, AtomCtx(buf, _, ctx): AtomCtx<'a>) -> LocalBoxFuture<'a, ()> {
 		async move {
@@ -101,12 +109,12 @@ pub trait ThinAtom:
 	AtomCard<Data = Self> + Atomic<Variant = ThinVariant> + Coding + Send + Sync + 'static
 {
 	#[allow(unused_variables)]
-	fn call(&self, arg: ExprHandle) -> impl Future<Output = Expr> {
-		async { bot([err_not_callable().await]) }
+	fn call(&self, arg: ExprHandle) -> impl Future<Output = GExpr> {
+		async move { bot([err_not_callable(&arg.ctx.i).await]) }
 	}
 	#[allow(unused_variables)]
-	fn command(&self, ctx: SysCtx) -> impl Future<Output = OrcRes<Option<Expr>>> {
-		async { Err(err_not_command().await.into()) }
+	fn command(&self, ctx: SysCtx) -> impl Future<Output = OrcRes<Option<GExpr>>> {
+		async move { Err(err_not_command(&ctx.i).await.into()) }
 	}
 	#[allow(unused_variables)]
 	fn print(&self, ctx: SysCtx) -> impl Future<Output = String> {

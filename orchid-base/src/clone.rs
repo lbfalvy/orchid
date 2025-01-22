@@ -6,4 +6,7 @@ macro_rules! clone {
       $body
     }
   );
+  ($($n:ident),+) => {
+    $( let $n = $n.clone(); )+
+  }
 }

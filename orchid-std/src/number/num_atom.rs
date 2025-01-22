@@ -1,6 +1,6 @@
 use orchid_api_derive::Coding;
 use orchid_base::error::OrcRes;
-use orchid_extension::atom::{AtomFactory, Atomic, AtomicFeatures, MethodSet, ToAtom, TypAtom};
+use orchid_extension::atom::{AtomFactory, Atomic, AtomicFeatures, MethodSetBuilder, ToAtom, TypAtom};
 use orchid_extension::atom_thin::{ThinAtom, ThinVariant};
 use orchid_extension::conv::TryFromExpr;
 use orchid_extension::expr::Expr;
@@ -11,7 +11,7 @@ pub struct Int(pub i64);
 impl Atomic for Int {
 	type Variant = ThinVariant;
 	type Data = Self;
-	fn reg_reqs() -> MethodSet<Self> { MethodSet::new() }
+	fn reg_reqs() -> MethodSetBuilder<Self> { MethodSetBuilder::new() }
 }
 impl ThinAtom for Int {}
 impl TryFromExpr for Int {
@@ -25,7 +25,7 @@ pub struct Float(pub NotNan<f64>);
 impl Atomic for Float {
 	type Variant = ThinVariant;
 	type Data = Self;
-	fn reg_reqs() -> MethodSet<Self> { MethodSet::new() }
+	fn reg_reqs() -> MethodSetBuilder<Self> { MethodSetBuilder::new() }
 }
 impl ThinAtom for Float {}
 impl TryFromExpr for Float {
