@@ -1,5 +1,4 @@
 use std::num::NonZeroU64;
-use std::sync::Arc;
 
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;

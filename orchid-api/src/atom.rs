@@ -120,6 +120,13 @@ impl Request for AtomPrint {
 	type Response = String;
 }
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
+#[extends(ExtHostReq)]
+pub struct ExtAtomPrint(pub Atom);
+impl Request for ExtAtomPrint {
+	type Response = String;
+}
+
 /// Requests that apply to an existing atom instance
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
 #[extends(HostExtReq)]

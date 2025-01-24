@@ -20,7 +20,7 @@ pub fn scal_match<'a>(
 		(ScalMatcher::Placeh { key }, _) =>
 			Some(MatchState::from_ph(key.clone(), StateEntry::Scalar(expr))),
 		(ScalMatcher::S(c1, b_mat), MacTok::S(c2, body)) if c1 == c2 =>
-			any_match(b_mat, &body[..], save_loc),
+			any_match(&b_mat, &body[..], save_loc),
 		(ScalMatcher::Lambda(arg_mat, b_mat), MacTok::Lambda(arg, body)) =>
 			Some(any_match(arg_mat, arg, save_loc)?.combine(any_match(b_mat, body, save_loc)?)),
 		_ => None,

@@ -1,8 +1,9 @@
 use std::any::{Any, TypeId, type_name};
 use std::future::Future;
-use std::io::Write;
+use std::pin::Pin;
 
 use async_once_cell::OnceCell;
+use async_std::io::{Read, Write};
 use futures::FutureExt;
 use futures::future::LocalBoxFuture;
 use orchid_api_traits::{Coding, enc_vec};
@@ -24,8 +25,8 @@ impl<A: ThinAtom + Atomic<Variant = ThinVariant>> AtomicFeaturesImpl<ThinVariant
 	fn _factory(self) -> AtomFactory {
 		AtomFactory::new(move |ctx| async move {
 			let (id, _) = get_info::<A>(ctx.cted.inst().card());
-			let mut buf = enc_vec(&id);
-			self.encode(&mut buf);
+			let mut buf = enc_vec(&id).await;
+			self.encode(Pin::new(&mut buf)).await;
 			api::Atom { drop: None, data: buf, owner: ctx.id }
 		})
 	}
@@ -39,53 +40,58 @@ pub struct ThinAtomDynfo<T: ThinAtom> {
 }
 impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
 	fn print<'a>(&self, AtomCtx(buf, _, ctx): AtomCtx<'a>) -> LocalBoxFuture<'a, String> {
-		async move { T::decode(&mut &buf[..]).print(ctx).await }.boxed_local()
+		async move { T::decode(Pin::new(&mut &buf[..])).await.print(ctx).await }.boxed_local()
 	}
 	fn tid(&self) -> TypeId { TypeId::of::<T>() }
 	fn name(&self) -> &'static str { type_name::<T>() }
-	fn decode(&self, AtomCtx(buf, ..): AtomCtx) -> Box<dyn Any> { Box::new(T::decode(&mut &buf[..])) }
+	fn decode<'a>(&'a self, AtomCtx(buf, ..): AtomCtx<'a>) -> LocalBoxFuture<'a, Box<dyn Any>> {
+		async { Box::new(T::decode(Pin::new(&mut &buf[..])).await) as Box<dyn Any> }.boxed_local()
+	}
 	fn call<'a>(
 		&'a self,
 		AtomCtx(buf, _, ctx): AtomCtx<'a>,
 		arg: api::ExprTicket,
 	) -> LocalBoxFuture<'a, GExpr> {
-		async move { T::decode(&mut &buf[..]).call(ExprHandle::from_args(ctx, arg)).await }
-			.boxed_local()
+		Box::pin(async move {
+			T::decode(Pin::new(&mut &buf[..])).await.call(ExprHandle::from_args(ctx, arg)).await
+		})
 	}
 	fn call_ref<'a>(
 		&'a self,
 		AtomCtx(buf, _, ctx): AtomCtx<'a>,
 		arg: api::ExprTicket,
 	) -> LocalBoxFuture<'a, GExpr> {
-		async move { T::decode(&mut &buf[..]).call(ExprHandle::from_args(ctx, arg)).await }
-			.boxed_local()
+		Box::pin(async move {
+			T::decode(Pin::new(&mut &buf[..])).await.call(ExprHandle::from_args(ctx, arg)).await
+		})
 	}
 	fn handle_req<'a, 'm1: 'a, 'm2: 'a>(
 		&'a self,
 		AtomCtx(buf, _, sys): AtomCtx<'a>,
 		key: Sym,
-		req: &'m1 mut dyn std::io::Read,
-		rep: &'m2 mut dyn Write,
+		req: Pin<&'m1 mut dyn Read>,
+		rep: Pin<&'m2 mut dyn Write>,
 	) -> LocalBoxFuture<'a, bool> {
-		async move {
+		Box::pin(async move {
 			let ms = self.ms.get_or_init(self.msbuild.pack(sys.clone())).await;
-			ms.dispatch(&T::decode(&mut &buf[..]), sys, key, req, rep).await
-		}
-		.boxed_local()
+			ms.dispatch(&T::decode(Pin::new(&mut &buf[..])).await, sys, key, req, rep).await
+		})
 	}
 	fn command<'a>(
 		&'a self,
 		AtomCtx(buf, _, ctx): AtomCtx<'a>,
 	) -> LocalBoxFuture<'a, OrcRes<Option<GExpr>>> {
-		async move { T::decode(&mut &buf[..]).command(ctx).await }.boxed_local()
+		async move { T::decode(Pin::new(&mut &buf[..])).await.command(ctx).await }.boxed_local()
 	}
 	fn serialize<'a, 'b: 'a>(
 		&'a self,
 		ctx: AtomCtx<'a>,
-		write: &'b mut dyn Write,
+		write: Pin<&'b mut dyn Write>,
 	) -> LocalBoxFuture<'a, Option<Vec<api::ExprTicket>>> {
-		T::decode(&mut &ctx.0[..]).encode(write);
-		async { Some(Vec::new()) }.boxed_local()
+		Box::pin(async {
+			T::decode(Pin::new(&mut &ctx.0[..])).await.encode(write).await;
+			Some(Vec::new())
+		})
 	}
 	fn deserialize<'a>(
 		&'a self,
@@ -94,11 +100,11 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
 		refs: &'a [api::ExprTicket],
 	) -> LocalBoxFuture<'a, api::Atom> {
 		assert!(refs.is_empty(), "Refs found when deserializing thin atom");
-		async { T::decode(&mut &data[..])._factory().build(ctx).await }.boxed_local()
+		async { T::decode(Pin::new(&mut &data[..])).await._factory().build(ctx).await }.boxed_local()
 	}
 	fn drop<'a>(&'a self, AtomCtx(buf, _, ctx): AtomCtx<'a>) -> LocalBoxFuture<'a, ()> {
 		async move {
-			let string_self = T::decode(&mut &buf[..]).print(ctx.clone()).await;
+			let string_self = T::decode(Pin::new(&mut &buf[..])).await.print(ctx.clone()).await;
 			writeln!(ctx.logger, "Received drop signal for non-drop atom {string_self:?}");
 		}
 		.boxed_local()

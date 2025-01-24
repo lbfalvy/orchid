@@ -1,10 +1,11 @@
 use std::any::{Any, TypeId, type_name};
 use std::borrow::Cow;
 use std::future::Future;
-use std::io::{Read, Write};
+use std::pin::Pin;
 use std::rc::Rc;
 
 use async_once_cell::OnceCell;
+use async_std::io::{Read, Write};
 use futures::FutureExt;
 use futures::future::{LocalBoxFuture, ready};
 use itertools::Itertools;
@@ -31,8 +32,8 @@ impl<A: OwnedAtom + Atomic<Variant = OwnedVariant>> AtomicFeaturesImpl<OwnedVari
 		AtomFactory::new(move |ctx| async move {
 			let rec = ctx.obj_store.add(Box::new(self));
 			let (id, _) = get_info::<A>(ctx.cted.inst().card());
-			let mut data = enc_vec(&id);
-			rec.encode(&mut data).await;
+			let mut data = enc_vec(&id).await;
+			rec.encode(Pin::<&mut Vec<u8>>::new(&mut data)).await;
 			api::Atom { drop: Some(api::AtomId(rec.id())), data, owner: ctx.id }
 		})
 	}
@@ -55,8 +56,11 @@ pub struct OwnedAtomDynfo<T: OwnedAtom> {
 impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 	fn tid(&self) -> TypeId { TypeId::of::<T>() }
 	fn name(&self) -> &'static str { type_name::<T>() }
-	fn decode(&self, AtomCtx(data, ..): AtomCtx) -> Box<dyn Any> {
-		Box::new(<T as AtomCard>::Data::decode(&mut &data[..]))
+	fn decode<'a>(&'a self, AtomCtx(data, ..): AtomCtx<'a>) -> LocalBoxFuture<'a, Box<dyn Any>> {
+		async {
+			Box::new(<T as AtomCard>::Data::decode(Pin::new(&mut &data[..])).await) as Box<dyn Any>
+		}
+		.boxed_local()
 	}
 	fn call(&self, AtomCtx(_, id, ctx): AtomCtx, arg: api::ExprTicket) -> LocalBoxFuture<'_, GExpr> {
 		with_atom(id.unwrap(), &ctx, |a| a.remove()).dyn_call(ctx.clone(), arg)
@@ -82,8 +86,8 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 		&'a self,
 		AtomCtx(_, id, ctx): AtomCtx,
 		key: Sym,
-		req: &'b mut dyn Read,
-		rep: &'c mut dyn Write,
+		req: Pin<&'b mut dyn Read>,
+		rep: Pin<&'c mut dyn Write>,
 	) -> LocalBoxFuture<'a, bool> {
 		async move {
 			with_atom(id.unwrap(), &ctx, |a| {
@@ -110,11 +114,11 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 	fn serialize<'a, 'b: 'a>(
 		&'a self,
 		AtomCtx(_, id, ctx): AtomCtx<'a>,
-		write: &'b mut dyn Write,
+		mut write: Pin<&'b mut dyn Write>,
 	) -> LocalBoxFuture<'a, Option<Vec<api::ExprTicket>>> {
 		async move {
 			let id = id.unwrap();
-			id.encode(write);
+			id.encode(write.as_mut()).await;
 			with_atom(id, &ctx, |a| clone!(ctx; async move { a.dyn_serialize(ctx, write).await }))
 				.await
 				.map(|v| v.into_iter().map(|t| t.handle().tk).collect_vec())
@@ -138,20 +142,22 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 }
 
 pub trait DeserializeCtx: Sized {
-	fn read<T: Decode>(&mut self) -> T;
+	fn read<T: Decode>(&mut self) -> impl Future<Output = T>;
 	fn is_empty(&self) -> bool;
 	fn assert_empty(self) { assert!(self.is_empty(), "Bytes found after decoding") }
-	fn decode<T: Decode>(mut self) -> T {
-		let t = self.read();
-		self.assert_empty();
-		t
+	fn decode<T: Decode>(mut self) -> impl Future<Output = T> {
+		async {
+			let t = self.read().await;
+			self.assert_empty();
+			t
+		}
 	}
 	fn sys(&self) -> SysCtx;
 }
 
 struct DeserCtxImpl<'a>(&'a [u8], &'a SysCtx);
 impl DeserializeCtx for DeserCtxImpl<'_> {
-	fn read<T: Decode>(&mut self) -> T { T::decode(&mut self.0) }
+	async fn read<T: Decode>(&mut self) -> T { T::decode(Pin::new(&mut self.0)).await }
 	fn is_empty(&self) -> bool { self.0.is_empty() }
 	fn sys(&self) -> SysCtx { self.1.clone() }
 }
@@ -228,7 +234,7 @@ pub trait OwnedAtom: Atomic<Variant = OwnedVariant> + Any + Clone + 'static {
 	fn serialize(
 		&self,
 		ctx: SysCtx,
-		write: &mut (impl Write + ?Sized),
+		write: Pin<&mut (impl Write + ?Sized)>,
 	) -> impl Future<Output = Self::Refs> {
 		assert_serializable::<Self>();
 		async { panic!("Either implement serialize or set Refs to Never for {}", type_name::<Self>()) }
@@ -250,7 +256,7 @@ fn assert_serializable<T: OwnedAtom>() {
 pub trait DynOwnedAtom: 'static {
 	fn atom_tid(&self) -> TypeId;
 	fn as_any_ref(&self) -> &dyn Any;
-	fn encode<'a>(&'a self, buffer: &'a mut dyn Write) -> LocalBoxFuture<'a, ()>;
+	fn encode<'a>(&'a self, buffer: Pin<&'a mut dyn Write>) -> LocalBoxFuture<'a, ()>;
 	fn dyn_call_ref(&self, ctx: SysCtx, arg: api::ExprTicket) -> LocalBoxFuture<'_, GExpr>;
 	fn dyn_call(self: Box<Self>, ctx: SysCtx, arg: api::ExprTicket)
 	-> LocalBoxFuture<'static, GExpr>;
@@ -260,14 +266,14 @@ pub trait DynOwnedAtom: 'static {
 	fn dyn_serialize<'a>(
 		&'a self,
 		ctx: SysCtx,
-		sink: &'a mut dyn Write,
+		sink: Pin<&'a mut dyn Write>,
 	) -> LocalBoxFuture<'a, Option<Vec<Expr>>>;
 }
 impl<T: OwnedAtom> DynOwnedAtom for T {
 	fn atom_tid(&self) -> TypeId { TypeId::of::<T>() }
 	fn as_any_ref(&self) -> &dyn Any { self }
-	fn encode<'a>(&'a self, buffer: &'a mut dyn Write) -> LocalBoxFuture<'a, ()> {
-		async { self.val().await.as_ref().encode(buffer) }.boxed_local()
+	fn encode<'a>(&'a self, buffer: Pin<&'a mut dyn Write>) -> LocalBoxFuture<'a, ()> {
+		async { self.val().await.as_ref().encode(buffer).await }.boxed_local()
 	}
 	fn dyn_call_ref(&self, ctx: SysCtx, arg: api::ExprTicket) -> LocalBoxFuture<'_, GExpr> {
 		self.call_ref(ExprHandle::from_args(ctx, arg)).boxed_local()
@@ -289,7 +295,7 @@ impl<T: OwnedAtom> DynOwnedAtom for T {
 	fn dyn_serialize<'a>(
 		&'a self,
 		ctx: SysCtx,
-		sink: &'a mut dyn Write,
+		sink: Pin<&'a mut dyn Write>,
 	) -> LocalBoxFuture<'a, Option<Vec<Expr>>> {
 		match TypeId::of::<Never>() == TypeId::of::<<Self as OwnedAtom>::Refs>() {
 			true => ready(None).boxed_local(),

@@ -22,8 +22,9 @@
 //! be preserved. Toolkits must ensure that the client code is able to observe
 //! the ordering of messages.
 
-use std::io::{Read, Write};
+use std::pin::Pin;
 
+use async_std::io::{Read, Write};
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::{Channel, Decode, Encode, MsgSet, Request, read_exact, write_exact};
 
@@ -34,15 +35,15 @@ pub struct HostHeader {
 	pub log_strategy: logging::LogStrategy,
 }
 impl Decode for HostHeader {
-	fn decode<R: Read + ?Sized>(read: &mut R) -> Self {
-		read_exact(read, HOST_INTRO);
-		Self { log_strategy: logging::LogStrategy::decode(read) }
+	async fn decode<R: Read + ?Sized>(mut read: Pin<&mut R>) -> Self {
+		read_exact(read.as_mut(), HOST_INTRO).await;
+		Self { log_strategy: logging::LogStrategy::decode(read).await }
 	}
 }
 impl Encode for HostHeader {
-	fn encode<W: Write + ?Sized>(&self, write: &mut W) {
-		write_exact(write, HOST_INTRO);
-		self.log_strategy.encode(write)
+	async fn encode<W: Write + ?Sized>(&self, mut write: Pin<&mut W>) {
+		write_exact(write.as_mut(), HOST_INTRO).await;
+		self.log_strategy.encode(write).await
 	}
 }
 
@@ -52,16 +53,16 @@ pub struct ExtensionHeader {
 	pub systems: Vec<system::SystemDecl>,
 }
 impl Decode for ExtensionHeader {
-	fn decode<R: Read + ?Sized>(read: &mut R) -> Self {
-		read_exact(read, EXT_INTRO);
-		Self { name: String::decode(read), systems: Vec::decode(read) }
+	async fn decode<R: Read + ?Sized>(mut read: Pin<&mut R>) -> Self {
+		read_exact(read.as_mut(), EXT_INTRO).await;
+		Self { name: String::decode(read.as_mut()).await, systems: Vec::decode(read).await }
 	}
 }
 impl Encode for ExtensionHeader {
-	fn encode<W: Write + ?Sized>(&self, write: &mut W) {
-		write_exact(write, EXT_INTRO);
-		self.name.encode(write);
-		self.systems.encode(write)
+	async fn encode<W: Write + ?Sized>(&self, mut write: Pin<&mut W>) {
+		write_exact(write.as_mut(), EXT_INTRO).await;
+		self.name.encode(write.as_mut()).await;
+		self.systems.encode(write).await
 	}
 }
 
@@ -78,6 +79,7 @@ pub enum ExtHostReq {
 	Ping(Ping),
 	IntReq(interner::IntReq),
 	Fwd(atom::Fwd),
+	ExtAtomPrint(atom::ExtAtomPrint),
 	SysFwd(system::SysFwd),
 	ExprReq(expr::ExprReq),
 	SubLex(lexer::SubLex),
@@ -150,32 +152,37 @@ impl MsgSet for HostMsgSet {
 mod tests {
 	use orchid_api_traits::enc_vec;
 	use ordered_float::NotNan;
+	use test_executors::spin_on;
 
 	use super::*;
 
 	#[test]
 	fn host_header_enc() {
-		let hh = HostHeader { log_strategy: logging::LogStrategy::File("SomeFile".to_string()) };
-		let mut enc = &enc_vec(&hh)[..];
-		eprintln!("Encoded to {enc:?}");
-		HostHeader::decode(&mut enc);
-		assert_eq!(enc, []);
+		spin_on(async {
+			let hh = HostHeader { log_strategy: logging::LogStrategy::File("SomeFile".to_string()) };
+			let mut enc = &enc_vec(&hh).await[..];
+			eprintln!("Encoded to {enc:?}");
+			HostHeader::decode(Pin::new(&mut enc)).await;
+			assert_eq!(enc, []);
+		})
 	}
 
 	#[test]
 	fn ext_header_enc() {
-		let eh = ExtensionHeader {
-			name: "my_extension".to_string(),
-			systems: vec![system::SystemDecl {
-				id: system::SysDeclId(1.try_into().unwrap()),
-				name: "misc".to_string(),
-				depends: vec!["std".to_string()],
-				priority: NotNan::new(1f64).unwrap(),
-			}],
-		};
-		let mut enc = &enc_vec(&eh)[..];
-		eprintln!("Encoded to {enc:?}");
-		ExtensionHeader::decode(&mut enc);
-		assert_eq!(enc, [])
+		spin_on(async {
+			let eh = ExtensionHeader {
+				name: "my_extension".to_string(),
+				systems: vec![system::SystemDecl {
+					id: system::SysDeclId(1.try_into().unwrap()),
+					name: "misc".to_string(),
+					depends: vec!["std".to_string()],
+					priority: NotNan::new(1f64).unwrap(),
+				}],
+			};
+			let mut enc = &enc_vec(&eh).await[..];
+			eprintln!("Encoded to {enc:?}");
+			ExtensionHeader::decode(Pin::new(&mut enc)).await;
+			assert_eq!(enc, [])
+		})
 	}
 }

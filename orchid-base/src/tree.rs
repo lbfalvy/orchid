@@ -1,6 +1,6 @@
 use std::borrow::Borrow;
-use std::cell::RefCell;
 use std::fmt::{self, Debug, Display};
+use std::future::{Future, ready};
 use std::iter;
 use std::marker::PhantomData;
 use std::ops::Range;
@@ -9,7 +9,7 @@ use std::sync::Arc;
 pub use api::PhKind;
 use async_std::stream;
 use async_std::sync::Mutex;
-use futures::future::LocalBoxFuture;
+use futures::future::{LocalBoxFuture, join_all};
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
 use never::Never;
@@ -47,15 +47,22 @@ pub fn recur<'a, A: AtomRepr, X: ExtraTok>(
 	})
 }
 
-pub trait AtomRepr: fmt::Display + Clone + fmt::Debug {
+pub trait AtomRepr: Clone {
 	type Ctx: ?Sized;
-	fn from_api(api: &api::Atom, pos: Pos, ctx: &mut Self::Ctx) -> Self;
-	fn to_api(&self) -> orchid_api::Atom;
+	fn from_api(api: &api::Atom, pos: Pos, ctx: &mut Self::Ctx) -> impl Future<Output = Self>;
+	fn to_api(&self) -> impl Future<Output = orchid_api::Atom> + '_;
+	fn print(&self) -> impl Future<Output = String> + '_;
 }
 impl AtomRepr for Never {
 	type Ctx = Never;
-	fn from_api(_: &api::Atom, _: Pos, _: &mut Self::Ctx) -> Self { panic!() }
-	fn to_api(&self) -> orchid_api::Atom { match *self {} }
+	#[allow(unreachable_code)]
+	fn from_api(_: &api::Atom, _: Pos, ctx: &mut Self::Ctx) -> impl Future<Output = Self> {
+		ready(match *ctx {})
+	}
+	#[allow(unreachable_code)]
+	fn to_api(&self) -> impl Future<Output = orchid_api::Atom> + '_ { ready(match *self {}) }
+	#[allow(unreachable_code)]
+	fn print(&self) -> impl Future<Output = String> + '_ { ready(match *self {}) }
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -79,7 +86,7 @@ impl<'b, A: AtomRepr, X: ExtraTok> TokTree<'b, A, X> {
 	pub async fn from_api(tt: &api::TokenTree, ctx: &mut A::Ctx, i: &Interner) -> Self {
 		let tok = match_mapping!(&tt.token, api::Token => Token::<'b, A, X> {
 			BR, NS,
-			Atom(a => A::from_api(a, Pos::Range(tt.range.clone()), ctx)),
+			Atom(a => A::from_api(a, Pos::Range(tt.range.clone()), ctx).await),
 			Bottom(e => OrcErrv::from_api(e, i).await),
 			LambdaHead(arg => ttv_from_api(arg, ctx, i).await),
 			Name(n => Tok::from_api(*n, i).await),
@@ -94,7 +101,7 @@ impl<'b, A: AtomRepr, X: ExtraTok> TokTree<'b, A, X> {
 
 	pub async fn to_api(&self, do_extra: &mut impl RefDoExtra<X>) -> api::TokenTree {
 		let token = match_mapping!(&self.tok, Token => api::Token {
-			Atom(a.to_api()),
+			Atom(a.to_api().await),
 			BR,
 			NS,
 			Bottom(e.to_api()),
@@ -111,20 +118,20 @@ impl<'b, A: AtomRepr, X: ExtraTok> TokTree<'b, A, X> {
 		api::TokenTree { range: self.range.clone(), token }
 	}
 
-	pub fn into_api(
+	pub async fn into_api(
 		self,
 		do_extra: &mut impl FnMut(X, Range<u32>) -> api::TokenTree,
 	) -> api::TokenTree {
 		let token = match self.tok {
-			Token::Atom(a) => api::Token::Atom(a.to_api()),
+			Token::Atom(a) => api::Token::Atom(a.to_api().await),
 			Token::BR => api::Token::BR,
 			Token::NS => api::Token::NS,
 			Token::Bottom(e) => api::Token::Bottom(e.to_api()),
 			Token::Comment(c) => api::Token::Comment(c.clone()),
-			Token::LambdaHead(arg) => api::Token::LambdaHead(ttv_into_api(arg, do_extra)),
+			Token::LambdaHead(arg) => api::Token::LambdaHead(ttv_into_api(arg, do_extra).await),
 			Token::Name(n) => api::Token::Name(n.to_api()),
 			Token::Slot(tt) => api::Token::Slot(tt.ticket()),
-			Token::S(p, b) => api::Token::S(p, ttv_into_api(b, do_extra)),
+			Token::S(p, b) => api::Token::S(p, ttv_into_api(b, do_extra).await),
 			Token::Ph(Ph { kind, name }) =>
 				api::Token::Ph(api::Placeholder { name: name.to_api(), kind }),
 			Token::X(x) => return do_extra(x, self.range.clone()),
@@ -146,10 +153,7 @@ impl<'b, A: AtomRepr, X: ExtraTok> TokTree<'b, A, X> {
 		body.insert(0, Token::LambdaHead(arg).at(arg_range));
 		Token::S(Paren::Round, body).at(s_range)
 	}
-}
-
-impl<A: AtomRepr, X: ExtraTok> Display for TokTree<'_, A, X> {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.tok) }
+	pub async fn print(&self) -> String { self.tok.print().await }
 }
 
 pub async fn ttv_from_api<A: AtomRepr, X: ExtraTok>(
@@ -161,7 +165,7 @@ pub async fn ttv_from_api<A: AtomRepr, X: ExtraTok>(
 	stream::from_iter(tokv.into_iter())
 		.then(|t| async {
 			let t = t;
-			TokTree::<A, X>::from_api(t.borrow(), *ctx_lk.lock().await, i).await
+			TokTree::<A, X>::from_api(t.borrow(), *ctx_lk.lock().await, i).boxed_local().await
 		})
 		.collect()
 		.await
@@ -178,11 +182,15 @@ pub async fn ttv_to_api<'a, A: AtomRepr, X: ExtraTok>(
 	output
 }
 
-pub fn ttv_into_api<'a, A: AtomRepr, X: ExtraTok>(
+pub async fn ttv_into_api<'a, A: AtomRepr, X: ExtraTok>(
 	tokv: impl IntoIterator<Item = TokTree<'a, A, X>>,
 	do_extra: &mut impl FnMut(X, Range<u32>) -> api::TokenTree,
 ) -> Vec<api::TokenTree> {
-	tokv.into_iter().map(|t| t.into_api(do_extra)).collect_vec()
+	let mut new_tokv = Vec::new();
+	for item in tokv {
+		new_tokv.push(item.into_api(do_extra).await)
+	}
+	new_tokv
 }
 
 /// This takes a position and not a range because it assigns the range to
@@ -237,50 +245,32 @@ impl<'a, A: AtomRepr, X: ExtraTok> Token<'a, A, X> {
 			_ => None,
 		}
 	}
-}
-impl<A: AtomRepr, X: ExtraTok> Display for Token<'_, A, X> {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		thread_local! {
-			static PAREN_LEVEL: RefCell<usize> = 0.into();
-		}
-		fn get_indent() -> usize { PAREN_LEVEL.with_borrow(|t| *t) }
-		fn with_indent<T>(f: impl FnOnce() -> T) -> T {
-			PAREN_LEVEL.with_borrow_mut(|t| *t += 1);
-			let r = f();
-			PAREN_LEVEL.with_borrow_mut(|t| *t -= 1);
-			r
-		}
+	pub async fn print(&self) -> String {
 		match self {
-			Self::Atom(a) => f.write_str(&indent(&format!("{a} "), get_indent(), false)),
-			Self::BR => write!(f, "\n{}", "  ".repeat(get_indent())),
-			Self::Bottom(err) if err.len() == 1 => write!(f, "Bottom({}) ", err.one().unwrap()),
-			Self::Bottom(err) => {
-				write!(f, "Botttom(\n{}) ", indent(&err.to_string(), get_indent() + 1, true))
-			},
-			Self::Comment(c) => write!(f, "--[{c}]-- "),
-			Self::LambdaHead(arg) => with_indent(|| write!(f, "\\ {} . ", ttv_fmt(arg))),
-			Self::NS => f.write_str(":: "),
-			Self::Name(n) => write!(f, "{n} "),
-			Self::Slot(th) => write!(f, "{th} "),
+			Self::Atom(a) => a.print().await,
+			Self::BR => "\n".to_string(),
+			Self::Bottom(err) if err.len() == 1 => format!("Bottom({}) ", err.one().unwrap()),
+			Self::Bottom(err) => format!("Botttom(\n{}) ", indent(&err.to_string())),
+			Self::Comment(c) => format!("--[{c}]-- "),
+			Self::LambdaHead(arg) => format!("\\ {} . ", indent(&ttv_fmt(arg).await)),
+			Self::NS => ":: ".to_string(),
+			Self::Name(n) => format!("{n} "),
+			Self::Slot(th) => format!("{th} "),
 			Self::Ph(Ph { kind, name }) => match &kind {
-				PhKind::Scalar => write!(f, "${name}"),
+				PhKind::Scalar => format!("${name}"),
 				PhKind::Vector { at_least_one, priority } => {
-					if *at_least_one {
-						write!(f, ".")?
-					}
-					write!(f, "..${name}")?;
-					if 0 < *priority { write!(f, "{priority}") } else { Ok(()) }
+					let prefix = if *at_least_one { "..." } else { ".." };
+					let suffix = if 0 < *priority { format!(":{priority}") } else { String::new() };
+					format!("{prefix}${name}{suffix}")
 				},
 			},
 			Self::S(p, b) => {
 				let (lp, rp, _) = PARENS.iter().find(|(_, _, par)| par == p).unwrap();
-				write!(f, "{lp} ")?;
-				with_indent(|| f.write_str(&ttv_fmt(b)))?;
-				write!(f, "{rp} ")
+				format!("{lp} {}{rp} ", indent(&ttv_fmt(b).await))
 			},
-			Self::X(x) => write!(f, "{x} "),
-			Self::Macro(None) => write!(f, "macro "),
-			Self::Macro(Some(prio)) => write!(f, "macro({prio})"),
+			Self::X(x) => format!("{x} "),
+			Self::Macro(None) => "macro ".to_string(),
+			Self::Macro(Some(prio)) => format!("macro({prio})"),
 		}
 	}
 }
@@ -290,21 +280,13 @@ pub fn ttv_range(ttv: &[TokTree<'_, impl AtomRepr, impl ExtraTok>]) -> Range<u32
 	ttv.first().unwrap().range.start..ttv.last().unwrap().range.end
 }
 
-pub fn ttv_fmt<'a: 'b, 'b>(
+pub async fn ttv_fmt<'a: 'b, 'b>(
 	ttv: impl IntoIterator<Item = &'b TokTree<'a, impl AtomRepr + 'b, impl ExtraTok + 'b>>,
 ) -> String {
-	ttv.into_iter().join("")
+	join_all(ttv.into_iter().map(|tt| tt.print())).await.join("")
 }
 
-pub fn indent(s: &str, lvl: usize, first: bool) -> String {
-	if first {
-		s.replace("\n", &("\n".to_string() + &"  ".repeat(lvl)))
-	} else if let Some((fst, rest)) = s.split_once('\n') {
-		fst.to_string() + "\n" + &indent(rest, lvl, true)
-	} else {
-		s.to_string()
-	}
-}
+pub fn indent(s: &str) -> String { s.replace("\n", "\n  ") }
 
 #[derive(Clone, Debug)]
 pub struct Ph {

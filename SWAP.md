@@ -2,7 +2,11 @@
 
 convert host to async non-send
 
-convert extension's SysCtx to a typed context bag
+demonstrate operation with existing lex-hello example
+
+consider converting extension's SysCtx to a typed context bag
+
+align fn atom and macros on both sides with new design. No global state.
 
 ## alternate extension mechanism
 

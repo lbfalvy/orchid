@@ -107,43 +107,55 @@ fn mk_scalar(pattern: &MacTree) -> ScalMatcher {
 
 #[cfg(test)]
 mod test {
-	use std::sync::Arc;
+	use std::rc::Rc;
 
 	use orchid_api::PhKind;
+	use orchid_base::interner::Interner;
 	use orchid_base::location::SourceRange;
+	use orchid_base::sym;
 	use orchid_base::tokens::Paren;
 	use orchid_base::tree::Ph;
-	use orchid_base::{intern, sym};
+	use test_executors::spin_on;
 
 	use super::mk_any;
 	use crate::macros::{MacTok, MacTree};
 
 	#[test]
 	fn test_scan() {
-		let ex = |tok: MacTok| MacTree { tok: Arc::new(tok), pos: SourceRange::mock().pos() };
-		let pattern = vec![
-			ex(MacTok::Ph(Ph {
-				kind: PhKind::Vector { priority: 0, at_least_one: false },
-				name: intern!(str: "::prefix"),
-			})),
-			ex(MacTok::Name(sym!(prelude::do))),
-			ex(MacTok::S(Paren::Round, vec![
+		spin_on(async {
+			let i = Interner::new_master();
+			let ex = |tok: MacTok| async {
+				MacTree { tok: Rc::new(tok), pos: SourceRange::mock(&i).await.pos() }
+			};
+			let pattern = vec![
 				ex(MacTok::Ph(Ph {
 					kind: PhKind::Vector { priority: 0, at_least_one: false },
-					name: intern!(str: "expr"),
-				})),
-				ex(MacTok::Name(sym!(prelude::;))),
+					name: i.i("::prefix").await,
+				}))
+				.await,
+				ex(MacTok::Name(sym!(prelude::do; i).await)).await,
+				ex(MacTok::S(Paren::Round, vec![
+					ex(MacTok::Ph(Ph {
+						kind: PhKind::Vector { priority: 0, at_least_one: false },
+						name: i.i("expr").await,
+					}))
+					.await,
+					ex(MacTok::Name(sym!(prelude::; ; i).await)).await,
+					ex(MacTok::Ph(Ph {
+						kind: PhKind::Vector { priority: 1, at_least_one: false },
+						name: i.i("rest").await,
+					}))
+					.await,
+				]))
+				.await,
 				ex(MacTok::Ph(Ph {
-					kind: PhKind::Vector { priority: 1, at_least_one: false },
-					name: intern!(str: "rest"),
-				})),
-			])),
-			ex(MacTok::Ph(Ph {
-				kind: PhKind::Vector { priority: 0, at_least_one: false },
-				name: intern!(str: "::suffix"),
-			})),
-		];
-		let matcher = mk_any(&pattern);
-		println!("{matcher}");
+					kind: PhKind::Vector { priority: 0, at_least_one: false },
+					name: i.i("::suffix").await,
+				}))
+				.await,
+			];
+			let matcher = mk_any(&pattern);
+			println!("{matcher}");
+		})
 	}
 }

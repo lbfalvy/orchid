@@ -48,7 +48,7 @@ impl<'a> RuleCtx<'a> {
 			return Err(err_cascade(&self.sys.i).await.into());
 		};
 		static ATOM_MSG: &str = "Returned atom from Rule recursion";
-		Ok(mtreev_from_api(&treev, &mut |_| panic!("{ATOM_MSG}"), &self.sys.i).await)
+		Ok(mtreev_from_api(&treev, &self.sys.i, &mut |_| panic!("{ATOM_MSG}")).await)
 	}
 	pub fn getv(&mut self, key: &Tok<String>) -> Vec<MTree<'a, Never>> {
 		self.args.remove(key).expect("Key not found")

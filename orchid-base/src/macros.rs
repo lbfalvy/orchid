@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use async_std::stream;
@@ -22,13 +23,14 @@ impl MacroSlot<'_> {
 
 trait_set! {
 	pub trait MacroAtomToApi<A> = for<'a> FnMut(&'a A) -> LocalBoxFuture<'a, api::MacroToken>;
-	pub trait MacroAtomFromApi<'a, A> = FnMut(&api::Atom) -> MTok<'a, A>;
+	pub trait MacroAtomFromApi<'a, A> =
+		for<'b> FnMut(&'b api::Atom) -> LocalBoxFuture<'b, MTok<'a, A>>;
 }
 
 #[derive(Clone, Debug)]
 pub struct MTree<'a, A> {
 	pub pos: Pos,
-	pub tok: Arc<MTok<'a, A>>,
+	pub tok: Rc<MTok<'a, A>>,
 }
 impl<'a, A> MTree<'a, A> {
 	pub(crate) async fn from_api(
@@ -38,7 +40,7 @@ impl<'a, A> MTree<'a, A> {
 	) -> Self {
 		Self {
 			pos: Pos::from_api(&api.location, i).await,
-			tok: Arc::new(MTok::from_api(&api.token, do_atom, i).await),
+			tok: Rc::new(MTok::from_api(&api.token, i, do_atom).await),
 		}
 	}
 	pub(crate) async fn to_api(&self, do_atom: &mut impl MacroAtomToApi<A>) -> api::MacroTree {
@@ -66,17 +68,17 @@ pub enum MTok<'a, A> {
 impl<'a, A> MTok<'a, A> {
 	pub(crate) async fn from_api(
 		api: &api::MacroToken,
-		do_atom: &mut impl MacroAtomFromApi<'a, A>,
 		i: &Interner,
+		do_atom: &mut impl MacroAtomFromApi<'a, A>,
 	) -> Self {
 		match_mapping!(&api, api::MacroToken => MTok::<'a, A> {
-			Lambda(x => mtreev_from_api(x, do_atom, i).await, b => mtreev_from_api(b, do_atom, i).await),
+			Lambda(x => mtreev_from_api(x, i, do_atom).await, b => mtreev_from_api(b, i, do_atom).await),
 			Name(t => Sym::from_api(*t, i).await),
 			Slot(tk => MacroSlot(*tk, PhantomData)),
-			S(p.clone(), b => mtreev_from_api(b, do_atom, i).await),
+			S(p.clone(), b => mtreev_from_api(b, i, do_atom).await),
 			Ph(ph => Ph::from_api(ph, i).await),
 		} {
-			api::MacroToken::Atom(a) => do_atom(a)
+			api::MacroToken::Atom(a) => do_atom(a).await
 		})
 	}
 	pub(crate) async fn to_api(&self, do_atom: &mut impl MacroAtomToApi<A>) -> api::MacroToken {
@@ -93,13 +95,13 @@ impl<'a, A> MTok<'a, A> {
 			MTok::Atom(a) => do_atom(a).await,
 		})
 	}
-	pub fn at(self, pos: Pos) -> MTree<'a, A> { MTree { pos, tok: Arc::new(self) } }
+	pub fn at(self, pos: Pos) -> MTree<'a, A> { MTree { pos, tok: Rc::new(self) } }
 }
 
 pub async fn mtreev_from_api<'a, 'b, A>(
 	api: impl IntoIterator<Item = &'b api::MacroTree>,
-	do_atom: &mut impl MacroAtomFromApi<'a, A>,
 	i: &Interner,
+	do_atom: &mut impl MacroAtomFromApi<'a, A>,
 ) -> Vec<MTree<'a, A>> {
 	let do_atom_lk = Mutex::new(do_atom);
 	stream::from_iter(api)

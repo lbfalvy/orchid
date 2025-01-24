@@ -2,10 +2,10 @@ use core::fmt;
 use std::any::TypeId;
 use std::future::Future;
 use std::num::NonZero;
+use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use futures::FutureExt;
 use futures::future::LocalBoxFuture;
 use futures::task::LocalSpawn;
 use hashbrown::HashMap;
@@ -68,8 +68,11 @@ pub fn atom_by_idx(
 	}
 }
 
-pub fn resolv_atom(sys: &(impl DynSystemCard + ?Sized), atom: &api::Atom) -> Box<dyn AtomDynfo> {
-	let tid = api::AtomId::decode(&mut &atom.data[..8]);
+pub async fn resolv_atom(
+	sys: &(impl DynSystemCard + ?Sized),
+	atom: &api::Atom,
+) -> Box<dyn AtomDynfo> {
+	let tid = api::AtomId::decode(Pin::new(&mut &atom.data[..8])).await;
 	atom_by_idx(sys, tid).expect("Value of nonexistent type found")
 }
 
@@ -102,21 +105,25 @@ impl<T: System> DynSystem for T {
 	fn dyn_lexers(&self) -> Vec<LexerObj> { Self::lexers() }
 	fn dyn_parsers(&self) -> Vec<ParserObj> { Self::parsers() }
 	fn dyn_request<'a>(&self, hand: ExtReq<'a>, req: Vec<u8>) -> LocalBoxFuture<'a, Receipt<'a>> {
-		Self::request(hand, <Self as SystemCard>::Req::decode(&mut &req[..])).boxed_local()
+		Box::pin(async move {
+			Self::request(hand, <Self as SystemCard>::Req::decode(Pin::new(&mut &req[..])).await).await
+		})
 	}
 	fn card(&self) -> &dyn DynSystemCard { self }
 }
 
-pub fn downcast_atom<A: AtomicFeatures>(foreign: ForeignAtom) -> Result<TypAtom<A>, ForeignAtom> {
+pub async fn downcast_atom<A>(foreign: ForeignAtom<'_>) -> Result<TypAtom<'_, A>, ForeignAtom<'_>>
+where A: AtomicFeatures {
 	let mut data = &foreign.atom.data[..];
 	let ctx = foreign.ctx.clone();
+	let value = api::AtomId::decode(Pin::new(&mut data)).await;
 	let info_ent = (ctx.cted.deps().find(|s| s.id() == foreign.atom.owner))
 		.map(|sys| get_info::<A>(sys.get_card()))
-		.filter(|(pos, _)| api::AtomId::decode(&mut data) == *pos);
+		.filter(|(pos, _)| value == *pos);
 	match info_ent {
 		None => Err(foreign),
 		Some((_, info)) => {
-			let val = info.decode(AtomCtx(data, foreign.atom.drop, ctx));
+			let val = info.decode(AtomCtx(data, foreign.atom.drop, ctx)).await;
 			let value = *val.downcast::<A::Data>().expect("atom decode returned wrong type");
 			Ok(TypAtom { value, data: foreign })
 		},

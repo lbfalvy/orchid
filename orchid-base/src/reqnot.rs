@@ -4,6 +4,7 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{BitAnd, Deref};
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -74,7 +75,7 @@ impl<'a, MS: MsgSet + 'static> RequestHandle<'a, MS> {
 	pub async fn respond(&self, response: &impl Encode) -> Receipt<'a> {
 		assert!(!self.fulfilled.swap(true, Ordering::Relaxed), "Already responded to {}", self.id);
 		let mut buf = (!self.id).to_be_bytes().to_vec();
-		response.encode(&mut buf);
+		response.encode(Pin::new(&mut buf)).await;
 		let mut send = clone_box(&*self.reqnot().0.lock().await.send);
 		(send)(&buf, self.parent.clone()).await;
 		Receipt(PhantomData)
@@ -126,18 +127,19 @@ impl<T: MsgSet> ReqNot<T> {
 		let mut g = self.0.lock().await;
 		let (id, payload) = get_id(message);
 		if id == 0 {
-			let mut notif = clone_box(&*g.notif);
+			let mut notif_cb = clone_box(&*g.notif);
 			mem::drop(g);
-			notif(<T::In as Channel>::Notif::decode(&mut &payload[..]), self.clone()).await
+			let notif_val = <T::In as Channel>::Notif::decode(Pin::new(&mut &payload[..])).await;
+			notif_cb(notif_val, self.clone()).await
 		} else if 0 < id.bitand(1 << 63) {
 			let sender = g.responses.remove(&!id).expect("Received response for invalid message");
 			sender.send(message.to_vec()).await.unwrap();
 		} else {
-			let message = <T::In as Channel>::Req::decode(&mut &payload[..]);
-			let mut req = clone_box(&*g.req);
+			let message = <T::In as Channel>::Req::decode(Pin::new(&mut &payload[..])).await;
+			let mut req_cb = clone_box(&*g.req);
 			mem::drop(g);
 			let rn = self.clone();
-			req(RequestHandle::new(rn, id), message).await;
+			req_cb(RequestHandle::new(rn, id), message).await;
 		}
 	}
 
@@ -145,7 +147,7 @@ impl<T: MsgSet> ReqNot<T> {
 		let mut send = clone_box(&*self.0.lock().await.send);
 		let mut buf = vec![0; 8];
 		let msg: <T::Out as Channel>::Notif = notif.into();
-		msg.encode(&mut buf);
+		msg.encode(Pin::new(&mut buf)).await;
 		send(&buf, self.clone()).await
 	}
 }
@@ -180,7 +182,7 @@ impl<T: MsgSet> DynRequester for ReqNot<T> {
 			let id = g.id;
 			g.id += 1;
 			let mut buf = id.to_be_bytes().to_vec();
-			req.encode(&mut buf);
+			req.encode(Pin::new(&mut buf)).await;
 			let (send, recv) = channel::bounded(1);
 			g.responses.insert(id, send);
 			let mut send = clone_box(&*g.send);
@@ -206,7 +208,7 @@ pub trait Requester: DynRequester {
 }
 impl<This: DynRequester + ?Sized> Requester for This {
 	async fn request<R: Request + Into<Self::Transfer>>(&self, data: R) -> R::Response {
-		R::Response::decode(&mut &self.raw_request(data.into()).await[..])
+		R::Response::decode(Pin::new(&mut &self.raw_request(data.into()).await[..])).await
 	}
 }
 

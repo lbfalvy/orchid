@@ -1,22 +1,25 @@
 use std::fmt::Debug;
 use std::sync::{Mutex, OnceLock};
 
+use async_stream::stream;
+use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
 use never::Never;
+use orchid_base::clone;
 use orchid_base::error::OrcRes;
-use orchid_base::interner::{Tok, intern};
+use orchid_base::interner::Tok;
 use orchid_base::location::Pos;
 use orchid_base::macros::mtreev_from_api;
 use orchid_base::name::Sym;
 use orchid_base::parse::{Comment, Import};
-use orchid_base::tree::{TokTree, Token};
+use orchid_base::tree::{AtomRepr, TokTree, Token};
 use ordered_float::NotNan;
-use substack::{Substack, with_iter_stack};
 
 use crate::api;
+use crate::atom::AtomHand;
 use crate::expr::Expr;
-use crate::extension::{AtomHand, System};
 use crate::macros::{MacTok, MacTree};
+use crate::system::System;
 
 pub type ParsTokTree = TokTree<'static, AtomHand, Never>;
 pub type ParsTok = Token<'static, AtomHand, Never>;
@@ -37,52 +40,77 @@ pub enum ItemKind {
 }
 
 impl Item {
-	pub fn from_api(tree: api::Item, path: Substack<Tok<String>>, sys: &System) -> Self {
+	pub async fn from_api(tree: api::Item, path: &mut Vec<Tok<String>>, sys: &System) -> Self {
 		let kind = match tree.kind {
-			api::ItemKind::Member(m) => ItemKind::Member(Member::from_api(m, path, sys)),
-			api::ItemKind::Import(i) =>
-				ItemKind::Import(Import { path: Sym::from_api(i).iter().collect(), name: None }),
-			api::ItemKind::Export(e) => ItemKind::Export(Tok::from_api(e)),
-			api::ItemKind::Macro(api::MacroBlock { priority, rules }) => ItemKind::Macro(priority, {
-				Vec::from_iter(rules.into_iter().map(|api| Rule {
-					pos: Pos::from_api(&api.location),
-					pattern: mtreev_from_api(&api.pattern, &mut |a| {
-						MacTok::Atom(AtomHand::from_api(a.clone()))
-					}),
-					kind: RuleKind::Remote(sys.clone(), api.id),
-					comments: api.comments.iter().map(Comment::from_api).collect_vec(),
-				}))
+			api::ItemKind::Member(m) => ItemKind::Member(Member::from_api(m, path, sys).await),
+			api::ItemKind::Import(name) => ItemKind::Import(Import {
+				path: Sym::from_api(name, &sys.ctx().i).await.iter().collect(),
+				name: None,
 			}),
+			api::ItemKind::Export(e) => ItemKind::Export(Tok::from_api(e, &sys.ctx().i).await),
+			api::ItemKind::Macro(macro_block) => {
+				let mut rules = Vec::new();
+				for rule in macro_block.rules {
+					let mut comments = Vec::new();
+					for comment in rule.comments {
+						comments.push(Comment::from_api(&comment, &sys.ctx().i).await);
+					}
+					let pos = Pos::from_api(&rule.location, &sys.ctx().i).await;
+					let pattern = mtreev_from_api(&rule.pattern, &sys.ctx().i, &mut {
+						clone!(pos, sys);
+						move |a| {
+							clone!(pos, sys);
+							Box::pin(async move {
+								MacTok::Atom(AtomHand::from_api(a, pos.clone(), &mut sys.ctx().clone()).await)
+							})
+						}
+					})
+					.await;
+					rules.push(Rule { pos, pattern, kind: RuleKind::Remote(sys.clone(), rule.id), comments });
+				}
+				ItemKind::Macro(macro_block.priority, rules)
+			},
 		};
-		let comments = tree.comments.iter().map(Comment::from_api).collect_vec();
-		Self { pos: Pos::from_api(&tree.location), comments, kind }
+		let mut comments = Vec::new();
+		for comment in tree.comments.iter() {
+			comments.push(Comment::from_api(comment, &sys.ctx().i).await)
+		}
+		Self { pos: Pos::from_api(&tree.location, &sys.ctx().i).await, comments, kind }
 	}
 }
 
-#[derive(Debug)]
 pub struct Member {
 	pub name: Tok<String>,
 	pub kind: OnceLock<MemberKind>,
 	pub lazy: Mutex<Option<LazyMemberHandle>>,
 }
 impl Member {
-	pub fn from_api(api: api::Member, path: Substack<Tok<String>>, sys: &System) -> Self {
-		let name = Tok::from_api(api.name);
-		let full_path = path.push(name.clone());
+	pub async fn from_api(api: api::Member, path: &mut Vec<Tok<String>>, sys: &System) -> Self {
+		path.push(Tok::from_api(api.name, &sys.ctx().i).await);
 		let kind = match api.kind {
 			api::MemberKind::Lazy(id) => {
-				return LazyMemberHandle(id, sys.clone(), intern(&full_path.unreverse())).into_member(name);
+				let handle = LazyMemberHandle(id, sys.clone(), path.clone());
+				return handle.into_member(path.pop().unwrap());
 			},
 			api::MemberKind::Const(c) => MemberKind::Const(Code::from_expr(
-				CodeLocator::to_const(full_path.unreverse()),
-				Expr::from_api(&c, &mut ()),
+				CodeLocator::to_const(sys.ctx().i.i(&*path).await),
+				Expr::from_api(&c, &mut sys.ext().clone()).await,
 			)),
-			api::MemberKind::Module(m) => MemberKind::Mod(Module::from_api(m, full_path, sys)),
+			api::MemberKind::Module(m) => MemberKind::Mod(Module::from_api(m, path, sys).await),
 		};
+		let name = path.pop().unwrap();
 		Member { name, kind: OnceLock::from(kind), lazy: Mutex::default() }
 	}
 	pub fn new(name: Tok<String>, kind: MemberKind) -> Self {
 		Member { name, kind: OnceLock::from(kind), lazy: Mutex::default() }
+	}
+}
+impl Debug for Member {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("Member")
+			.field("name", &self.name)
+			.field("kind", &self.kind)
+			.finish_non_exhaustive()
 	}
 }
 
@@ -109,30 +137,27 @@ impl Module {
 			.collect_vec();
 		Self { imports: vec![], exports, items }
 	}
-	pub fn from_api(m: api::Module, path: Substack<Tok<String>>, sys: &System) -> Self {
-		let mut output = Vec::new();
-		for item in m.items.into_iter() {
-			let next = Item::from_api(item, path.clone(), sys);
-			output.push(next);
-		}
-		Self::new(output)
+	pub async fn from_api(m: api::Module, path: &mut Vec<Tok<String>>, sys: &System) -> Self {
+		Self::new(
+			stream! { for item in m.items { yield Item::from_api(item, path, sys).boxed_local().await } }
+				.collect::<Vec<_>>()
+				.await,
+		)
 	}
 }
 
-#[derive(Debug)]
-pub struct LazyMemberHandle(api::TreeId, System, Tok<Vec<Tok<String>>>);
+pub struct LazyMemberHandle(api::TreeId, System, Vec<Tok<String>>);
 impl LazyMemberHandle {
-	pub fn run(self) -> OrcRes<MemberKind> {
-		match self.1.get_tree(self.0) {
+	pub async fn run(self) -> OrcRes<MemberKind> {
+		match self.1.get_tree(self.0).await {
 			api::MemberKind::Const(c) => Ok(MemberKind::Const(Code {
-				bytecode: Expr::from_api(&c, &mut ()).into(),
-				locator: CodeLocator { steps: self.2, rule_loc: None },
+				bytecode: Expr::from_api(&c, &mut self.1.ext().clone()).await.into(),
+				locator: CodeLocator { steps: self.1.ctx().i.i(&self.2).await, rule_loc: None },
 				source: None,
 			})),
-			api::MemberKind::Module(m) => with_iter_stack(self.2.iter().cloned(), |path| {
-				Ok(MemberKind::Mod(Module::from_api(m, path, &self.1)))
-			}),
-			api::MemberKind::Lazy(id) => Self(id, self.1, self.2).run(),
+			api::MemberKind::Module(m) =>
+				Ok(MemberKind::Mod(Module::from_api(m, &mut { self.2 }, &self.1).await)),
+			api::MemberKind::Lazy(id) => Self(id, self.1, self.2).run().boxed_local().await,
 		}
 	}
 	pub fn into_member(self, name: Tok<String>) -> Member {
@@ -181,10 +206,8 @@ pub struct CodeLocator {
 	rule_loc: Option<(u16, u16)>,
 }
 impl CodeLocator {
-	pub fn to_const(path: impl IntoIterator<Item = Tok<String>>) -> Self {
-		Self { steps: intern(&path.into_iter().collect_vec()), rule_loc: None }
-	}
-	pub fn to_rule(path: impl IntoIterator<Item = Tok<String>>, macro_i: u16, rule_i: u16) -> Self {
-		Self { steps: intern(&path.into_iter().collect_vec()), rule_loc: Some((macro_i, rule_i)) }
+	pub fn to_const(steps: Tok<Vec<Tok<String>>>) -> Self { Self { steps, rule_loc: None } }
+	pub fn to_rule(steps: Tok<Vec<Tok<String>>>, macro_i: u16, rule_i: u16) -> Self {
+		Self { steps, rule_loc: Some((macro_i, rule_i)) }
 	}
 }

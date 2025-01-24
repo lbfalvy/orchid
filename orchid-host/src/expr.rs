@@ -1,10 +1,10 @@
 use std::collections::VecDeque;
 use std::num::NonZeroU64;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::rc::{Rc, Weak};
+use std::sync::atomic::AtomicBool;
 
-use hashbrown::HashMap;
-use lazy_static::lazy_static;
+use async_std::sync::RwLock;
+use futures::FutureExt;
 use orchid_base::error::OrcErrv;
 use orchid_base::location::Pos;
 use orchid_base::match_mapping;
@@ -12,68 +12,55 @@ use orchid_base::name::Sym;
 use orchid_base::tree::AtomRepr;
 
 use crate::api;
-use crate::extension::AtomHand;
+use crate::atom::AtomHand;
+use crate::extension::Extension;
 
-pub type ExprParseCtx = ();
+pub type ExprParseCtx = Extension;
+
+#[derive(Debug)]
+pub struct ExprData {
+	is_canonical: AtomicBool,
+	pos: Pos,
+	kind: RwLock<ExprKind>,
+}
 
 #[derive(Clone, Debug)]
-pub struct Expr {
-	is_canonical: Arc<AtomicBool>,
-	pos: Pos,
-	kind: Arc<RwLock<ExprKind>>,
-}
+pub struct Expr(Rc<ExprData>);
 impl Expr {
-	pub fn pos(&self) -> Pos { self.pos.clone() }
+	pub fn pos(&self) -> Pos { self.0.pos.clone() }
 	pub fn as_atom(&self) -> Option<AtomHand> { todo!() }
 	pub fn strong_count(&self) -> usize { todo!() }
 	pub fn id(&self) -> api::ExprTicket {
 		api::ExprTicket(
-			NonZeroU64::new(self.kind.as_ref() as *const RwLock<_> as usize as u64)
+			NonZeroU64::new(self.0.as_ref() as *const ExprData as usize as u64)
 				.expect("this is a ref, it cannot be null"),
 		)
 	}
-	pub fn canonicalize(&self) -> api::ExprTicket {
-		if !self.is_canonical.swap(true, Ordering::Relaxed) {
-			KNOWN_EXPRS.write().unwrap().entry(self.id()).or_insert_with(|| self.clone());
-		}
-		self.id()
-	}
-	pub fn resolve(tk: api::ExprTicket) -> Option<Self> {
-		KNOWN_EXPRS.read().unwrap().get(&tk).cloned()
-	}
-	pub fn from_api(api: &api::Expression, ctx: &mut ExprParseCtx) -> Self {
+	// pub fn canonicalize(&self) -> api::ExprTicket {
+	// 	if !self.is_canonical.swap(true, Ordering::Relaxed) {
+	// 		KNOWN_EXPRS.write().unwrap().entry(self.id()).or_insert_with(||
+	// self.clone()); 	}
+	// 	self.id()
+	// }
+	// pub fn resolve(tk: api::ExprTicket) -> Option<Self> {
+	// 	KNOWN_EXPRS.read().unwrap().get(&tk).cloned()
+	// }
+	pub async fn from_api(api: &api::Expression, ctx: &mut ExprParseCtx) -> Self {
 		if let api::ExpressionKind::Slot(tk) = &api.kind {
-			return Self::resolve(*tk).expect("Invalid slot");
+			return ctx.exprs().get_expr(*tk).expect("Invalid slot");
 		}
-		Self {
-			kind: Arc::new(RwLock::new(ExprKind::from_api(&api.kind, ctx))),
-			is_canonical: Arc::default(),
-			pos: Pos::from_api(&api.location),
-		}
+		let pos = Pos::from_api(&api.location, &ctx.ctx().i).await;
+		let kind = RwLock::new(ExprKind::from_api(&api.kind, pos.clone(), ctx).boxed_local().await);
+		Self(Rc::new(ExprData { is_canonical: AtomicBool::new(false), pos, kind }))
 	}
-	pub fn to_api(&self) -> api::InspectedKind {
+	pub async fn to_api(&self) -> api::InspectedKind {
 		use api::InspectedKind as K;
-		match &*self.kind.read().unwrap() {
-			ExprKind::Atom(a) => K::Atom(a.to_api()),
+		match &*self.0.kind.read().await {
+			ExprKind::Atom(a) => K::Atom(a.to_api().await),
 			ExprKind::Bottom(b) => K::Bottom(b.to_api()),
 			_ => K::Opaque,
 		}
 	}
-}
-impl Drop for Expr {
-	fn drop(&mut self) {
-		// If the only two references left are this and known, remove from known
-		if Arc::strong_count(&self.kind) == 2 && self.is_canonical.load(Ordering::Relaxed) {
-			// if known is poisoned, a leak is preferable to a panicking destructor
-			if let Ok(mut w) = KNOWN_EXPRS.write() {
-				w.remove(&self.id());
-			}
-		}
-	}
-}
-
-lazy_static! {
-	static ref KNOWN_EXPRS: RwLock<HashMap<api::ExprTicket, Expr>> = RwLock::default();
 }
 
 #[derive(Clone, Debug)]
@@ -87,16 +74,20 @@ pub enum ExprKind {
 	Const(Sym),
 }
 impl ExprKind {
-	pub fn from_api(api: &api::ExpressionKind, ctx: &mut ExprParseCtx) -> Self {
+	pub async fn from_api(api: &api::ExpressionKind, pos: Pos, ctx: &mut ExprParseCtx) -> Self {
 		match_mapping!(api, api::ExpressionKind => ExprKind {
-			Lambda(id => PathSet::from_api(*id, api), b => Expr::from_api(b, ctx)),
-			Bottom(b => OrcErrv::from_api(b)),
-			Call(f => Expr::from_api(f, ctx), x => Expr::from_api(x, ctx)),
-			Const(c => Sym::from_api(*c)),
-			Seq(a => Expr::from_api(a, ctx), b => Expr::from_api(b, ctx)),
+			Lambda(id => PathSet::from_api(*id, api), b => Expr::from_api(b, ctx).await),
+			Bottom(b => OrcErrv::from_api(b, &ctx.ctx().i).await),
+			Call(f => Expr::from_api(f, ctx).await, x => Expr::from_api(x, ctx).await),
+			Const(c => Sym::from_api(*c, &ctx.ctx().i).await),
+			Seq(a => Expr::from_api(a, ctx).await, b => Expr::from_api(b, ctx).await),
 		} {
 			api::ExpressionKind::Arg(_) => ExprKind::Arg,
-			api::ExpressionKind::NewAtom(a) => ExprKind::Atom(AtomHand::from_api(a.clone())),
+			api::ExpressionKind::NewAtom(a) => ExprKind::Atom(AtomHand::from_api(
+				a,
+				pos,
+				&mut ctx.ctx().clone()
+			).await),
 			api::ExpressionKind::Slot(_) => panic!("Handled in Expr"),
 		})
 	}
@@ -138,4 +129,9 @@ impl PathSet {
 			},
 		}
 	}
+}
+
+pub struct WeakExpr(Weak<ExprData>);
+impl WeakExpr {
+	pub fn upgrade(&self) -> Option<Expr> { self.0.upgrade().map(Expr) }
 }

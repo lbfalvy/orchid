@@ -33,6 +33,7 @@ impl<'a, 'b, A: AtomRepr, X: ExtraTok> Snippet<'a, 'b, A, X> {
 	pub async fn i<T: Interned>(&self, arg: &(impl Internable<Interned = T> + ?Sized)) -> Tok<T> {
 		self.interner.i(arg).await
 	}
+	pub fn interner(&self) -> &'a Interner { self.interner }
 	pub fn split_at(self, pos: u32) -> (Self, Self) {
 		let Self { prev, cur, interner } = self;
 		let fst = Self { prev, cur: &cur[..pos as usize], interner };
@@ -177,7 +178,7 @@ pub async fn expect_tok<'a, 'b, A: AtomRepr, X: ExtraTok>(
 		Token::Name(n) if *n == tok => Ok(Parsed { output: (), tail }),
 		t => Err(mk_errv(
 			snip.i("Expected specific keyword").await,
-			format!("Expected {tok} but found {t}"),
+			format!("Expected {tok} but found {:?}", t.print().await),
 			[Pos::Range(head.range.clone()).into()],
 		)),
 	}
@@ -280,7 +281,7 @@ pub async fn parse_multiname<'a, 'b, A: AtomRepr, X: ExtraTok>(
 				t => {
 					return Err(mk_errv(
 						tail.i("Unrecognized name end").await,
-						format!("Names cannot end with {t} tokens"),
+						format!("Names cannot end with {:?} tokens", t.print().await),
 						[Pos::Range(name.range.clone()).into()],
 					));
 				},

@@ -21,20 +21,14 @@ pub struct ExprHandle {
 impl ExprHandle {
 	pub(crate) fn from_args(ctx: SysCtx, tk: api::ExprTicket) -> Self { Self { ctx, tk } }
 	pub fn get_ctx(&self) -> SysCtx { self.ctx.clone() }
+	pub async fn clone(&self) -> Self {
+		self.ctx.reqnot.notify(api::Acquire(self.ctx.id, self.tk)).await;
+		Self { ctx: self.ctx.clone(), tk: self.tk }
+	}
 }
 impl fmt::Debug for ExprHandle {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "ExprHandle({})", self.tk.0)
-	}
-}
-impl Clone for ExprHandle {
-	fn clone(&self) -> Self {
-		let SysCtx { reqnot, spawner, .. } = self.ctx.clone();
-		let notif = api::Acquire(self.ctx.id, self.tk);
-		if let Err(e) = spawner.spawn_local(async move { reqnot.notify(notif).await }) {
-			panic!("Failed to schedule cloning notification, resource may not exist: {e}");
-		}
-		Self { ctx: self.ctx.clone(), tk: self.tk }
 	}
 }
 impl Drop for ExprHandle {

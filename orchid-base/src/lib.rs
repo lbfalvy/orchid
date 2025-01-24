@@ -9,6 +9,7 @@ pub mod clone;
 pub mod combine;
 pub mod error;
 pub mod event;
+pub mod format;
 pub mod id_store;
 pub mod interner;
 pub mod join;

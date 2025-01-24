@@ -247,7 +247,7 @@ impl Interner {
 		tok
 	}
 	/// Extern an identifier; query the data it represents if not known locally
-	async fn ex<M: InternMarker>(&self, marker: M) -> Tok<M::Interned> {
+	pub async fn ex<M: InternMarker>(&self, marker: M) -> Tok<M::Interned> {
 		if let Some(tok) = M::Interned::bimap(&mut *self.interners.lock().await).by_marker(marker) {
 			return tok;
 		}
@@ -284,6 +284,7 @@ pub fn merge_retained(into: &mut api::Retained, from: &api::Retained) {
 #[cfg(test)]
 mod test {
 	use std::num::NonZero;
+	use std::pin::Pin;
 
 	use orchid_api_traits::{Decode, enc_vec};
 	use test_executors::spin_on;
@@ -300,9 +301,11 @@ mod test {
 
 	#[test]
 	fn test_coding() {
-		let coded = api::TStr(NonZero::new(3u64).unwrap());
-		let mut enc = &enc_vec(&coded)[..];
-		api::TStr::decode(&mut enc);
-		assert_eq!(enc, [], "Did not consume all of {enc:?}")
+		spin_on(async {
+			let coded = api::TStr(NonZero::new(3u64).unwrap());
+			let mut enc = &enc_vec(&coded).await[..];
+			api::TStr::decode(Pin::new(&mut enc)).await;
+			assert_eq!(enc, [], "Did not consume all of {enc:?}")
+		})
 	}
 }

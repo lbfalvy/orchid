@@ -1,9 +1,10 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
-use std::io;
+use std::pin::Pin;
 use std::rc::Rc;
 
+use async_std::io::Write;
 use async_std::sync::Mutex;
 use futures::FutureExt;
 use futures::future::LocalBoxFuture;
@@ -79,13 +80,13 @@ impl OwnedAtom for Fun {
 		}
 	}
 	async fn call(self, arg: ExprHandle) -> GExpr { self.call_ref(arg).await }
-	async fn serialize(&self, _: SysCtx, sink: &mut (impl io::Write + ?Sized)) -> Self::Refs {
-		self.path.to_api().encode(sink);
+	async fn serialize(&self, _: SysCtx, write: Pin<&mut (impl Write + ?Sized)>) -> Self::Refs {
+		self.path.to_api().encode(write).await;
 		self.args.clone()
 	}
 	async fn deserialize(ctx: impl DeserializeCtx, args: Self::Refs) -> Self {
 		let sys = ctx.sys();
-		let path = Sym::from_api(ctx.decode(), &sys.i).await;
+		let path = Sym::from_api(ctx.decode().await, &sys.i).await;
 		let (arity, fun) = FUNS.with(|f| f.clone()).lock().await.get(&path).unwrap().clone();
 		Self { args, arity, path, fun }
 	}

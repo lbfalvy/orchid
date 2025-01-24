@@ -12,7 +12,9 @@ pub fn derive(input: TokenStream) -> TokenStream {
 	let decode = decode_body(&input.data);
 	let expanded = quote! {
 		impl #impl_generics orchid_api_traits::Decode for #name #ty_generics #where_clause {
-			fn decode<R: std::io::Read + ?Sized>(read: &mut R) -> Self { #decode }
+			async fn decode<R: async_std::io::Read + ?Sized>(mut read: std::pin::Pin<&mut R>) -> Self {
+				#decode
+			}
 		}
 	};
 	TokenStream::from(expanded)
@@ -22,11 +24,21 @@ fn decode_fields(fields: &syn::Fields) -> pm2::TokenStream {
 	match fields {
 		syn::Fields::Unit => quote! {},
 		syn::Fields::Named(_) => {
-			let names = fields.iter().map(|f| f.ident.as_ref().unwrap());
-			quote! { { #( #names: orchid_api_traits::Decode::decode(read), )* } }
+			let exprs = fields.iter().map(|f| {
+				let syn::Field { ty, ident, .. } = &f;
+				quote! {
+					#ident : < #ty as orchid_api_traits::Decode>::decode(read.as_mut()).await
+				}
+			});
+			quote! { { #( #exprs, )* } }
 		},
 		syn::Fields::Unnamed(_) => {
-			let exprs = fields.iter().map(|_| quote! { orchid_api_traits::Decode::decode(read), });
+			let exprs = fields.iter().map(|field| {
+				let ty = &field.ty;
+				quote! {
+					< #ty as orchid_api_traits::Decode>::decode(read.as_mut()).await,
+				}
+			});
 			quote! { ( #( #exprs )* ) }
 		},
 	}
@@ -46,7 +58,7 @@ fn decode_body(data: &syn::Data) -> proc_macro2::TokenStream {
 				quote! { #id => Self::#ident #fields, }
 			});
 			quote! {
-				match <u8 as orchid_api_traits::Decode>::decode(read) {
+				match <u8 as orchid_api_traits::Decode>::decode(read.as_mut()).await {
 					#(#opts)*
 					x => panic!("Unrecognized enum kind {x}")
 				}

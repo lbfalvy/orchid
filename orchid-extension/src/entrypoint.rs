@@ -3,6 +3,7 @@ use std::future::Future;
 use std::io::Write;
 use std::mem;
 use std::num::NonZero;
+use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -86,7 +87,7 @@ pub async fn with_atom_record<'a, F: Future<Output = SysCtx>, T>(
 	let mut data = &atom.data[..];
 	let ctx = get_sys_ctx(atom.owner, reqnot).await;
 	let inst = ctx.cted.inst();
-	let id = api::AtomId::decode(&mut data);
+	let id = api::AtomId::decode(Pin::new(&mut data)).await;
 	let atom_record = atom_by_idx(inst.card(), id).expect("Atom ID reserved");
 	cb(atom_record, ctx, id, data).await
 }
@@ -114,23 +115,30 @@ impl ExtPort for ExtensionOwner {
 	fn send<'a>(&'a self, msg: &'a [u8]) -> LocalBoxFuture<'a, ()> {
 		self.rn.receive(msg).boxed_local()
 	}
-	fn recv<'a, 's: 'a>(
-		&'s self,
-		cb: Box<dyn FnOnce(&[u8]) -> LocalBoxFuture<'a, ()> + 'a>,
+	fn recv<'a>(
+		&'a self,
+		cb: Box<dyn FnOnce(&[u8]) -> LocalBoxFuture<'_, ()> + 'a>,
 	) -> LocalBoxFuture<'a, ()> {
-		async { cb(&self.out_recv.recv().await.unwrap()[..]).await }.boxed_local()
+		async {
+			let msg = self.out_recv.recv().await.unwrap();
+			cb(&msg[..]).await
+		}
+		.boxed_local()
 	}
 }
 
 async fn extension_main_logic(data: ExtensionData, spawner: Rc<dyn LocalSpawn>) {
-	let api::HostHeader { log_strategy } = api::HostHeader::decode(&mut std::io::stdin().lock());
+	let api::HostHeader { log_strategy } =
+		api::HostHeader::decode(Pin::new(&mut async_std::io::stdin())).await;
 	let mut buf = Vec::new();
 	let decls = (data.systems.iter().enumerate())
 		.map(|(id, sys)| (u16::try_from(id).expect("more than u16max system ctors"), sys))
 		.map(|(id, sys)| sys.decl(api::SysDeclId(NonZero::new(id + 1).unwrap())))
 		.collect_vec();
 	let systems = Rc::new(Mutex::new(HashMap::<api::SysId, SystemRecord>::new()));
-	api::ExtensionHeader { name: data.name.to_string(), systems: decls.clone() }.encode(&mut buf);
+	api::ExtensionHeader { name: data.name.to_string(), systems: decls.clone() }
+		.encode(Pin::new(&mut buf))
+		.await;
 	std::io::stdout().write_all(&buf).unwrap();
 	std::io::stdout().flush().unwrap();
 	let exiting = Arc::new(AtomicBool::new(false));
@@ -333,8 +341,8 @@ async fn extension_main_logic(data: ExtensionData, spawner: Rc<dyn LocalSpawn>) 
 									let actx = AtomCtx(buf, atom.drop, ctx.clone());
 									match &atom_req {
 										api::AtomReq::SerializeAtom(ser) => {
-											let mut buf = enc_vec(&id);
-											let refs_opt = nfo.serialize(actx, &mut buf).await;
+											let mut buf = enc_vec(&id).await;
+											let refs_opt = nfo.serialize(actx, Pin::<&mut Vec<_>>::new(&mut buf)).await;
 											hand.handle(ser, &refs_opt.map(|refs| (buf, refs))).await
 										},
 										api::AtomReq::AtomPrint(print @ api::AtomPrint(_)) =>
@@ -343,7 +351,14 @@ async fn extension_main_logic(data: ExtensionData, spawner: Rc<dyn LocalSpawn>) 
 											let api::Fwded(_, key, payload) = &fwded;
 											let mut reply = Vec::new();
 											let key = Sym::from_api(*key, &i).await;
-											let some = nfo.handle_req(actx, key, &mut &payload[..], &mut reply).await;
+											let some = nfo
+												.handle_req(
+													actx,
+													key,
+													Pin::<&mut &[u8]>::new(&mut &payload[..]),
+													Pin::<&mut Vec<_>>::new(&mut reply),
+												)
+												.await;
 											hand.handle(fwded, &some.then_some(reply)).await
 										},
 										api::AtomReq::CallRef(call @ api::CallRef(_, arg)) => {
@@ -374,7 +389,7 @@ async fn extension_main_logic(data: ExtensionData, spawner: Rc<dyn LocalSpawn>) 
 							let api::DeserAtom(sys, buf, refs) = &deser;
 							let mut read = &mut &buf[..];
 							let ctx = mk_ctx(*sys, hand.reqnot()).await;
-							let id = api::AtomId::decode(&mut read);
+							let id = api::AtomId::decode(Pin::new(&mut read)).await;
 							let inst = ctx.cted.inst();
 							let nfo = atom_by_idx(inst.card(), id).expect("Deserializing atom with invalid ID");
 							hand.handle(&deser, &nfo.deserialize(ctx.clone(), read, refs).await).await
@@ -388,7 +403,7 @@ async fn extension_main_logic(data: ExtensionData, spawner: Rc<dyn LocalSpawn>) 
 							for (k, v) in params {
 								ctx.args.insert(
 									Tok::from_api(k, &i).await,
-									mtreev_from_api(&v, &mut |_| panic!("No atom in macro prompt!"), &i).await,
+									mtreev_from_api(&v, &i, &mut |_| panic!("No atom in macro prompt!")).await,
 								);
 							}
 							let err_cascade = err_cascade(&i).await;

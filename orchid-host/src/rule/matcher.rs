@@ -2,7 +2,7 @@ use std::fmt;
 
 use itertools::Itertools;
 use orchid_api::PhKind;
-use orchid_base::intern;
+use orchid_base::interner::Interner;
 use orchid_base::location::Pos;
 use orchid_base::name::Sym;
 use orchid_base::tree::Ph;
@@ -21,7 +21,7 @@ pub fn last_is_vec(pattern: &[MacTree]) -> bool { vec_attrs(pattern.last().unwra
 
 pub struct NamedMatcher(AnyMatcher);
 impl NamedMatcher {
-	pub fn new(pattern: &[MacTree]) -> Self {
+	pub async fn new(pattern: &[MacTree], i: &Interner) -> Self {
 		assert!(
 			matches!(pattern.first().map(|tree| &*tree.tok), Some(MacTok::Name(_))),
 			"Named matchers must begin with a name"
@@ -31,7 +31,7 @@ impl NamedMatcher {
 			true => Self(mk_any(pattern)),
 			false => {
 				let kind: PhKind = PhKind::Vector { priority: 0, at_least_one: false };
-				let suffix = [MacTok::Ph(Ph { name: intern!(str: "::after"), kind }).at(Pos::None)];
+				let suffix = [MacTok::Ph(Ph { name: i.i("::after").await, kind }).at(Pos::None)];
 				Self(mk_any(&pattern.iter().chain(&suffix).cloned().collect_vec()))
 			},
 		}
@@ -39,18 +39,18 @@ impl NamedMatcher {
 	/// Also returns the tail, if any, which should be matched further
 	/// Note that due to how priod works below, the main usable information from
 	/// the tail is its length
-	pub fn apply<'a>(
+	pub async fn apply<'a>(
 		&self,
 		seq: &'a [MacTree],
+		i: &Interner,
 		save_loc: impl Fn(Sym) -> bool,
 	) -> Option<(MatchState<'a>, &'a [MacTree])> {
-		any_match(&self.0, seq, &save_loc).map(|mut state| {
-			match state.remove(intern!(str: "::after")) {
-				Some(StateEntry::Scalar(_)) => panic!("::after can never be a scalar entry!"),
-				Some(StateEntry::Vec(v)) => (state, v),
-				None => (state, &[][..]),
-			}
-		})
+		let mut state = any_match(&self.0, seq, &save_loc)?;
+		match state.remove(i.i("::after").await) {
+			Some(StateEntry::Scalar(_)) => panic!("::after can never be a scalar entry!"),
+			Some(StateEntry::Vec(v)) => Some((state, v)),
+			None => Some((state, &[][..])),
+		}
 	}
 }
 impl fmt::Display for NamedMatcher {
