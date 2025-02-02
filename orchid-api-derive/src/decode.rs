@@ -12,7 +12,9 @@ pub fn derive(input: TokenStream) -> TokenStream {
 	let decode = decode_body(&input.data);
 	let expanded = quote! {
 		impl #impl_generics orchid_api_traits::Decode for #name #ty_generics #where_clause {
-			async fn decode<R: async_std::io::Read + ?Sized>(mut read: std::pin::Pin<&mut R>) -> Self {
+			async fn decode<R: orchid_api_traits::async_std::io::Read + ?Sized>(
+				mut read: std::pin::Pin<&mut R>
+			) -> Self {
 				#decode
 			}
 		}
@@ -27,7 +29,8 @@ fn decode_fields(fields: &syn::Fields) -> pm2::TokenStream {
 			let exprs = fields.iter().map(|f| {
 				let syn::Field { ty, ident, .. } = &f;
 				quote! {
-					#ident : < #ty as orchid_api_traits::Decode>::decode(read.as_mut()).await
+					#ident : (Box::pin(< #ty as orchid_api_traits::Decode>::decode(read.as_mut()))
+						as std::pin::Pin<Box<dyn std::future::Future<Output = _>>>).await
 				}
 			});
 			quote! { { #( #exprs, )* } }
@@ -36,7 +39,8 @@ fn decode_fields(fields: &syn::Fields) -> pm2::TokenStream {
 			let exprs = fields.iter().map(|field| {
 				let ty = &field.ty;
 				quote! {
-					< #ty as orchid_api_traits::Decode>::decode(read.as_mut()).await,
+					(Box::pin(< #ty as orchid_api_traits::Decode>::decode(read.as_mut()))
+						as std::pin::Pin<Box<dyn std::future::Future<Output = _>>>).await,
 				}
 			});
 			quote! { ( #( #exprs )* ) }

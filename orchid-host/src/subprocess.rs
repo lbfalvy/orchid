@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::rc::Rc;
 use std::thread;
 
 use async_process::{self, Child, ChildStdin, ChildStdout};
@@ -9,7 +8,6 @@ use async_std::io::{self, BufReadExt, BufReader};
 use async_std::sync::Mutex;
 use futures::FutureExt;
 use futures::future::LocalBoxFuture;
-use futures::task::LocalSpawnExt;
 use orchid_api_traits::{Decode, Encode};
 use orchid_base::builtin::{ExtInit, ExtPort};
 use orchid_base::logging::Logger;
@@ -31,7 +29,7 @@ pub async fn ext_command(
 		.stderr(async_process::Stdio::piped())
 		.spawn()?;
 	let mut stdin = child.stdin.take().unwrap();
-	api::HostHeader { log_strategy: logger.strat() }.encode(Pin::new(&mut stdin));
+	api::HostHeader { log_strategy: logger.strat() }.encode(Pin::new(&mut stdin)).await;
 	let mut stdout = child.stdout.take().unwrap();
 	let header = api::ExtensionHeader::decode(Pin::new(&mut stdout)).await;
 	let child_stderr = child.stderr.take().unwrap();
@@ -50,7 +48,7 @@ pub async fn ext_command(
 	Ok(ExtInit {
 		header,
 		port: Box::new(Subprocess {
-			child: Rc::new(RefCell::new(child)),
+			child: RefCell::new(Some(child)),
 			stdin: Mutex::new(Box::pin(stdin)),
 			stdout: Mutex::new(Box::pin(stdout)),
 			ctx,
@@ -59,19 +57,18 @@ pub async fn ext_command(
 }
 
 pub struct Subprocess {
-	child: Rc<RefCell<Child>>,
+	child: RefCell<Option<Child>>,
 	stdin: Mutex<Pin<Box<ChildStdin>>>,
 	stdout: Mutex<Pin<Box<ChildStdout>>>,
 	ctx: Ctx,
 }
 impl Drop for Subprocess {
 	fn drop(&mut self) {
-		let child = self.child.clone();
-		(self.ctx.spawn.spawn_local(async move {
-			let status = child.borrow_mut().status().await.expect("Extension exited with error");
+		let mut child = self.child.borrow_mut().take().unwrap();
+		(self.ctx.spawn)(Box::pin(async move {
+			let status = child.status().await.expect("Extension exited with error");
 			assert!(status.success(), "Extension exited with error {status}");
 		}))
-		.expect("Could not spawn process terminating future")
 	}
 }
 impl ExtPort for Subprocess {

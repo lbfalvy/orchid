@@ -148,7 +148,7 @@ pub trait AtomMethod: Request {
 	const NAME: &str;
 }
 pub trait Supports<M: AtomMethod>: AtomCard {
-	fn handle(&self, ctx: SysCtx, req: M) -> LocalBoxFuture<'_, <M as Request>::Response>;
+	fn handle(&self, ctx: SysCtx, req: M) -> impl Future<Output = <M as Request>::Response>;
 }
 
 trait_set! {

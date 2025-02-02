@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::fmt;
 use std::ops::Add;
 use std::sync::Arc;
@@ -170,4 +171,18 @@ pub fn mk_errv(
 
 pub trait Reporter {
 	fn report(&self, e: impl Into<OrcErrv>);
+}
+
+pub struct ReporterImpl {
+	errors: RefCell<Vec<OrcErr>>,
+}
+impl ReporterImpl {
+	pub fn new() -> Self { Self { errors: RefCell::new(vec![]) } }
+	pub fn errv(self) -> Option<OrcErrv> { OrcErrv::new(self.errors.into_inner()).ok() }
+}
+impl Reporter for ReporterImpl {
+	fn report(&self, e: impl Into<OrcErrv>) { self.errors.borrow_mut().extend(e.into()) }
+}
+impl Default for ReporterImpl {
+	fn default() -> Self { Self::new() }
 }

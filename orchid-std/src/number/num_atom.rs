@@ -1,6 +1,8 @@
 use orchid_api_derive::Coding;
 use orchid_base::error::OrcRes;
-use orchid_extension::atom::{AtomFactory, Atomic, AtomicFeatures, MethodSetBuilder, ToAtom, TypAtom};
+use orchid_extension::atom::{
+	AtomFactory, Atomic, AtomicFeatures, MethodSetBuilder, ToAtom, TypAtom,
+};
 use orchid_extension::atom_thin::{ThinAtom, ThinVariant};
 use orchid_extension::conv::TryFromExpr;
 use orchid_extension::expr::Expr;
@@ -15,8 +17,8 @@ impl Atomic for Int {
 }
 impl ThinAtom for Int {}
 impl TryFromExpr for Int {
-	fn try_from_expr(expr: Expr) -> OrcRes<Self> {
-		TypAtom::<Int>::try_from_expr(expr).map(|t| t.value)
+	async fn try_from_expr(expr: Expr) -> OrcRes<Self> {
+		TypAtom::<Int>::try_from_expr(expr).await.map(|t| t.value)
 	}
 }
 
@@ -29,8 +31,8 @@ impl Atomic for Float {
 }
 impl ThinAtom for Float {}
 impl TryFromExpr for Float {
-	fn try_from_expr(expr: Expr) -> OrcRes<Self> {
-		TypAtom::<Float>::try_from_expr(expr).map(|t| t.value)
+	async fn try_from_expr(expr: Expr) -> OrcRes<Self> {
+		TypAtom::<Float>::try_from_expr(expr).await.map(|t| t.value)
 	}
 }
 
@@ -39,10 +41,11 @@ pub enum Numeric {
 	Float(NotNan<f64>),
 }
 impl TryFromExpr for Numeric {
-	fn try_from_expr(expr: Expr) -> OrcRes<Self> {
-		Int::try_from_expr(expr.clone())
-			.map(|t| Numeric::Int(t.0))
-			.or_else(|e| Float::try_from_expr(expr).map(|t| Numeric::Float(t.0)).map_err(|e2| e + e2))
+	async fn try_from_expr(expr: Expr) -> OrcRes<Self> {
+		match Int::try_from_expr(expr.clone()).await {
+			Ok(t) => Ok(Numeric::Int(t.0)),
+			Err(e) => Float::try_from_expr(expr).await.map(|t| Numeric::Float(t.0)).map_err(|e2| e + e2),
+		}
 	}
 }
 impl ToAtom for Numeric {

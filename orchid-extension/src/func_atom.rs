@@ -84,7 +84,7 @@ impl OwnedAtom for Fun {
 		self.path.to_api().encode(write).await;
 		self.args.clone()
 	}
-	async fn deserialize(ctx: impl DeserializeCtx, args: Self::Refs) -> Self {
+	async fn deserialize(mut ctx: impl DeserializeCtx, args: Self::Refs) -> Self {
 		let sys = ctx.sys();
 		let path = Sym::from_api(ctx.decode().await, &sys.i).await;
 		let (arity, fun) = FUNS.with(|f| f.clone()).lock().await.get(&path).unwrap().clone();
@@ -128,6 +128,8 @@ impl OwnedAtom for Lambda {
 }
 
 mod expr_func_derives {
+	use std::future::Future;
+
 	use orchid_base::error::OrcRes;
 
 	use super::ExprFunc;
@@ -140,14 +142,14 @@ mod expr_func_derives {
       paste::paste!{
         impl<
           $($t: TryFromExpr, )*
-          Out: ToExpr,
-          Func: Fn($($t,)*) -> Out + Clone + Send + Sync + 'static
-        > ExprFunc<($($t,)*), Out> for Func {
+					Fut: Future<Output: ToExpr>,
+          Func: Fn($($t,)*) -> Fut + Clone + Send + Sync + 'static
+        > ExprFunc<($($t,)*), Fut::Output> for Func {
           const ARITY: u8 = $arity;
           async fn apply(&self, v: Vec<Expr>) -> OrcRes<GExpr> {
             assert_eq!(v.len(), Self::ARITY.into(), "Arity mismatch");
             let [$([< $t:lower >],)*] = v.try_into().unwrap_or_else(|_| panic!("Checked above"));
-            Ok(self($($t::try_from_expr([< $t:lower >]).await?,)*).to_expr())
+            Ok(self($($t::try_from_expr([< $t:lower >]).await?,)*).await.to_expr())
           }
         }
       }

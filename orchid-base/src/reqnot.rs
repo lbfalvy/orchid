@@ -18,6 +18,7 @@ use orchid_api_traits::{Channel, Coding, Decode, Encode, MsgSet, Request};
 use trait_set::trait_set;
 
 use crate::clone;
+use crate::logging::Logger;
 
 pub struct Receipt<'a>(PhantomData<&'a mut ()>);
 
@@ -110,16 +111,24 @@ impl Deref for RawReply {
 	fn deref(&self) -> &Self::Target { get_id(&self.0[..]).1 }
 }
 
-pub struct ReqNot<T: MsgSet>(Arc<Mutex<ReqNotData<T>>>);
+pub struct ReqNot<T: MsgSet>(Arc<Mutex<ReqNotData<T>>>, Logger);
 impl<T: MsgSet> ReqNot<T> {
-	pub fn new(send: impl SendFn<T>, notif: impl NotifFn<T>, req: impl ReqFn<T>) -> Self {
-		Self(Arc::new(Mutex::new(ReqNotData {
-			id: 1,
-			send: Box::new(send),
-			notif: Box::new(notif),
-			req: Box::new(req),
-			responses: HashMap::new(),
-		})))
+	pub fn new(
+		logger: Logger,
+		send: impl SendFn<T>,
+		notif: impl NotifFn<T>,
+		req: impl ReqFn<T>,
+	) -> Self {
+		Self(
+			Arc::new(Mutex::new(ReqNotData {
+				id: 1,
+				send: Box::new(send),
+				notif: Box::new(notif),
+				req: Box::new(req),
+				responses: HashMap::new(),
+			})),
+			logger,
+		)
 	}
 
 	/// Can be called from a polling thread or dispatched in any other way
@@ -133,7 +142,7 @@ impl<T: MsgSet> ReqNot<T> {
 			notif_cb(notif_val, self.clone()).await
 		} else if 0 < id.bitand(1 << 63) {
 			let sender = g.responses.remove(&!id).expect("Received response for invalid message");
-			sender.send(message.to_vec()).await.unwrap();
+			sender.send(message.to_vec()).await.unwrap()
 		} else {
 			let message = <T::In as Channel>::Req::decode(Pin::new(&mut &payload[..])).await;
 			let mut req_cb = clone_box(&*g.req);
@@ -154,28 +163,34 @@ impl<T: MsgSet> ReqNot<T> {
 
 pub trait DynRequester {
 	type Transfer;
+	fn logger(&self) -> &Logger;
 	/// Encode and send a request, then receive the response buffer.
 	fn raw_request(&self, data: Self::Transfer) -> LocalBoxFuture<'_, RawReply>;
 }
 
-pub struct MappedRequester<'a, T: 'a>(Box<dyn Fn(T) -> LocalBoxFuture<'a, RawReply> + 'a>);
+pub struct MappedRequester<'a, T: 'a>(Box<dyn Fn(T) -> LocalBoxFuture<'a, RawReply> + 'a>, Logger);
 impl<'a, T> MappedRequester<'a, T> {
-	fn new<U: DynRequester + 'a>(req: U) -> Self
+	fn new<U: DynRequester + 'a>(req: U, logger: Logger) -> Self
 	where T: Into<U::Transfer> {
 		let req_arc = Arc::new(req);
-		MappedRequester(Box::new(move |t| {
-			Box::pin(clone!(req_arc; async move { req_arc.raw_request(t.into()).await}))
-		}))
+		MappedRequester(
+			Box::new(move |t| {
+				Box::pin(clone!(req_arc; async move { req_arc.raw_request(t.into()).await}))
+			}),
+			logger,
+		)
 	}
 }
 
 impl<T> DynRequester for MappedRequester<'_, T> {
 	type Transfer = T;
+	fn logger(&self) -> &Logger { &self.1 }
 	fn raw_request(&self, data: Self::Transfer) -> LocalBoxFuture<'_, RawReply> { self.0(data) }
 }
 
 impl<T: MsgSet> DynRequester for ReqNot<T> {
 	type Transfer = <T::Out as Channel>::Req;
+	fn logger(&self) -> &Logger { &self.1 }
 	fn raw_request(&self, req: Self::Transfer) -> LocalBoxFuture<'_, RawReply> {
 		Box::pin(async move {
 			let mut g = self.0.lock().await;
@@ -203,17 +218,21 @@ pub trait Requester: DynRequester {
 	) -> impl Future<Output = R::Response>;
 	fn map<'a, U: Into<Self::Transfer>>(self) -> MappedRequester<'a, U>
 	where Self: Sized + 'a {
-		MappedRequester::new(self)
+		let logger = self.logger().clone();
+		MappedRequester::new(self, logger)
 	}
 }
 impl<This: DynRequester + ?Sized> Requester for This {
 	async fn request<R: Request + Into<Self::Transfer>>(&self, data: R) -> R::Response {
-		R::Response::decode(Pin::new(&mut &self.raw_request(data.into()).await[..])).await
+		let req = format!("{data:?}");
+		let rep = R::Response::decode(Pin::new(&mut &self.raw_request(data.into()).await[..])).await;
+		writeln!(self.logger(), "Request {req} got response {rep:?}");
+		rep
 	}
 }
 
 impl<T: MsgSet> Clone for ReqNot<T> {
-	fn clone(&self) -> Self { Self(self.0.clone()) }
+	fn clone(&self) -> Self { Self(self.0.clone(), self.1.clone()) }
 }
 
 #[cfg(test)]
@@ -223,12 +242,14 @@ mod test {
 
 	use async_std::sync::Mutex;
 	use futures::FutureExt;
+	use orchid_api::LogStrategy;
 	use orchid_api_derive::Coding;
 	use orchid_api_traits::{Channel, Request};
 	use test_executors::spin_on;
 
 	use super::{MsgSet, ReqNot};
 	use crate::clone;
+	use crate::logging::Logger;
 	use crate::reqnot::Requester as _;
 
 	#[derive(Clone, Debug, Coding, PartialEq)]
@@ -252,8 +273,10 @@ mod test {
 	#[test]
 	fn notification() {
 		spin_on(async {
+			let logger = Logger::new(LogStrategy::StdErr);
 			let received = Arc::new(Mutex::new(None));
 			let receiver = ReqNot::<TestMsgSet>::new(
+				logger.clone(),
 				|_, _| panic!("Should not send anything"),
 				clone!(received; move |notif, _| clone!(received; async move {
 					*received.lock().await = Some(notif);
@@ -261,6 +284,7 @@ mod test {
 				|_, _| panic!("Not receiving a request"),
 			);
 			let sender = ReqNot::<TestMsgSet>::new(
+				logger,
 				clone!(receiver; move |d, _| clone!(receiver; Box::pin(async move {
 					receiver.receive(d).await
 				}))),
@@ -277,8 +301,10 @@ mod test {
 	#[test]
 	fn request() {
 		spin_on(async {
+			let logger = Logger::new(LogStrategy::StdErr);
 			let receiver = Rc::new(Mutex::<Option<ReqNot<TestMsgSet>>>::new(None));
 			let sender = Rc::new(ReqNot::<TestMsgSet>::new(
+				logger.clone(),
 				clone!(receiver; move |d, _| clone!(receiver; Box::pin(async move {
 					receiver.lock().await.as_ref().unwrap().receive(d).await
 				}))),
@@ -286,6 +312,7 @@ mod test {
 				|_, _| panic!("Should not receive request"),
 			));
 			*receiver.lock().await = Some(ReqNot::new(
+				logger,
 				clone!(sender; move |d, _| clone!(sender; Box::pin(async move {
 					sender.receive(d).await
 				}))),

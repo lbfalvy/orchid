@@ -4,13 +4,12 @@ use std::future::Future;
 use std::num::NonZero;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use futures::future::LocalBoxFuture;
-use futures::task::LocalSpawn;
 use hashbrown::HashMap;
 use orchid_api_traits::{Coding, Decode};
 use orchid_base::boxed_iter::BoxedIter;
+use orchid_base::builtin::Spawner;
 use orchid_base::interner::Interner;
 use orchid_base::logging::Logger;
 use orchid_base::reqnot::{Receipt, ReqNot};
@@ -133,10 +132,10 @@ where A: AtomicFeatures {
 #[derive(Clone)]
 pub struct SysCtx {
 	pub reqnot: ReqNot<api::ExtMsgSet>,
-	pub spawner: Rc<dyn LocalSpawn>,
+	pub spawner: Spawner,
 	pub id: api::SysId,
 	pub cted: CtedObj,
-	pub logger: Arc<Logger>,
+	pub logger: Logger,
 	pub obj_store: ObjStore,
 	pub i: Rc<Interner>,
 }

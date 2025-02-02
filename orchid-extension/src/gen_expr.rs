@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use futures::FutureExt;
 use orchid_base::error::{OrcErr, OrcErrv};
 use orchid_base::location::Pos;
@@ -98,9 +100,9 @@ pub fn bot(ev: impl IntoIterator<Item = OrcErr>) -> GExpr {
 	inherit(GExprKind::Bottom(OrcErrv::new(ev).unwrap()))
 }
 
-pub fn with<I: TryFromExpr, O: ToExpr>(
+pub fn with<I: TryFromExpr, Fut: Future<Output: ToExpr>>(
 	expr: GExpr,
-	cont: impl Fn(I) -> O + Clone + Send + Sync + 'static,
+	cont: impl Fn(I) -> Fut + Clone + Send + Sync + 'static,
 ) -> GExpr {
 	call([lambda(0, [seq([arg(0), call([Lambda::new(cont).to_expr(), arg(0)])])]), expr])
 }

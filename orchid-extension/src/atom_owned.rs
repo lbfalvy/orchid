@@ -144,8 +144,8 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 pub trait DeserializeCtx: Sized {
 	fn read<T: Decode>(&mut self) -> impl Future<Output = T>;
 	fn is_empty(&self) -> bool;
-	fn assert_empty(self) { assert!(self.is_empty(), "Bytes found after decoding") }
-	fn decode<T: Decode>(mut self) -> impl Future<Output = T> {
+	fn assert_empty(&self) { assert!(self.is_empty(), "Bytes found after decoding") }
+	fn decode<T: Decode>(&mut self) -> impl Future<Output = T> {
 		async {
 			let t = self.read().await;
 			self.assert_empty();

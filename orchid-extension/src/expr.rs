@@ -3,7 +3,6 @@ use std::rc::Rc;
 
 use async_once_cell::OnceCell;
 use derive_destructure::destructure;
-use futures::task::LocalSpawnExt;
 use orchid_base::error::OrcErrv;
 use orchid_base::location::Pos;
 use orchid_base::reqnot::Requester;
@@ -34,10 +33,8 @@ impl fmt::Debug for ExprHandle {
 impl Drop for ExprHandle {
 	fn drop(&mut self) {
 		let notif = api::Release(self.ctx.id, self.tk);
-		let SysCtx { reqnot, spawner, logger, .. } = self.ctx.clone();
-		if let Err(e) = spawner.spawn_local(async move { reqnot.notify(notif).await }) {
-			writeln!(logger, "Failed to schedule notification about resource release: {e}");
-		}
+		let SysCtx { reqnot, spawner, .. } = self.ctx.clone();
+		spawner(Box::pin(async move { reqnot.notify(notif).await }))
 	}
 }
 

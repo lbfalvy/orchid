@@ -7,7 +7,6 @@ use async_stream::stream;
 use derive_destructure::destructure;
 use futures::StreamExt;
 use futures::future::join_all;
-use futures::task::LocalSpawnExt;
 use hashbrown::HashMap;
 use itertools::Itertools;
 use orchid_base::async_once_cell::OnceCell;
@@ -57,7 +56,7 @@ impl System {
 	pub fn id(&self) -> api::SysId { self.0.id }
 	pub fn ext(&self) -> &Extension { &self.0.ext }
 	pub fn ctx(&self) -> &Ctx { &self.0.ctx }
-	pub(crate) fn reqnot(&self) -> &ReqNot<api::HostMsgSet> { &self.0.ext.reqnot() }
+	pub(crate) fn reqnot(&self) -> &ReqNot<api::HostMsgSet> { self.0.ext.reqnot() }
 	pub async fn get_tree(&self, id: api::TreeId) -> api::MemberKind {
 		self.reqnot().request(api::GetMember(self.0.id, id)).await
 	}
@@ -94,10 +93,9 @@ impl System {
 	}
 	pub(crate) fn drop_atom(&self, drop: api::AtomId) {
 		let this = self.0.clone();
-		(self.0.ctx.spawn.spawn_local(async move {
+		(self.0.ctx.spawn)(Box::pin(async move {
 			this.ctx.owned_atoms.write().await.remove(&drop);
 		}))
-		.expect("Failed to drop atom");
 	}
 	pub async fn print(&self) -> String {
 		let ctor = (self.0.ext.system_ctors().find(|c| c.id() == self.0.decl_id))

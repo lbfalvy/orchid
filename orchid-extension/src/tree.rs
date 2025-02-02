@@ -71,16 +71,16 @@ impl GenItem {
 pub fn cnst(public: bool, name: &str, value: impl ToExpr) -> Vec<GenItem> {
 	with_export(GenMember { name: name.to_string(), kind: MemKind::Const(value.to_expr()) }, public)
 }
-pub async fn module(
+pub fn module(
 	public: bool,
 	name: &str,
 	imports: impl IntoIterator<Item = Sym>,
 	items: impl IntoIterator<Item = Vec<GenItem>>,
 ) -> Vec<GenItem> {
-	let (name, kind) = root_mod(name, imports, items).await;
+	let (name, kind) = root_mod(name, imports, items);
 	with_export(GenMember { name, kind }, public)
 }
-pub async fn root_mod(
+pub fn root_mod(
 	name: &str,
 	imports: impl IntoIterator<Item = Sym>,
 	items: impl IntoIterator<Item = Vec<GenItem>>,
@@ -91,7 +91,7 @@ pub async fn root_mod(
 	};
 	(name.to_string(), kind)
 }
-pub async fn fun<I, O>(exported: bool, name: &str, xf: impl ExprFunc<I, O>) -> Vec<GenItem> {
+pub fn fun<I, O>(exported: bool, name: &str, xf: impl ExprFunc<I, O>) -> Vec<GenItem> {
 	let fac =
 		LazyMemberFactory::new(move |sym| async { MemKind::Const(Fun::new(sym, xf).await.to_expr()) });
 	with_export(GenMember { name: name.to_string(), kind: MemKind::Lazy(fac) }, exported)

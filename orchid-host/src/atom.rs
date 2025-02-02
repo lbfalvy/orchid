@@ -86,7 +86,7 @@ impl AtomHand {
 impl AtomRepr for AtomHand {
 	type Ctx = Ctx;
 	async fn from_api(atom: &orchid_api::Atom, _: Pos, ctx: &mut Self::Ctx) -> Self {
-		Self::new(atom.clone(), &ctx).await
+		Self::new(atom.clone(), ctx).await
 	}
 	async fn to_api(&self) -> orchid_api::Atom { self.api_ref() }
 	async fn print(&self) -> String { self.to_string().await }

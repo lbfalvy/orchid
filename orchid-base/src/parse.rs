@@ -192,13 +192,13 @@ pub struct Parsed<'a, 'b, T, A: AtomRepr, X: ExtraTok> {
 pub type ParseRes<'a, 'b, T, A, X> = OrcRes<Parsed<'a, 'b, T, A, X>>;
 
 pub async fn parse_multiname<'a, 'b, A: AtomRepr, X: ExtraTok>(
-	ctx: &impl Reporter,
+	ctx: &(impl Reporter + ?Sized),
 	tail: Snippet<'a, 'b, A, X>,
 ) -> ParseRes<'a, 'b, Vec<(Import, Pos)>, A, X> {
 	let ret = rec(ctx, tail).await;
 	#[allow(clippy::type_complexity)] // it's an internal function
 	pub async fn rec<'a, 'b, A: AtomRepr, X: ExtraTok>(
-		ctx: &impl Reporter,
+		ctx: &(impl Reporter + ?Sized),
 		tail: Snippet<'a, 'b, A, X>,
 	) -> ParseRes<'a, 'b, Vec<(Vec<Tok<String>>, Option<Tok<String>>, Pos)>, A, X> {
 		let comma = tail.i(",").await;

@@ -18,7 +18,7 @@ use hashbrown::HashMap;
 use itertools::Itertools;
 use orchid_api::ApplyMacro;
 use orchid_api_traits::{Decode, Encode, enc_vec};
-use orchid_base::builtin::ExtPort;
+use orchid_base::builtin::{ExtPort, Spawner};
 use orchid_base::char_filter::{char_filter_match, char_filter_union, mk_char_filter};
 use orchid_base::clone;
 use orchid_base::interner::{Interner, Tok};
@@ -127,7 +127,7 @@ impl ExtPort for ExtensionOwner {
 	}
 }
 
-async fn extension_main_logic(data: ExtensionData, spawner: Rc<dyn LocalSpawn>) {
+pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 	let api::HostHeader { log_strategy } =
 		api::HostHeader::decode(Pin::new(&mut async_std::io::stdin())).await;
 	let mut buf = Vec::new();
@@ -142,7 +142,7 @@ async fn extension_main_logic(data: ExtensionData, spawner: Rc<dyn LocalSpawn>) 
 	std::io::stdout().write_all(&buf).unwrap();
 	std::io::stdout().flush().unwrap();
 	let exiting = Arc::new(AtomicBool::new(false));
-	let logger = Arc::new(Logger::new(log_strategy));
+	let logger = Logger::new(log_strategy);
 	let interner_cell = Rc::new(RefCell::new(None::<Rc<Interner>>));
 	let interner_weak = Rc::downgrade(&interner_cell);
 	let obj_store = ObjStore::default();
@@ -159,10 +159,8 @@ async fn extension_main_logic(data: ExtensionData, spawner: Rc<dyn LocalSpawn>) 
 			}.boxed_local())
 	});
 	let rn = ReqNot::<api::ExtMsgSet>::new(
-		clone!(logger; move |a, _| clone!(logger; async move {
-			logger.log_buf("Upsending", a);
-			send_parent_msg(a).await.unwrap()
-		}.boxed_local())),
+		logger.clone(),
+		move |a, _| async move { send_parent_msg(a).await.unwrap() }.boxed_local(),
 		clone!(systems, exiting, mk_ctx, obj_store; move |n, reqnot| {
 			clone!(systems, exiting, mk_ctx, obj_store; async move {
 				match n {
@@ -209,7 +207,7 @@ async fn extension_main_logic(data: ExtensionData, spawner: Rc<dyn LocalSpawn>) 
 								.then(|(k, v)| {
 									let (req, lazy_mems, rules) = (&hand, &lazy_mems, &rules);
 									clone!(i, ctx; async move {
-										let name = i.i::<String>(&k).await.to_api();
+										let name = i.i(&k).await.to_api();
 										let value = v.into_api(&mut TIACtxImpl {
 											lazy_members: &mut *lazy_mems.lock().await,
 											rules: &mut *rules.lock().await,
@@ -434,6 +432,6 @@ async fn extension_main_logic(data: ExtensionData, spawner: Rc<dyn LocalSpawn>) 
 	*interner_cell.borrow_mut() = Some(Rc::new(Interner::new_replica(rn.clone().map())));
 	while !exiting.load(Ordering::Relaxed) {
 		let rcvd = recv_parent_msg().await.unwrap();
-		rn.receive(&rcvd).await
+		spawner(Box::pin(clone!(rn; async move { rn.receive(&rcvd).await })))
 	}
 }

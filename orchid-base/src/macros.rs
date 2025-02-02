@@ -2,8 +2,7 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use async_std::stream;
-use async_std::sync::Mutex;
+use async_stream::stream;
 use futures::future::LocalBoxFuture;
 use futures::{FutureExt, StreamExt};
 use never::Never;
@@ -63,7 +62,7 @@ pub enum MTok<'a, A> {
 	Ref(Arc<MTok<'a, Never>>),
 	/// Used in the matcher to skip previous macro output which can only go in
 	/// vectorial placeholders
-	Done(Arc<MTok<'a, A>>),
+	Done(Rc<MTok<'a, A>>),
 }
 impl<'a, A> MTok<'a, A> {
 	pub(crate) async fn from_api(
@@ -99,17 +98,17 @@ impl<'a, A> MTok<'a, A> {
 }
 
 pub async fn mtreev_from_api<'a, 'b, A>(
-	api: impl IntoIterator<Item = &'b api::MacroTree>,
+	apiv: impl IntoIterator<Item = &'b api::MacroTree>,
 	i: &Interner,
-	do_atom: &mut impl MacroAtomFromApi<'a, A>,
+	do_atom: &'b mut (impl MacroAtomFromApi<'a, A> + 'b),
 ) -> Vec<MTree<'a, A>> {
-	let do_atom_lk = Mutex::new(do_atom);
-	stream::from_iter(api)
-		.then(|api| async {
-			MTree::from_api(api, &mut *do_atom_lk.lock().await, i).boxed_local().await
-		})
-		.collect()
-		.await
+	stream! {
+		for api in apiv {
+			yield MTree::from_api(api, do_atom, i).boxed_local().await
+		}
+	}
+	.collect()
+	.await
 }
 
 pub async fn mtreev_to_api<'a: 'b, 'b, A: 'b>(

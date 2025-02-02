@@ -1,9 +1,9 @@
 use itertools::Itertools;
 use orchid_base::error::{OrcErr, OrcRes, mk_err, mk_errv};
-use orchid_base::interner::intern;
+use orchid_base::interner::Interner;
 use orchid_base::location::Pos;
 use orchid_base::tree::{vname_tv, wrap_tokv};
-use orchid_base::{intern, vname};
+use orchid_base::vname;
 use orchid_extension::atom::AtomicFeatures;
 use orchid_extension::lexer::{LexContext, Lexer, err_not_applicable};
 use orchid_extension::tree::{GenTok, GenTokTree};
@@ -32,10 +32,10 @@ struct StringError {
 
 impl StringError {
 	/// Convert into project error for reporting
-	pub fn into_proj(self, pos: u32) -> OrcErr {
+	pub async fn into_proj(self, pos: u32, i: &Interner) -> OrcErr {
 		let start = pos + self.pos;
 		mk_err(
-			intern!(str: "Failed to parse string"),
+			i.i("Failed to parse string").await,
 			match self.kind {
 				StringErrorKind::NotHex => "Expected a hex digit",
 				StringErrorKind::BadCodePoint => "The specified number is not a Unicode code point",
@@ -95,29 +95,40 @@ fn parse_string(str: &str) -> Result<String, StringError> {
 pub struct StringLexer;
 impl Lexer for StringLexer {
 	const CHAR_FILTER: &'static [std::ops::RangeInclusive<char>] = &['"'..='"'];
-	fn lex<'a>(all: &'a str, ctx: &'a LexContext<'a>) -> OrcRes<(&'a str, GenTokTree<'a>)> {
-		let mut tail = all.strip_prefix('"').ok_or_else(err_not_applicable)?;
-		let mut ret = GenTok::X(IntStrAtom::from(intern!(str: "")).factory()).at(ctx.tok_ran(0, all));
+	async fn lex<'a>(all: &'a str, ctx: &'a LexContext<'a>) -> OrcRes<(&'a str, GenTokTree<'a>)> {
+		let Some(mut tail) = all.strip_prefix('"') else {
+			return Err(err_not_applicable(ctx.i).await.into());
+		};
+		let mut ret = GenTok::X(IntStrAtom::from(ctx.i.i("").await).factory()).at(ctx.tok_ran(0, all));
 		let mut cur = String::new();
 		let mut errors = vec![];
-		let str_to_gen = |str: &mut String, tail: &str, err: &mut Vec<OrcErr>| {
-			let str_val = parse_string(&str.split_off(0))
-				.inspect_err(|e| err.push(e.clone().into_proj(ctx.pos(tail) - str.len() as u32)))
-				.unwrap_or_default();
-			GenTok::X(IntStrAtom::from(intern(&*str_val)).factory())
-				.at(ctx.tok_ran(str.len() as u32, tail))
-		};
-		let add_frag = |prev: GenTokTree<'a>, new: GenTokTree<'a>| {
-			wrap_tokv(vname_tv(&vname!(std::string::concat), new.range.end).chain([prev, new]))
+		async fn str_to_gen<'a>(
+			str: &mut String,
+			tail: &str,
+			err: &mut Vec<OrcErr>,
+			ctx: &'a LexContext<'a>,
+		) -> GenTokTree<'a> {
+			let str_val_res = parse_string(&str.split_off(0));
+			if let Err(e) = &str_val_res {
+				err.push(e.clone().into_proj(ctx.pos(tail) - str.len() as u32, ctx.i).await);
+			}
+			let str_val = str_val_res.unwrap_or_default();
+			GenTok::X(IntStrAtom::from(ctx.i.i(&*str_val).await).factory())
+				.at(ctx.tok_ran(str.len() as u32, tail)) as GenTokTree<'a>
+		}
+		let add_frag = |prev: GenTokTree<'a>, new: GenTokTree<'a>| async {
+			wrap_tokv(
+				vname_tv(&vname!(std::string::concat; ctx.i).await, new.range.end).chain([prev, new]),
+			)
 		};
 		loop {
 			if let Some(rest) = tail.strip_prefix('"') {
-				return Ok((rest, add_frag(ret, str_to_gen(&mut cur, tail, &mut errors))));
+				return Ok((rest, add_frag(ret, str_to_gen(&mut cur, tail, &mut errors, ctx).await).await));
 			} else if let Some(rest) = tail.strip_prefix('$') {
-				ret = add_frag(ret, str_to_gen(&mut cur, tail, &mut errors));
-				let (new_tail, tree) = ctx.recurse(rest)?;
+				ret = add_frag(ret, str_to_gen(&mut cur, tail, &mut errors, ctx).await).await;
+				let (new_tail, tree) = ctx.recurse(rest).await?;
 				tail = new_tail;
-				ret = add_frag(ret, tree);
+				ret = add_frag(ret, tree).await;
 			} else if tail.starts_with('\\') {
 				// parse_string will deal with it, we just have to skip the next char
 				tail = &tail[2..];
@@ -128,9 +139,11 @@ impl Lexer for StringLexer {
 					tail = ch.as_str();
 				} else {
 					let range = ctx.pos(all)..ctx.pos("");
-					return Err(mk_errv(intern!(str: "No string end"), "String never terminated with \"", [
-						Pos::Range(range.clone()).into(),
-					]));
+					return Err(mk_errv(
+						ctx.i.i("No string end").await,
+						"String never terminated with \"",
+						[Pos::Range(range.clone()).into()],
+					));
 				}
 			}
 		}

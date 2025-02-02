@@ -4,7 +4,7 @@ use futures::FutureExt;
 use futures::future::join_all;
 use itertools::Itertools;
 use never::Never;
-use orchid_base::error::{OrcErrv, OrcRes, Reporter, mk_err, mk_errv};
+use orchid_base::error::{OrcErrv, OrcRes, Reporter, ReporterImpl, mk_err, mk_errv};
 use orchid_base::interner::Tok;
 use orchid_base::location::Pos;
 use orchid_base::macros::{MTok, MTree};
@@ -25,9 +25,19 @@ use crate::tree::{
 
 type ParsSnippet<'a> = Snippet<'a, 'static, AtomHand, Never>;
 
-pub trait ParseCtx: Send + Sync {
+pub struct ParseCtxImpl<'a> {
+	pub systems: &'a [System],
+	pub reporter: &'a ReporterImpl,
+}
+
+impl ParseCtx for ParseCtxImpl<'_> {
+	fn reporter(&self) -> &(impl Reporter + ?Sized) { self.reporter }
+	fn systems(&self) -> impl Iterator<Item = &System> { self.systems.iter() }
+}
+
+pub trait ParseCtx {
 	fn systems(&self) -> impl Iterator<Item = &System>;
-	fn reporter(&self) -> &impl Reporter;
+	fn reporter(&self) -> &(impl Reporter + ?Sized);
 }
 
 pub async fn parse_items(
@@ -239,8 +249,8 @@ pub async fn parse_mtree(mut snip: ParsSnippet<'_>) -> OrcRes<Vec<MacTree>> {
 			Token::LambdaHead(arg) => (
 				ttree.range.start..snip.pos().end,
 				MTok::Lambda(
-					parse_mtree(Snippet::new(ttree, arg, snip.interner())).await?,
-					parse_mtree(tail).await?,
+					parse_mtree(Snippet::new(ttree, arg, snip.interner())).boxed_local().await?,
+					parse_mtree(tail).boxed_local().await?,
 				),
 				Snippet::new(ttree, &[], snip.interner()),
 			),
@@ -272,7 +282,7 @@ pub async fn parse_macro(
 	let mut errors = Vec::new();
 	let mut rules = Vec::new();
 	for (i, item) in
-		line_items(Snippet::new(&prev, block, tail.interner())).await.into_iter().enumerate()
+		line_items(Snippet::new(prev, block, tail.interner())).await.into_iter().enumerate()
 	{
 		let Parsed { tail, output } = try_pop_no_fluff(item.tail).await?;
 		if !output.is_kw(tail.i("rule").await) {

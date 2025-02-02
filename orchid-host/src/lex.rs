@@ -34,7 +34,7 @@ impl<'a> LexCtx<'a> {
 			tail: &self.source[pos as usize..],
 			systems: self.systems,
 			sub_trees: &mut *self.sub_trees,
-			ctx: &self.ctx,
+			ctx: self.ctx,
 		}
 	}
 	pub fn get_pos(&self) -> u32 { self.end_pos() - self.tail.len() as u32 }
@@ -76,7 +76,7 @@ impl<'a> LexCtx<'a> {
 	}
 }
 
-pub async fn lex_once<'a>(ctx: &mut LexCtx<'a>) -> OrcRes<ParsTokTree> {
+pub async fn lex_once(ctx: &mut LexCtx<'_>) -> OrcRes<ParsTokTree> {
 	let start = ctx.get_pos();
 	assert!(
 		!ctx.tail.is_empty() && !ctx.tail.starts_with(unrep_space),
@@ -140,7 +140,7 @@ pub async fn lex_once<'a>(ctx: &mut LexCtx<'a>) -> OrcRes<ParsTokTree> {
 			let numstr = ctx.get_start_matches(|x| x != ')').trim();
 			match parse_num(numstr) {
 				Ok(num) => ParsTok::Macro(Some(num.to_f64())),
-				Err(e) => return Err(num_to_err(e, pos, &*ctx.ctx.i).await.into()),
+				Err(e) => return Err(num_to_err(e, pos, &ctx.ctx.i).await.into()),
 			}
 		} else {
 			ParsTok::Macro(None)
@@ -154,8 +154,9 @@ pub async fn lex_once<'a>(ctx: &mut LexCtx<'a>) -> OrcRes<ParsTokTree> {
 				let errors_lck = &Mutex::new(&mut errors);
 				let lx = sys
 					.lex(source, pos, |pos| async move {
-						match lex_once(&mut ctx_lck.lock().await.push(pos)).boxed_local().await {
-							Ok(t) => Some(api::SubLexed { pos, ticket: ctx_lck.lock().await.add_subtree(t) }),
+						let mut ctx_g = ctx_lck.lock().await;
+						match lex_once(&mut ctx_g.push(pos)).boxed_local().await {
+							Ok(t) => Some(api::SubLexed { pos, ticket: ctx_g.add_subtree(t) }),
 							Err(e) => {
 								errors_lck.lock().await.push(e);
 								None
@@ -166,9 +167,12 @@ pub async fn lex_once<'a>(ctx: &mut LexCtx<'a>) -> OrcRes<ParsTokTree> {
 				match lx {
 					Err(e) =>
 						return Err(
-							errors.into_iter().fold(OrcErrv::from_api(&e, &*ctx.ctx.i).await, |a, b| a + b),
+							errors.into_iter().fold(OrcErrv::from_api(&e, &ctx.ctx.i).await, |a, b| a + b),
 						),
-					Ok(Some(lexed)) => return Ok(tt_to_owned(&lexed.expr, &mut ctx.push(lexed.pos)).await),
+					Ok(Some(lexed)) => {
+						ctx.set_pos(lexed.pos);
+						return Ok(tt_to_owned(&lexed.expr, ctx).await);
+					},
 					Ok(None) => match errors.into_iter().reduce(|a, b| a + b) {
 						Some(errors) => return Err(errors),
 						None => continue,
@@ -196,13 +200,13 @@ async fn tt_to_owned(api: &api::TokenTree, ctx: &mut LexCtx<'_>) -> ParsTokTree 
 		Atom(atom =>
 			AtomHand::from_api(atom, Pos::Range(api.range.clone()), &mut ctx.ctx.clone()).await
 		),
-		Bottom(err => OrcErrv::from_api(err, &*ctx.ctx.i).await),
+		Bottom(err => OrcErrv::from_api(err, &ctx.ctx.i).await),
 		LambdaHead(arg => ttv_to_owned(arg, ctx).boxed_local().await),
-		Name(name => Tok::from_api(*name, &*ctx.ctx.i).await),
+		Name(name => Tok::from_api(*name, &ctx.ctx.i).await),
 		S(p.clone(), b => ttv_to_owned(b, ctx).boxed_local().await),
 		BR, NS,
 		Comment(c.clone()),
-		Ph(ph => Ph::from_api(ph, &*ctx.ctx.i).await),
+		Ph(ph => Ph::from_api(ph, &ctx.ctx.i).await),
 		Macro(*prio),
 	} {
 		api::Token::Slot(id) => return ctx.rm_subtree(*id),
@@ -216,7 +220,7 @@ async fn ttv_to_owned<'a>(
 ) -> Vec<ParsTokTree> {
 	let mut out = Vec::new();
 	for tt in api {
-		out.push(tt_to_owned(&tt, ctx).await)
+		out.push(tt_to_owned(tt, ctx).await)
 	}
 	out
 }

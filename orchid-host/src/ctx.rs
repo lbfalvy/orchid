@@ -1,12 +1,12 @@
 use std::cell::RefCell;
-use std::num::NonZeroU16;
+use std::num::{NonZero, NonZeroU16};
 use std::rc::Rc;
 use std::{fmt, ops};
 
 use async_std::sync::RwLock;
-use futures::task::LocalSpawn;
 use hashbrown::HashMap;
 use orchid_api::SysId;
+use orchid_base::builtin::Spawner;
 use orchid_base::interner::Interner;
 
 use crate::api;
@@ -15,7 +15,7 @@ use crate::system::{System, WeakSystem};
 
 pub struct CtxData {
 	pub i: Rc<Interner>,
-	pub spawn: Rc<dyn LocalSpawn>,
+	pub spawn: Spawner,
 	pub systems: RwLock<HashMap<api::SysId, WeakSystem>>,
 	pub system_id: RefCell<NonZeroU16>,
 	pub owned_atoms: RwLock<HashMap<api::AtomId, WeakAtomHand>>,
@@ -24,9 +24,18 @@ pub struct CtxData {
 pub struct Ctx(Rc<CtxData>);
 impl ops::Deref for Ctx {
 	type Target = CtxData;
-	fn deref(&self) -> &Self::Target { &*self.0 }
+	fn deref(&self) -> &Self::Target { &self.0 }
 }
 impl Ctx {
+	pub fn new(spawn: Spawner) -> Self {
+		Self(Rc::new(CtxData {
+			spawn,
+			i: Rc::default(),
+			systems: RwLock::default(),
+			system_id: RefCell::new(NonZero::new(1).unwrap()),
+			owned_atoms: RwLock::default(),
+		}))
+	}
 	pub(crate) async fn system_inst(&self, id: api::SysId) -> Option<System> {
 		self.systems.read().await.get(&id).and_then(WeakSystem::upgrade)
 	}

@@ -14,7 +14,12 @@ pub fn derive(input: TokenStream) -> TokenStream {
 	let encode = encode_body(&input.data);
 	let expanded = quote! {
 		impl #e_impl_generics orchid_api_traits::Encode for #name #e_ty_generics #e_where_clause {
-			async fn encode<W: async_std::io::Write + ?Sized>(&self, mut write: std::pin::Pin<&mut W>) { #encode }
+			async fn encode<W: orchid_api_traits::async_std::io::Write + ?Sized>(
+				&self,
+				mut write: std::pin::Pin<&mut W>
+			) {
+				#encode
+			}
 		}
 	};
 	TokenStream::from(expanded)
@@ -37,7 +42,8 @@ fn encode_body(data: &syn::Data) -> Option<pm2::TokenStream> {
 				let body = encode_items(&v.fields);
 				quote! {
 					Self::#ident #dest => {
-						(#i as u8).encode(write.as_mut()).await;
+						(Box::pin((#i as u8).encode(write.as_mut()))
+							as std::pin::Pin<Box<dyn std::future::Future<Output = _>>>).await;
 						#body
 					}
 				}
@@ -53,7 +59,10 @@ fn encode_body(data: &syn::Data) -> Option<pm2::TokenStream> {
 }
 
 fn encode_names<T: ToTokens>(names: impl Iterator<Item = T>) -> pm2::TokenStream {
-	quote! { #( #names .encode(write.as_mut()).await; )* }
+	quote! { #(
+		(Box::pin(#names .encode(write.as_mut()))
+			as std::pin::Pin<Box<dyn std::future::Future<Output = _>>>).await;
+	)* }
 }
 
 fn encode_items(fields: &syn::Fields) -> Option<pm2::TokenStream> {

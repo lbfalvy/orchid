@@ -73,7 +73,7 @@ impl Request for Ping {
 }
 
 /// Requests running from the extension to the host
-#[derive(Clone, Coding, Hierarchy)]
+#[derive(Clone, Debug, Coding, Hierarchy)]
 #[extendable]
 pub enum ExtHostReq {
 	Ping(Ping),

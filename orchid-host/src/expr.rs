@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 use std::num::NonZeroU64;
 use std::rc::{Rc, Weak};
-use std::sync::atomic::AtomicBool;
 
 use async_std::sync::RwLock;
 use futures::FutureExt;
@@ -19,7 +18,6 @@ pub type ExprParseCtx = Extension;
 
 #[derive(Debug)]
 pub struct ExprData {
-	is_canonical: AtomicBool,
 	pos: Pos,
 	kind: RwLock<ExprKind>,
 }
@@ -51,7 +49,7 @@ impl Expr {
 		}
 		let pos = Pos::from_api(&api.location, &ctx.ctx().i).await;
 		let kind = RwLock::new(ExprKind::from_api(&api.kind, pos.clone(), ctx).boxed_local().await);
-		Self(Rc::new(ExprData { is_canonical: AtomicBool::new(false), pos, kind }))
+		Self(Rc::new(ExprData { pos, kind }))
 	}
 	pub async fn to_api(&self) -> api::InspectedKind {
 		use api::InspectedKind as K;

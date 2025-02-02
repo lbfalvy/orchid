@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use never::Never;
-use orchid_base::interner::Tok;
+use orchid_base::reqnot::Receipt;
 use orchid_extension::atom::{AtomDynfo, AtomicFeatures};
 use orchid_extension::entrypoint::ExtReq;
 use orchid_extension::fs::DeclFs;
@@ -31,15 +31,15 @@ impl SystemCard for StdSystem {
 	}
 }
 impl System for StdSystem {
-	fn request(_: ExtReq, req: Self::Req) -> orchid_base::reqnot::Receipt { match req {} }
+	async fn request(_: ExtReq<'_>, req: Self::Req) -> Receipt<'_> { match req {} }
 	fn lexers() -> Vec<orchid_extension::lexer::LexerObj> { vec![&StringLexer] }
 	fn parsers() -> Vec<orchid_extension::parser::ParserObj> { vec![] }
 	fn vfs() -> DeclFs { DeclFs::Mod(&[]) }
-	fn env() -> Vec<(Tok<String>, MemKind)> {
+	fn env() -> Vec<(String, MemKind)> {
 		vec![root_mod("std", [], [module(true, "string", [], [comments(
 			["Concatenate two strings"],
-			fun(true, "concat", |left: OrcString, right: OrcString| {
-				StrAtom::new(Arc::new(left.get_string().to_string() + &right.get_string()))
+			fun(true, "concat", |left: OrcString<'static>, right: OrcString<'static>| async move {
+				StrAtom::new(Rc::new(left.get_string().await.to_string() + &right.get_string().await))
 			}),
 		)])])]
 	}

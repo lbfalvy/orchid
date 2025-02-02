@@ -9,7 +9,6 @@ use async_std::sync::Mutex;
 use derive_destructure::destructure;
 use futures::FutureExt;
 use futures::future::{join, join_all};
-use futures::task::LocalSpawnExt;
 use hashbrown::HashMap;
 use itertools::Itertools;
 use orchid_api::HostMsgSet;
@@ -18,7 +17,6 @@ use orchid_base::builtin::ExtInit;
 use orchid_base::clone;
 use orchid_base::interner::Tok;
 use orchid_base::logging::Logger;
-use orchid_base::macros::mtreev_from_api;
 use orchid_base::reqnot::{ReqNot, Requester as _};
 use orchid_base::tree::AtomRepr;
 
@@ -26,7 +24,6 @@ use crate::api;
 use crate::atom::AtomHand;
 use crate::ctx::Ctx;
 use crate::expr_store::ExprStore;
-use crate::macros::{macro_recur, macro_treev_to_api};
 use crate::system::SystemCtor;
 
 pub struct ReqPair<R: Request>(R, Sender<R::Response>);
@@ -45,9 +42,13 @@ pub struct ExtensionData {
 	next_pars: RefCell<NonZeroU64>,
 	exprs: ExprStore,
 	lex_recur: Mutex<HashMap<api::ParsId, channel::Sender<ReqPair<api::SubLex>>>>,
+	mac_recur: Mutex<HashMap<api::ParsId, channel::Sender<ReqPair<api::RunMacros>>>>,
 }
 impl Drop for ExtensionData {
-	fn drop(&mut self) { self.reqnot.notify(api::HostExtNotif::Exit); }
+	fn drop(&mut self) {
+		let reqnot = self.reqnot.clone();
+		(self.ctx.spawn)(Box::pin(async move { reqnot.notify(api::HostExtNotif::Exit).await }))
+	}
 }
 
 #[derive(Clone)]
@@ -60,17 +61,19 @@ impl Extension {
 			systems: (init.systems.iter().cloned())
 				.map(|decl| SystemCtor { decl, ext: WeakExtension(weak.clone()) })
 				.collect(),
-			logger,
+			logger: logger.clone(),
 			init,
 			next_pars: RefCell::new(NonZeroU64::new(1).unwrap()),
 			lex_recur: Mutex::default(),
+			mac_recur: Mutex::default(),
 			reqnot: ReqNot::new(
+				logger,
 				clone!(weak; move |sfn, _| clone!(weak; async move {
 					let data = weak.upgrade().unwrap();
-					data.logger.log_buf("Downsending", sfn);
 					data.init.send(sfn).await
 				}.boxed_local())),
-				clone!(weak; move |notif, _| clone!(weak; async move {
+				clone!(weak; move |notif, _| {
+					clone!(weak; Box::pin(async move {
 					let this = Extension(weak.upgrade().unwrap());
 					match notif {
 						api::ExtHostNotif::ExprNotif(api::ExprNotif::Acquire(acq)) => {
@@ -90,12 +93,12 @@ impl Extension {
 						},
 						api::ExtHostNotif::Log(api::Log(str)) => this.logger().log(str),
 					}
-				}.boxed_local())),
+				}))}),
 				{
 					clone!(weak, ctx);
 					move |hand, req| {
 						clone!(weak, ctx);
-						async move {
+						Box::pin(async move {
 							let this = Self(weak.upgrade().unwrap());
 							let i = this.ctx().i.clone();
 							match req {
@@ -124,10 +127,12 @@ impl Extension {
 									hand.handle(fw, &sys.request(body.clone()).await).await
 								},
 								api::ExtHostReq::SubLex(sl) => {
-									let (rep_in, rep_out) = channel::bounded(0);
-									let lex_g = this.0.lex_recur.lock().await;
-									let req_in = lex_g.get(&sl.id).expect("Sublex for nonexistent lexid");
-									req_in.send(ReqPair(sl.clone(), rep_in)).await.unwrap();
+									let (rep_in, rep_out) = channel::bounded(1);
+									{
+										let lex_g = this.0.lex_recur.lock().await;
+										let req_in = lex_g.get(&sl.id).expect("Sublex for nonexistent lexid");
+										req_in.send(ReqPair(sl.clone(), rep_in)).await.unwrap();
+									}
 									hand.handle(&sl, &rep_out.recv().await.unwrap()).await
 								},
 								api::ExtHostReq::ExprReq(api::ExprReq::Inspect(ins @ api::Inspect { target })) => {
@@ -140,19 +145,17 @@ impl Extension {
 										})
 										.await
 								},
-								api::ExtHostReq::RunMacros(ref rm @ api::RunMacros { ref run_id, ref query }) => {
-									let mtreev =
-										mtreev_from_api(query, &i, &mut |_| panic!("Atom in macro recur")).await;
-									match macro_recur(*run_id, mtreev).await {
-										Some(x) => hand.handle(rm, &Some(macro_treev_to_api(*run_id, x).await)).await,
-										None => hand.handle(rm, &None).await,
-									}
+								api::ExtHostReq::RunMacros(rm) => {
+									let (rep_in, rep_out) = channel::bounded(1);
+									let lex_g = this.0.mac_recur.lock().await;
+									let req_in = lex_g.get(&rm.run_id).expect("Sublex for nonexistent lexid");
+									req_in.send(ReqPair(rm.clone(), rep_in)).await.unwrap();
+									hand.handle(&rm, &rep_out.recv().await.unwrap()).await
 								},
 								api::ExtHostReq::ExtAtomPrint(ref eap @ api::ExtAtomPrint(ref atom)) =>
 									hand.handle(eap, &AtomHand::new(atom.clone(), &ctx).await.print().await).await,
 							}
-						}
-						.boxed_local()
+						})
 					}
 				},
 			),
@@ -185,7 +188,7 @@ impl Extension {
 		// get unique lex ID
 		let id = api::ParsId(self.next_pars());
 		// create and register channel
-		let (req_in, req_out) = channel::bounded(0);
+		let (req_in, req_out) = channel::bounded(1);
 		self.0.lex_recur.lock().await.insert(id, req_in); // lex_recur released
 		let (ret, ()) = join(
 			async {
@@ -207,19 +210,15 @@ impl Extension {
 	}
 	pub async fn recv_one(&self) {
 		let reqnot = self.0.reqnot.clone();
-		self
-			.0
-			.init
-			.recv(Box::new(move |msg| async move { reqnot.receive(msg).await }.boxed_local()))
+		(self.0.init.recv(Box::new(move |msg| async move { reqnot.receive(msg).await }.boxed_local())))
 			.await;
 	}
 	pub fn system_drop(&self, id: api::SysId) {
 		let rc = self.clone();
-		(self.ctx().spawn.spawn_local(async move {
+		(self.ctx().spawn)(Box::pin(async move {
 			rc.reqnot().notify(api::SystemDrop(id)).await;
 			rc.ctx().systems.write().await.remove(&id);
 		}))
-		.expect("Failed to drop system!");
 	}
 	pub fn downgrade(&self) -> WeakExtension { WeakExtension(Rc::downgrade(&self.0)) }
 }

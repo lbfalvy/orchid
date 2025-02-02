@@ -7,8 +7,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 pub use api::PhKind;
-use async_std::stream;
-use async_std::sync::Mutex;
+use async_stream::stream;
 use futures::future::{LocalBoxFuture, join_all};
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
@@ -161,14 +160,13 @@ pub async fn ttv_from_api<A: AtomRepr, X: ExtraTok>(
 	ctx: &mut A::Ctx,
 	i: &Interner,
 ) -> Vec<TokTree<'static, A, X>> {
-	let ctx_lk = Mutex::new(ctx);
-	stream::from_iter(tokv.into_iter())
-		.then(|t| async {
-			let t = t;
-			TokTree::<A, X>::from_api(t.borrow(), *ctx_lk.lock().await, i).boxed_local().await
-		})
-		.collect()
-		.await
+	stream! {
+		for tok in tokv {
+			yield TokTree::<A, X>::from_api(tok.borrow(), ctx, i).boxed_local().await
+		}
+	}
+	.collect()
+	.await
 }
 
 pub async fn ttv_to_api<'a, A: AtomRepr, X: ExtraTok>(
@@ -186,11 +184,13 @@ pub async fn ttv_into_api<'a, A: AtomRepr, X: ExtraTok>(
 	tokv: impl IntoIterator<Item = TokTree<'a, A, X>>,
 	do_extra: &mut impl FnMut(X, Range<u32>) -> api::TokenTree,
 ) -> Vec<api::TokenTree> {
-	let mut new_tokv = Vec::new();
-	for item in tokv {
-		new_tokv.push(item.into_api(do_extra).await)
+	stream! {
+		for tok in tokv {
+			yield tok.into_api(do_extra).await
+		}
 	}
-	new_tokv
+	.collect()
+	.await
 }
 
 /// This takes a position and not a range because it assigns the range to

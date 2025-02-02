@@ -1,17 +1,16 @@
 use std::rc::Rc;
 
-use async_std::sync::RwLock;
 use futures::FutureExt;
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
-use orchid_base::interner::Interner;
+use orchid_base::clone;
 use orchid_base::macros::{MTok, MTree, mtreev_from_api, mtreev_to_api};
 use orchid_base::name::Sym;
 use trait_set::trait_set;
 
 use crate::api;
 use crate::atom::AtomHand;
-use crate::rule::matcher::{NamedMatcher, PriodMatcher};
+use crate::ctx::Ctx;
 use crate::rule::state::MatchState;
 use crate::tree::Code;
 
@@ -22,36 +21,27 @@ trait_set! {
 	trait MacroCB = Fn(Vec<MacTree>) -> Option<Vec<MacTree>>;
 }
 
-thread_local! {
-	static RECURSION: RwLock<HashMap<api::ParsId, Box<dyn MacroCB>>> = RwLock::default();
-	static MACRO_SLOTS: RwLock<HashMap<api::ParsId, HashMap<api::MacroTreeId, Rc<MacTok>>>> =
-		RwLock::default();
-}
+type Slots = HashMap<api::MacroTreeId, Rc<MacTok>>;
 
-pub async fn macro_recur(run_id: api::ParsId, input: Vec<MacTree>) -> Option<Vec<MacTree>> {
-	(RECURSION.read().unwrap()[&run_id])(input)
-}
-
-pub async fn macro_treev_to_api(run_id: api::ParsId, mtree: Vec<MacTree>) -> Vec<api::MacroTree> {
-	let mut g = MACRO_SLOTS.write().unwrap();
-	let run_cache = g.get_mut(&run_id).expect("Parser run not found");
+pub async fn macro_treev_to_api(mtree: Vec<MacTree>, slots: &mut Slots) -> Vec<api::MacroTree> {
 	mtreev_to_api(&mtree, &mut |a: &AtomHand| {
-		let id = api::MacroTreeId((run_cache.len() as u64 + 1).try_into().unwrap());
-		run_cache.insert(id, Rc::new(MacTok::Atom(a.clone())));
-		api::MacroToken::Slot(id)
-	})
-}
-
-pub async fn macro_treev_from_api(api: Vec<api::MacroTree>, i: &Interner) -> Vec<MacTree> {
-	mtreev_from_api(&api, i, &mut |atom| {
-		async { MacTok::Atom(AtomHand::from_api(atom.clone())) }.boxed_local()
+		let id = api::MacroTreeId((slots.len() as u64 + 1).try_into().unwrap());
+		slots.insert(id, Rc::new(MacTok::Atom(a.clone())));
+		async move { api::MacroToken::Slot(id) }.boxed_local()
 	})
 	.await
 }
 
-pub fn deslot_macro(run_id: api::ParsId, tree: &[MacTree]) -> Option<Vec<MacTree>> {
-	let mut slots = (MACRO_SLOTS.write().unwrap()).remove(&run_id).expect("Run not found");
-	return work(&mut slots, tree);
+pub async fn macro_treev_from_api(api: Vec<api::MacroTree>, ctx: Ctx) -> Vec<MacTree> {
+	mtreev_from_api(&api, &ctx.clone().i, &mut move |atom| {
+		clone!(ctx);
+		Box::pin(async move { MacTok::Atom(AtomHand::new(atom.clone(), &ctx).await) })
+	})
+	.await
+}
+
+pub fn deslot_macro(tree: &[MacTree], slots: &mut Slots) -> Option<Vec<MacTree>> {
+	return work(slots, tree);
 	fn work(
 		slots: &mut HashMap<api::MacroTreeId, Rc<MacTok>>,
 		tree: &[MacTree],
@@ -88,74 +78,6 @@ pub fn deslot_macro(run_id: api::ParsId, tree: &[MacTree]) -> Option<Vec<MacTree
 pub struct Macro<Matcher> {
 	deps: HashSet<Sym>,
 	cases: Vec<(Matcher, Code)>,
-}
-
-pub struct MacroRepo {
-	named: HashMap<Sym, Vec<Macro<NamedMatcher>>>,
-	prio: Vec<Macro<PriodMatcher>>,
-}
-impl MacroRepo {
-	/// TODO: the recursion inside this function needs to be moved into Orchid.
-	/// See the markdown note
-	pub fn process_exprv(&self, target: &[MacTree], i: &Interner) -> Option<Vec<MacTree>> {
-		let mut workcp = target.to_vec();
-		let mut lexicon;
-
-		'try_named: loop {
-			lexicon = HashSet::new();
-			target.iter().for_each(|tgt| fill_lexicon(tgt, &mut lexicon));
-
-			for (idx, tree) in workcp.iter().enumerate() {
-				let MacTok::Name(name) = &*tree.tok else { continue };
-				let matches = (self.named.get(name).into_iter().flatten())
-					.filter(|m| m.deps.is_subset(&lexicon))
-					.filter_map(|mac| {
-						(mac.cases.iter())
-							.find_map(|cas| cas.0.apply(&workcp[idx..], i, |_| false).map(|s| (cas, s)))
-					})
-					.collect_vec();
-				assert!(
-					matches.len() < 2,
-					"Multiple conflicting matches on {:?}: {:?}",
-					&workcp[idx..],
-					matches
-				);
-				let Some((case, (state, tail))) = matches.into_iter().next() else { continue };
-				let inj = (run_body(&case.1, state).into_iter())
-					.map(|MacTree { pos, tok }| MacTree { pos, tok: Rc::new(MacTok::Done(tok)) });
-				workcp.splice(idx..(workcp.len() - tail.len()), inj);
-				continue 'try_named;
-			}
-			break;
-		}
-
-		if let Some(((_, body), state)) = (self.prio.iter())
-			.filter(|mac| mac.deps.is_subset(&lexicon))
-			.flat_map(|mac| &mac.cases)
-			.find_map(|case| case.0.apply(&workcp, |_| false).map(|state| (case, state)))
-		{
-			return Some(run_body(body, state));
-		}
-
-		let results = (workcp.into_iter())
-			.map(|mt| match &*mt.tok {
-				MTok::S(p, body) => self.process_exprv(body, i).map(|body| MTok::S(*p, body).at(mt.pos)),
-				MTok::Lambda(arg, body) =>
-					match (self.process_exprv(arg, i), self.process_exprv(body, i)) {
-						(Some(arg), Some(body)) => Some(MTok::Lambda(arg, body).at(mt.pos)),
-						(Some(arg), None) => Some(MTok::Lambda(arg, body.to_vec()).at(mt.pos)),
-						(None, Some(body)) => Some(MTok::Lambda(arg.to_vec(), body).at(mt.pos)),
-						(None, None) => None,
-					},
-				_ => None,
-			})
-			.collect_vec();
-		results.iter().any(Option::is_some).then(|| {
-			(results.into_iter().zip(target))
-				.map(|(opt, fb)| opt.unwrap_or_else(|| fb.clone()))
-				.collect_vec()
-		})
-	}
 }
 
 fn fill_lexicon(tgt: &MacTree, lexicon: &mut HashSet<Sym>) {

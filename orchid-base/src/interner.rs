@@ -229,8 +229,6 @@ impl Interner {
 	/// Intern some data; query its identifier if not known locally
 	pub async fn i<T: Interned>(&self, t: &(impl Internable<Interned = T> + ?Sized)) -> Tok<T> {
 		let data = t.get_owned();
-		let job = format!("{t:?} in {}", if self.master.is_some() { "replica" } else { "master" });
-		eprintln!("Interning {job}");
 		let mut g = self.interners.lock().await;
 		let typed = T::bimap(&mut g);
 		if let Some(tok) = typed.by_value(&data) {
@@ -243,7 +241,6 @@ impl Interner {
 		};
 		let tok = Tok::new(data, marker);
 		T::bimap(&mut g).insert(tok.clone());
-		eprintln!("Interned {job}");
 		tok
 	}
 	/// Extern an identifier; query the data it represents if not known locally
