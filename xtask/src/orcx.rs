@@ -9,9 +9,8 @@ pub fn orcx(_args: &Args, argv: &[String]) -> io::Result<()> {
 		EXIT_OK.store(false, Ordering::Relaxed);
 		return Ok(());
 	}
-	let status = Command::new("cargo")
-		.args("run -p orcx --".split(' ').chain(argv.iter().map(|s| s.as_str())))
-		.status()?;
-	EXIT_OK.store(status.success(), Ordering::Relaxed);
+	if !Command::new("cargo").args(["run", "-p", "orcx", "--"]).args(argv).status()?.success() {
+		EXIT_OK.store(false, Ordering::Relaxed);
+	}
 	Ok(())
 }
