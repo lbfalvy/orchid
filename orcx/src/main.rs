@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::Read;
 use std::mem;
-use std::process::Command;
+use std::process::{Command, ExitCode};
 use std::rc::Rc;
 
 use async_stream::try_stream;
@@ -16,7 +16,7 @@ use orchid_base::tree::ttv_fmt;
 use orchid_host::ctx::Ctx;
 use orchid_host::extension::Extension;
 use orchid_host::lex::lex;
-use orchid_host::parse::{self, ParseCtx, ParseCtxImpl, parse_items};
+use orchid_host::parse::{ParseCtxImpl, parse_items};
 use orchid_host::subprocess::ext_command;
 use orchid_host::system::init_systems;
 use substack::Substack;
@@ -25,9 +25,9 @@ use tokio::task::{LocalSet, spawn_local};
 #[derive(Parser, Debug)]
 #[command(version, about, long_about)]
 pub struct Args {
-	#[arg(short, long)]
+	#[arg(short, long, env = "ORCHID_EXTENSIONS", value_delimiter = ';')]
 	extension: Vec<Utf8PathBuf>,
-	#[arg(short, long)]
+	#[arg(short, long, env = "ORCHID_DEFAULT_SYSTEMS", value_delimiter = ';')]
 	system: Vec<String>,
 	#[command(subcommand)]
 	command: Commands,
@@ -51,7 +51,12 @@ fn get_all_extensions<'a>(
 	ctx: &'a Ctx,
 ) -> impl Stream<Item = io::Result<Extension>> + 'a {
 	try_stream! {
-		for exe in args.extension.iter() {
+		for ext_path in args.extension.iter() {
+			let exe = if cfg!(windows) {
+				ext_path.with_extension("exe")
+			} else {
+				ext_path.clone()
+			};
 			let init = ext_command(Command::new(exe.as_os_str()), logger.clone(), ctx.clone()).await
 				.unwrap();
 			let ext = Extension::new(init, logger.clone(), ctx.clone())?;
@@ -62,7 +67,8 @@ fn get_all_extensions<'a>(
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() {
+async fn main() -> io::Result<ExitCode> {
+	let mut code = ExitCode::SUCCESS;
 	LocalSet::new()
 		.run_until(async {
 			let args = Args::parse();
@@ -93,11 +99,22 @@ async fn main() {
 					let pctx = ParseCtxImpl { reporter: &reporter, systems: &systems };
 					let snip = Snippet::new(first, &lexemes, &ctx.i);
 					let ptree = parse_items(&pctx, Substack::Bottom, snip).await.unwrap();
+					if let Some(errv) = reporter.errv() {
+						eprintln!("{errv}");
+						code = ExitCode::FAILURE;
+						return;
+					}
+					if ptree.is_empty() {
+						eprintln!("File empty only after parsing, but no errors were reported");
+						code = ExitCode::FAILURE;
+						return;
+					}
 					for item in ptree {
 						println!("{item:?}")
 					}
 				},
 			}
 		})
-		.await
+		.await;
+	Ok(code)
 }

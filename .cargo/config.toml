@@ -1,2 +1,8 @@
 [alias]
 xtask = "run --quiet --package xtask --"
+orcx = "xtask orcx"
+
+[env]
+ORCHID_EXTENSIONS = "target/debug/orchid-std"
+ORCHID_DEFAULT_SYSTEMS = "orchid::std"
+ORCHID_LOG_BUFFERS = "true"

@@ -12,7 +12,6 @@ use async_std::channel::{Receiver, Sender};
 use async_std::stream;
 use async_std::sync::Mutex;
 use futures::future::{LocalBoxFuture, join_all};
-use futures::task::LocalSpawn;
 use futures::{FutureExt, StreamExt};
 use hashbrown::HashMap;
 use itertools::Itertools;
