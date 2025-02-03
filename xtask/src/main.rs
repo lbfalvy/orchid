@@ -22,7 +22,7 @@ pub enum Commands {
 	CheckApiRefs,
 	Orcx {
 		#[arg(trailing_var_arg = true, num_args = 1..)]
-		subcommand: Vec<String>,
+		orcx_argv: Vec<String>,
 	},
 }
 
@@ -32,7 +32,7 @@ fn main() -> io::Result<ExitCode> {
 	let args = Args::parse();
 	match &args.command {
 		Commands::CheckApiRefs => check_api_refs(&args)?,
-		Commands::Orcx { subcommand } => orcx(&args, subcommand)?,
+		Commands::Orcx { orcx_argv } => orcx(&args, orcx_argv)?,
 	}
 	Ok(if EXIT_OK.load(Ordering::Relaxed) { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
