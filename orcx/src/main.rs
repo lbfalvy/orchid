@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand};
 use futures::{Stream, TryStreamExt, io};
 use orchid_base::clone;
 use orchid_base::error::ReporterImpl;
+use orchid_base::format::{FmtCtxImpl, take_first};
 use orchid_base::logging::{LogStrategy, Logger};
 use orchid_base::parse::Snippet;
 use orchid_base::tree::ttv_fmt;
@@ -83,7 +84,7 @@ async fn main() -> io::Result<ExitCode> {
 					let mut buf = String::new();
 					file.read_to_string(&mut buf).unwrap();
 					let lexemes = lex(ctx.i.i(&buf).await, &systems, ctx).await.unwrap();
-					println!("{}", ttv_fmt(&lexemes).await)
+					println!("{}", take_first(&ttv_fmt(&lexemes, &FmtCtxImpl { i: &ctx.i }).await, true))
 				},
 				Commands::Parse { file } => {
 					let systems = init_systems(&args.system, &extensions).await.unwrap();

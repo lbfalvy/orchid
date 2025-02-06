@@ -343,7 +343,7 @@ pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 											hand.handle(ser, &refs_opt.map(|refs| (buf, refs))).await
 										},
 										api::AtomReq::AtomPrint(print @ api::AtomPrint(_)) =>
-											hand.handle(print, &nfo.print(actx).await).await,
+											hand.handle(print, &nfo.print(actx).await.to_api()).await,
 										api::AtomReq::Fwded(fwded) => {
 											let api::Fwded(_, key, payload) = &fwded;
 											let mut reply = Vec::new();

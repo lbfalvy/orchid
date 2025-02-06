@@ -1,14 +1,19 @@
 use std::collections::VecDeque;
+use std::fmt;
 use std::num::NonZeroU64;
 use std::rc::{Rc, Weak};
 
 use async_std::sync::RwLock;
 use futures::FutureExt;
+use hashbrown::HashSet;
+use itertools::Itertools;
+use orchid_api::ExprTicket;
 use orchid_base::error::OrcErrv;
+use orchid_base::format::{FmtCtx, FmtUnit, Format, Variants};
 use orchid_base::location::Pos;
-use orchid_base::match_mapping;
 use orchid_base::name::Sym;
-use orchid_base::tree::AtomRepr;
+use orchid_base::tree::{AtomRepr, indent};
+use orchid_base::{match_mapping, tl_cache};
 
 use crate::api;
 use crate::atom::AtomHand;
@@ -34,15 +39,6 @@ impl Expr {
 				.expect("this is a ref, it cannot be null"),
 		)
 	}
-	// pub fn canonicalize(&self) -> api::ExprTicket {
-	// 	if !self.is_canonical.swap(true, Ordering::Relaxed) {
-	// 		KNOWN_EXPRS.write().unwrap().entry(self.id()).or_insert_with(||
-	// self.clone()); 	}
-	// 	self.id()
-	// }
-	// pub fn resolve(tk: api::ExprTicket) -> Option<Self> {
-	// 	KNOWN_EXPRS.read().unwrap().get(&tk).cloned()
-	// }
 	pub async fn from_api(api: &api::Expression, ctx: &mut ExprParseCtx) -> Self {
 		if let api::ExpressionKind::Slot(tk) = &api.kind {
 			return ctx.exprs().get_expr(*tk).expect("Invalid slot");
@@ -57,6 +53,43 @@ impl Expr {
 			ExprKind::Atom(a) => K::Atom(a.to_api().await),
 			ExprKind::Bottom(b) => K::Bottom(b.to_api()),
 			_ => K::Opaque,
+		}
+	}
+}
+impl Format for Expr {
+	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
+		return print_expr(self, c, &mut HashSet::new()).await;
+		async fn print_expr<'a>(
+			expr: &'a Expr,
+			c: &'a (impl FmtCtx + ?Sized + 'a),
+			visited: &mut HashSet<ExprTicket>,
+		) -> FmtUnit {
+			if visited.contains(&expr.id()) {
+				return "CYCLIC_EXPR".to_string().into();
+			}
+			visited.insert(expr.id());
+			match &*expr.0.kind.read().await {
+				ExprKind::Arg => "Arg".to_string().into(),
+				ExprKind::Atom(a) => a.print(c).await,
+				ExprKind::Bottom(e) if e.len() == 1 => format!("Bottom({e})").into(),
+				ExprKind::Bottom(e) => format!("Bottom(\n\t{}\n)", indent(&e.to_string())).into(),
+				ExprKind::Call(f, x) => tl_cache!(Rc<Variants>: Rc::new(Variants::default()
+					.unbounded("{0} {1l}")
+					.bounded("({0} {1b})")))
+				.units([f.print(c).await, x.print(c).await]),
+				ExprKind::Const(c) => format!("{c}").into(),
+				ExprKind::Lambda(None, body) => tl_cache!(Rc<Variants>: Rc::new(Variants::default()
+					.unbounded("\\.{0l}")
+					.bounded("(\\.{0b})")))
+				.units([body.print(c).await]),
+				ExprKind::Lambda(Some(path), body) => tl_cache!(Rc<Variants>: Rc::new(Variants::default()
+					.unbounded("\\{0b}. {1l}")
+					.bounded("(\\{0b}. {1b})")))
+				.units([format!("{path}").into(), body.print(c).await]),
+				ExprKind::Seq(l, r) =>
+					tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("[{0b}]{1l}")))
+						.units([l.print(c).await, r.print(c).await]),
+			}
 		}
 	}
 }
@@ -125,6 +158,21 @@ impl PathSet {
 					(None, None) => None,
 				}
 			},
+		}
+	}
+}
+impl fmt::Display for PathSet {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		fn print_step(step: Step) -> &'static str { if step == Step::Left { "l" } else { "r" } }
+		let step_s = self.steps.iter().copied().map(print_step).join("");
+		match &self.next {
+			Some((left, right)) => {
+				if !step_s.is_empty() {
+					write!(f, "{step_s}>")?;
+				}
+				write!(f, "({left}|{right})")
+			},
+			None => write!(f, "{step_s}"),
 		}
 	}
 }

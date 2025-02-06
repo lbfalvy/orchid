@@ -7,6 +7,7 @@ use async_std::io::Write;
 use orchid_api_derive::Coding;
 use orchid_api_traits::{Encode, Request};
 use orchid_base::error::{OrcRes, mk_errv};
+use orchid_base::format::FmtUnit;
 use orchid_base::interner::Tok;
 use orchid_extension::atom::{AtomMethod, Atomic, MethodSetBuilder, Supports, TypAtom};
 use orchid_extension::atom_owned::{DeserializeCtx, OwnedAtom, OwnedVariant};
@@ -66,7 +67,7 @@ impl From<Tok<String>> for IntStrAtom {
 impl OwnedAtom for IntStrAtom {
 	type Refs = ();
 	async fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(self.0.to_api()) }
-	async fn print(&self, _ctx: SysCtx) -> String { format!("{:?}i", *self.0) }
+	async fn print(&self, _ctx: SysCtx) -> FmtUnit { format!("{:?}i", *self.0).into() }
 	async fn serialize(&self, _: SysCtx, write: Pin<&mut (impl Write + ?Sized)>) {
 		self.0.encode(write).await
 	}

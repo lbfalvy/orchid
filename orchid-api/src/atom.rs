@@ -4,7 +4,8 @@ use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
 use crate::{
-	ExprTicket, Expression, ExtHostReq, HostExtNotif, HostExtReq, OrcResult, SysId, TStrv,
+	ExprTicket, Expression, ExtHostReq, FormattingUnit, HostExtNotif, HostExtReq, OrcResult, SysId,
+	TStrv,
 };
 
 pub type AtomData = Vec<u8>;
@@ -117,14 +118,14 @@ pub struct AtomDrop(pub SysId, pub AtomId);
 #[extends(AtomReq, HostExtReq)]
 pub struct AtomPrint(pub Atom);
 impl Request for AtomPrint {
-	type Response = String;
+	type Response = FormattingUnit;
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Coding, Hierarchy)]
 #[extends(ExtHostReq)]
 pub struct ExtAtomPrint(pub Atom);
 impl Request for ExtAtomPrint {
-	type Response = String;
+	type Response = FormattingUnit;
 }
 
 /// Requests that apply to an existing atom instance

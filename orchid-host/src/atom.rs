@@ -2,6 +2,7 @@ use std::fmt;
 use std::rc::{Rc, Weak};
 
 use derive_destructure::destructure;
+use orchid_base::format::{FmtCtx, FmtUnit, Format, take_first_fmt};
 use orchid_base::location::Pos;
 use orchid_base::reqnot::Requester;
 use orchid_base::tree::AtomRepr;
@@ -78,10 +79,13 @@ impl AtomHand {
 		self.0.owner.reqnot().request(api::Fwded(self.0.api_ref(), key, req)).await
 	}
 	pub fn api_ref(&self) -> api::Atom { self.0.api_ref() }
-	pub async fn to_string(&self) -> String {
-		self.0.owner.reqnot().request(api::AtomPrint(self.0.api_ref())).await
-	}
+	pub async fn to_string(&self) -> String { take_first_fmt(self, &self.0.owner.ctx().i).await }
 	pub fn downgrade(&self) -> WeakAtomHand { WeakAtomHand(Rc::downgrade(&self.0)) }
+}
+impl Format for AtomHand {
+	async fn print<'a>(&'a self, _c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
+		FmtUnit::from_api(&self.0.owner.reqnot().request(api::AtomPrint(self.0.api_ref())).await)
+	}
 }
 impl AtomRepr for AtomHand {
 	type Ctx = Ctx;
@@ -89,7 +93,6 @@ impl AtomRepr for AtomHand {
 		Self::new(atom.clone(), ctx).await
 	}
 	async fn to_api(&self) -> orchid_api::Atom { self.api_ref() }
-	async fn print(&self) -> String { self.to_string().await }
 }
 
 pub struct WeakAtomHand(Weak<AtomData>);

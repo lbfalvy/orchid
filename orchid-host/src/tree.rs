@@ -1,18 +1,21 @@
 use std::fmt::Debug;
+use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 
 use async_stream::stream;
+use futures::future::join_all;
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
 use never::Never;
-use orchid_base::clone;
 use orchid_base::error::OrcRes;
+use orchid_base::format::{FmtCtx, FmtUnit, Format, Variants};
 use orchid_base::interner::Tok;
 use orchid_base::location::Pos;
-use orchid_base::macros::mtreev_from_api;
+use orchid_base::macros::{mtreev_fmt, mtreev_from_api};
 use orchid_base::name::Sym;
 use orchid_base::parse::{Comment, Import};
-use orchid_base::tree::{AtomRepr, TokTree, Token};
+use orchid_base::tree::{AtomRepr, TokTree, Token, ttv_fmt};
+use orchid_base::{clone, tl_cache};
 use ordered_float::NotNan;
 
 use crate::api;
@@ -76,6 +79,22 @@ impl Item {
 			comments.push(Comment::from_api(comment, &sys.ctx().i).await)
 		}
 		Self { pos: Pos::from_api(&tree.location, &sys.ctx().i).await, comments, kind }
+	}
+}
+impl Format for Item {
+	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
+		let comment_text = self.comments.iter().join("\n");
+		let item_text = match &self.kind {
+			ItemKind::Import(i) => format!("import {i}").into(),
+			ItemKind::Export(e) => format!("export {e}").into(),
+			ItemKind::Macro(None, rules) =>
+				tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("macro {{\n\t{0}\n}}")))
+					.units([Variants::sequence(rules.len(), "\n", None)
+						.units(join_all(rules.iter().map(|r| r.print(c))).await)]),
+			_ => panic!(),
+		};
+		tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("{0}\n{1}")))
+			.units([comment_text.into(), item_text])
 	}
 }
 
@@ -172,6 +191,24 @@ pub struct Rule {
 	pub pattern: Vec<MacTree>,
 	pub kind: RuleKind,
 }
+impl Format for Rule {
+	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
+		FmtUnit::new(
+			tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("{0b}\n{1} => {2b}"))),
+			[
+				self.comments.iter().join("\n").into(),
+				mtreev_fmt(&self.pattern, c).await,
+				match &self.kind {
+					RuleKind::Native(code) => code.print(c).await,
+					RuleKind::Remote(sys, id) => FmtUnit::new(
+						tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("{0} #{1}"))),
+						[sys.print(c).await, format!("{id:?}").into()],
+					),
+				},
+			],
+		)
+	}
+}
 
 #[derive(Debug)]
 pub enum RuleKind {
@@ -191,6 +228,17 @@ impl Code {
 	}
 	pub fn from_code(locator: CodeLocator, code: Vec<ParsTokTree>) -> Self {
 		Self { locator, source: Some(code), bytecode: OnceLock::new() }
+	}
+}
+impl Format for Code {
+	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
+		if let Some(bc) = self.bytecode.get() {
+			return bc.print(c).await;
+		}
+		if let Some(src) = &self.source {
+			return ttv_fmt(src, c).await;
+		}
+		panic!("Code must be initialized with at least one state")
 	}
 }
 

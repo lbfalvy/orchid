@@ -1,9 +1,10 @@
 use std::borrow::Borrow;
 use std::fmt::{self, Debug, Display};
-use std::future::{Future, ready};
+use std::future::Future;
 use std::iter;
 use std::marker::PhantomData;
 use std::ops::Range;
+use std::rc::Rc;
 use std::sync::Arc;
 
 pub use api::PhKind;
@@ -16,16 +17,16 @@ use ordered_float::NotNan;
 use trait_set::trait_set;
 
 use crate::error::OrcErrv;
+use crate::format::{FmtCtx, FmtUnit, Format, Variants};
 use crate::interner::{Interner, Tok};
 use crate::location::Pos;
 use crate::name::PathSlice;
 use crate::parse::Snippet;
-use crate::tokens::PARENS;
-use crate::{api, match_mapping};
+use crate::{api, match_mapping, tl_cache};
 
 trait_set! {
 	pub trait RecurCB<'a, A: AtomRepr, X: ExtraTok> = Fn(TokTree<'a, A, X>) -> TokTree<'a, A, X>;
-	pub trait ExtraTok = Display + Clone + fmt::Debug;
+	pub trait ExtraTok = Format + Clone + fmt::Debug;
 	pub trait RefDoExtra<X> =
 		for<'b> FnMut(&'b X, Range<u32>) -> LocalBoxFuture<'b, api::TokenTree>;
 }
@@ -46,22 +47,15 @@ pub fn recur<'a, A: AtomRepr, X: ExtraTok>(
 	})
 }
 
-pub trait AtomRepr: Clone {
+pub trait AtomRepr: Clone + Format {
 	type Ctx: ?Sized;
 	fn from_api(api: &api::Atom, pos: Pos, ctx: &mut Self::Ctx) -> impl Future<Output = Self>;
 	fn to_api(&self) -> impl Future<Output = orchid_api::Atom> + '_;
-	fn print(&self) -> impl Future<Output = String> + '_;
 }
 impl AtomRepr for Never {
 	type Ctx = Never;
-	#[allow(unreachable_code)]
-	fn from_api(_: &api::Atom, _: Pos, ctx: &mut Self::Ctx) -> impl Future<Output = Self> {
-		ready(match *ctx {})
-	}
-	#[allow(unreachable_code)]
-	fn to_api(&self) -> impl Future<Output = orchid_api::Atom> + '_ { ready(match *self {}) }
-	#[allow(unreachable_code)]
-	fn print(&self) -> impl Future<Output = String> + '_ { ready(match *self {}) }
+	async fn from_api(_: &api::Atom, _: Pos, ctx: &mut Self::Ctx) -> Self { match *ctx {} }
+	async fn to_api(&self) -> orchid_api::Atom { match *self {} }
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -152,7 +146,11 @@ impl<'b, A: AtomRepr, X: ExtraTok> TokTree<'b, A, X> {
 		body.insert(0, Token::LambdaHead(arg).at(arg_range));
 		Token::S(Paren::Round, body).at(s_range)
 	}
-	pub async fn print(&self) -> String { self.tok.print().await }
+}
+impl<A: AtomRepr, X: ExtraTok> Format for TokTree<'_, A, X> {
+	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
+		self.tok.print(c).await
+	}
 }
 
 pub async fn ttv_from_api<A: AtomRepr, X: ExtraTok>(
@@ -245,32 +243,34 @@ impl<'a, A: AtomRepr, X: ExtraTok> Token<'a, A, X> {
 			_ => None,
 		}
 	}
-	pub async fn print(&self) -> String {
+}
+impl<A: AtomRepr, X: ExtraTok> Format for Token<'_, A, X> {
+	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
 		match self {
-			Self::Atom(a) => a.print().await,
-			Self::BR => "\n".to_string(),
-			Self::Bottom(err) if err.len() == 1 => format!("Bottom({}) ", err.one().unwrap()),
-			Self::Bottom(err) => format!("Botttom(\n{}) ", indent(&err.to_string())),
-			Self::Comment(c) => format!("--[{c}]-- "),
-			Self::LambdaHead(arg) => format!("\\ {} . ", indent(&ttv_fmt(arg).await)),
-			Self::NS => ":: ".to_string(),
-			Self::Name(n) => format!("{n} "),
-			Self::Slot(th) => format!("{th} "),
-			Self::Ph(Ph { kind, name }) => match &kind {
-				PhKind::Scalar => format!("${name}"),
-				PhKind::Vector { at_least_one, priority } => {
-					let prefix = if *at_least_one { "..." } else { ".." };
-					let suffix = if 0 < *priority { format!(":{priority}") } else { String::new() };
-					format!("{prefix}${name}{suffix}")
+			Self::Atom(a) => a.print(c).await,
+			Self::BR => "\n".to_string().into(),
+			Self::Bottom(err) if err.len() == 1 => format!("Bottom({}) ", err.one().unwrap()).into(),
+			Self::Bottom(err) => format!("Botttom(\n{}) ", indent(&err.to_string())).into(),
+			Self::Comment(c) => format!("--[{c}]--").into(),
+			Self::LambdaHead(arg) =>
+				FmtUnit::new(tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("\\{0b}."))), [
+					ttv_fmt(arg, c).await,
+				]),
+			Self::NS => "::".to_string().into(),
+			Self::Name(n) => format!("{n}").into(),
+			Self::Slot(th) => format!("{th}").into(),
+			Self::Ph(ph) => format!("{ph}").into(),
+			Self::S(p, b) => FmtUnit::new(
+				match *p {
+					Paren::Round => Rc::new(Variants::default().bounded("({0b})")),
+					Paren::Curly => Rc::new(Variants::default().bounded("{{{0b}}}")),
+					Paren::Square => Rc::new(Variants::default().bounded("[{0b}]")),
 				},
-			},
-			Self::S(p, b) => {
-				let (lp, rp, _) = PARENS.iter().find(|(_, _, par)| par == p).unwrap();
-				format!("{lp} {}{rp} ", indent(&ttv_fmt(b).await))
-			},
-			Self::X(x) => format!("{x} "),
-			Self::Macro(None) => "macro ".to_string(),
-			Self::Macro(Some(prio)) => format!("macro({prio})"),
+				[ttv_fmt(b, c).await],
+			),
+			Self::X(x) => x.print(c).await,
+			Self::Macro(None) => "macro".to_string().into(),
+			Self::Macro(Some(prio)) => format!("macro({prio})").into(),
 		}
 	}
 }
@@ -282,8 +282,9 @@ pub fn ttv_range(ttv: &[TokTree<'_, impl AtomRepr, impl ExtraTok>]) -> Range<u32
 
 pub async fn ttv_fmt<'a: 'b, 'b>(
 	ttv: impl IntoIterator<Item = &'b TokTree<'a, impl AtomRepr + 'b, impl ExtraTok + 'b>>,
-) -> String {
-	join_all(ttv.into_iter().map(|tt| tt.print())).await.join("")
+	c: &(impl FmtCtx + ?Sized),
+) -> FmtUnit {
+	FmtUnit::sequence(" ", None, join_all(ttv.into_iter().map(|t| t.print(c))).await)
 }
 
 pub fn indent(s: &str) -> String { s.replace("\n", "\n  ") }
@@ -299,6 +300,18 @@ impl Ph {
 	}
 	pub fn to_api(&self) -> api::Placeholder {
 		api::Placeholder { name: self.name.to_api(), kind: self.kind }
+	}
+}
+impl Display for Ph {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let n = &self.name;
+		match self.kind {
+			PhKind::Scalar => write!(f, "${n}"),
+			PhKind::Vector { priority: 0, at_least_one: true } => write!(f, "...${}", self.name),
+			PhKind::Vector { priority: p, at_least_one: true } => write!(f, "...${}:{}", self.name, p),
+			PhKind::Vector { priority: 0, at_least_one: false } => write!(f, "..${}", self.name),
+			PhKind::Vector { priority: p, at_least_one: false } => write!(f, "..${}:{}", self.name, p),
+		}
 	}
 }
 

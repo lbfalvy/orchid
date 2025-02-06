@@ -15,10 +15,10 @@ use orchid_api::HostMsgSet;
 use orchid_api_traits::Request;
 use orchid_base::builtin::ExtInit;
 use orchid_base::clone;
+use orchid_base::format::{FmtCtxImpl, Format};
 use orchid_base::interner::Tok;
 use orchid_base::logging::Logger;
 use orchid_base::reqnot::{ReqNot, Requester as _};
-use orchid_base::tree::AtomRepr;
 
 use crate::api;
 use crate::atom::AtomHand;
@@ -152,8 +152,11 @@ impl Extension {
 									req_in.send(ReqPair(rm.clone(), rep_in)).await.unwrap();
 									hand.handle(&rm, &rep_out.recv().await.unwrap()).await
 								},
-								api::ExtHostReq::ExtAtomPrint(ref eap @ api::ExtAtomPrint(ref atom)) =>
-									hand.handle(eap, &AtomHand::new(atom.clone(), &ctx).await.print().await).await,
+								api::ExtHostReq::ExtAtomPrint(ref eap @ api::ExtAtomPrint(ref atom)) => {
+									let atom = AtomHand::new(atom.clone(), &ctx).await;
+									let unit = atom.print(&FmtCtxImpl { i: &this.ctx().i }).await;
+									hand.handle(eap, &unit.to_api()).await
+								},
 							}
 						})
 					}

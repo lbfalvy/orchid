@@ -17,7 +17,8 @@ macro_rules! match_mapping {
     $($branches:tt)*
   } $({
     $($extra:tt)*
-  })?) => {
+  })?) => {{
+    type Helper<T> = T;
     match_mapping!(@BRANCH_MUNCH
       (($input) ($($src)*) ($tgt) ($($($extra)*)?))
       ()
@@ -25,7 +26,7 @@ macro_rules! match_mapping {
     )
     // note: we're adding a comma to the input so the optional trailing comma becomes
     // an optional second comma which is easier to match
-  };
+  }};
   // ======== Process match branches
   // Can't generate branches individually so gather them into a collection and render them here
   (@BRANCHES_DONE ( ($input:expr) $src:tt ($tgt:ty) ($($extra:tt)*) )
@@ -35,7 +36,7 @@ macro_rules! match_mapping {
       match $input {
         $(
           match_mapping!(@PAT ($src $variant) $($pat)*) =>
-            match_mapping!(@VAL (< $tgt >:: $variant) $($pat)*),
+            match_mapping!(@VAL (Helper::< $tgt >:: $variant) $($pat)*),
         )*
         $($extra)*
       }

@@ -13,6 +13,7 @@ use never::Never;
 use orchid_api_traits::{Decode, Encode, enc_vec};
 use orchid_base::clone;
 use orchid_base::error::OrcRes;
+use orchid_base::format::FmtUnit;
 use orchid_base::id_store::{IdRecord, IdStore};
 use orchid_base::name::Sym;
 
@@ -76,7 +77,7 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 		}
 		.boxed_local()
 	}
-	fn print(&self, AtomCtx(_, id, ctx): AtomCtx<'_>) -> LocalBoxFuture<'_, String> {
+	fn print(&self, AtomCtx(_, id, ctx): AtomCtx<'_>) -> LocalBoxFuture<'_, FmtUnit> {
 		async move {
 			with_atom(id.unwrap(), &ctx, |a| clone!(ctx; async move { a.dyn_print(ctx).await })).await
 		}
@@ -227,8 +228,8 @@ pub trait OwnedAtom: Atomic<Variant = OwnedVariant> + Any + Clone + 'static {
 	#[allow(unused_variables)]
 	fn free(self, ctx: SysCtx) -> impl Future<Output = ()> { async {} }
 	#[allow(unused_variables)]
-	fn print(&self, ctx: SysCtx) -> impl Future<Output = String> {
-		async { format!("OwnedAtom({})", type_name::<Self>()) }
+	fn print(&self, ctx: SysCtx) -> impl Future<Output = FmtUnit> {
+		async { format!("OwnedAtom({})", type_name::<Self>()).into() }
 	}
 	#[allow(unused_variables)]
 	fn serialize(
@@ -262,7 +263,7 @@ pub trait DynOwnedAtom: 'static {
 	-> LocalBoxFuture<'static, GExpr>;
 	fn dyn_command(self: Box<Self>, ctx: SysCtx) -> LocalBoxFuture<'static, OrcRes<Option<GExpr>>>;
 	fn dyn_free(self: Box<Self>, ctx: SysCtx) -> LocalBoxFuture<'static, ()>;
-	fn dyn_print(&self, ctx: SysCtx) -> LocalBoxFuture<'_, String>;
+	fn dyn_print(&self, ctx: SysCtx) -> LocalBoxFuture<'_, FmtUnit>;
 	fn dyn_serialize<'a>(
 		&'a self,
 		ctx: SysCtx,
@@ -291,7 +292,7 @@ impl<T: OwnedAtom> DynOwnedAtom for T {
 	fn dyn_free(self: Box<Self>, ctx: SysCtx) -> LocalBoxFuture<'static, ()> {
 		self.free(ctx).boxed_local()
 	}
-	fn dyn_print(&self, ctx: SysCtx) -> LocalBoxFuture<'_, String> { self.print(ctx).boxed_local() }
+	fn dyn_print(&self, ctx: SysCtx) -> LocalBoxFuture<'_, FmtUnit> { self.print(ctx).boxed_local() }
 	fn dyn_serialize<'a>(
 		&'a self,
 		ctx: SysCtx,

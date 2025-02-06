@@ -8,6 +8,7 @@ use futures::FutureExt;
 use futures::future::LocalBoxFuture;
 use orchid_api_traits::{Coding, enc_vec};
 use orchid_base::error::OrcRes;
+use orchid_base::format::FmtUnit;
 use orchid_base::name::Sym;
 
 use crate::api;
@@ -39,7 +40,7 @@ pub struct ThinAtomDynfo<T: ThinAtom> {
 	ms: OnceCell<MethodSet<T>>,
 }
 impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
-	fn print<'a>(&self, AtomCtx(buf, _, ctx): AtomCtx<'a>) -> LocalBoxFuture<'a, String> {
+	fn print<'a>(&self, AtomCtx(buf, _, ctx): AtomCtx<'a>) -> LocalBoxFuture<'a, FmtUnit> {
 		async move { T::decode(Pin::new(&mut &buf[..])).await.print(ctx).await }.boxed_local()
 	}
 	fn tid(&self) -> TypeId { TypeId::of::<T>() }
@@ -123,7 +124,7 @@ pub trait ThinAtom:
 		async move { Err(err_not_command(&ctx.i).await.into()) }
 	}
 	#[allow(unused_variables)]
-	fn print(&self, ctx: SysCtx) -> impl Future<Output = String> {
-		async { format!("ThinAtom({})", type_name::<Self>()) }
+	fn print(&self, ctx: SysCtx) -> impl Future<Output = FmtUnit> {
+		async { format!("ThinAtom({})", type_name::<Self>()).into() }
 	}
 }

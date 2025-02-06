@@ -15,6 +15,7 @@ use futures::{FutureExt, StreamExt};
 use orchid_api_traits::{Coding, Decode, Encode, Request, enc_vec};
 use orchid_base::clone;
 use orchid_base::error::{OrcErr, OrcRes, mk_err};
+use orchid_base::format::{FmtCtx, FmtUnit, Format};
 use orchid_base::interner::Interner;
 use orchid_base::location::Pos;
 use orchid_base::name::Sym;
@@ -117,15 +118,17 @@ impl fmt::Display for ForeignAtom<'_> {
 impl fmt::Debug for ForeignAtom<'_> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "ForeignAtom({self})") }
 }
+impl Format for ForeignAtom<'_> {
+	async fn print<'a>(&'a self, _c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
+		FmtUnit::from_api(&self.ctx.reqnot.request(api::ExtAtomPrint(self.atom.clone())).await)
+	}
+}
 impl AtomRepr for ForeignAtom<'_> {
 	type Ctx = SysCtx;
 	async fn from_api(atom: &api::Atom, pos: Pos, ctx: &mut Self::Ctx) -> Self {
 		Self { atom: atom.clone(), _life: PhantomData, ctx: ctx.clone(), expr: None, pos }
 	}
 	async fn to_api(&self) -> orchid_api::Atom { self.atom.clone() }
-	async fn print(&self) -> String {
-		self.ctx.reqnot.request(api::ExtAtomPrint(self.atom.clone())).await
-	}
 }
 
 pub struct NotTypAtom {
@@ -266,6 +269,9 @@ impl<A: AtomicFeatures> Deref for TypAtom<'_, A> {
 }
 
 pub struct AtomCtx<'a>(pub &'a [u8], pub Option<api::AtomId>, pub SysCtx);
+impl FmtCtx for AtomCtx<'_> {
+	fn i(&self) -> &Interner { &self.2.i }
+}
 
 pub trait AtomDynfo: 'static {
 	fn tid(&self) -> TypeId;
@@ -273,7 +279,7 @@ pub trait AtomDynfo: 'static {
 	fn decode<'a>(&'a self, ctx: AtomCtx<'a>) -> LocalBoxFuture<'a, Box<dyn Any>>;
 	fn call<'a>(&'a self, ctx: AtomCtx<'a>, arg: api::ExprTicket) -> LocalBoxFuture<'a, GExpr>;
 	fn call_ref<'a>(&'a self, ctx: AtomCtx<'a>, arg: api::ExprTicket) -> LocalBoxFuture<'a, GExpr>;
-	fn print<'a>(&'a self, ctx: AtomCtx<'a>) -> LocalBoxFuture<'a, String>;
+	fn print<'a>(&'a self, ctx: AtomCtx<'a>) -> LocalBoxFuture<'a, FmtUnit>;
 	fn handle_req<'a, 'b: 'a, 'c: 'a>(
 		&'a self,
 		ctx: AtomCtx<'a>,
@@ -316,6 +322,11 @@ impl fmt::Debug for AtomFactory {
 }
 impl fmt::Display for AtomFactory {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "AtomFactory") }
+}
+impl Format for AtomFactory {
+	async fn print<'a>(&'a self, _c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
+		"AtomFactory".to_string().into()
+	}
 }
 
 pub async fn err_not_callable(i: &Interner) -> OrcErr {

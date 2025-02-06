@@ -3,16 +3,17 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use async_stream::stream;
-use futures::future::LocalBoxFuture;
+use futures::future::{LocalBoxFuture, join_all};
 use futures::{FutureExt, StreamExt};
 use never::Never;
 use trait_set::trait_set;
 
+use crate::format::{FmtCtx, FmtUnit, Format, Variants};
 use crate::interner::Interner;
 use crate::location::Pos;
 use crate::name::Sym;
 use crate::tree::{Paren, Ph};
-use crate::{api, match_mapping};
+use crate::{api, match_mapping, tl_cache};
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MacroSlot<'a>(api::MacroTreeId, PhantomData<&'a ()>);
@@ -47,6 +48,11 @@ impl<'a, A> MTree<'a, A> {
 			location: self.pos.to_api(),
 			token: self.tok.to_api(do_atom).boxed_local().await,
 		}
+	}
+}
+impl<A: Format> Format for MTree<'_, A> {
+	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
+		self.tok.print(c).await
 	}
 }
 
@@ -96,6 +102,38 @@ impl<'a, A> MTok<'a, A> {
 	}
 	pub fn at(self, pos: Pos) -> MTree<'a, A> { MTree { pos, tok: Rc::new(self) } }
 }
+impl<A: Format> Format for MTok<'_, A> {
+	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
+		match self {
+			Self::Atom(a) => a.print(c).await,
+			Self::Done(d) =>
+				FmtUnit::new(tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("(Done){0l}"))), [
+					d.print(c).await,
+				]),
+			Self::Lambda(arg, b) => FmtUnit::new(
+				tl_cache!(Rc<Variants>: Rc::new(Variants::default()
+					.unbounded("\\{0b}.{1l}")
+					.bounded("(\\{0b}.{1b})"))),
+				[mtreev_fmt(arg, c).await, mtreev_fmt(b, c).await],
+			),
+			Self::Name(n) => format!("{n}").into(),
+			Self::Ph(ph) => format!("{ph}").into(),
+			Self::Ref(r) =>
+				FmtUnit::new(tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("(ref){0l}"))), [
+					r.print(c).await,
+				]),
+			Self::S(p, body) => FmtUnit::new(
+				match *p {
+					Paren::Round => Rc::new(Variants::default().bounded("({0b})")),
+					Paren::Curly => Rc::new(Variants::default().bounded("{{0b}}")),
+					Paren::Square => Rc::new(Variants::default().bounded("[{0b}]")),
+				},
+				[mtreev_fmt(body, c).await],
+			),
+			Self::Slot(slot) => format!("{:?}", slot.0).into(),
+		}
+	}
+}
 
 pub async fn mtreev_from_api<'a, 'b, A>(
 	apiv: impl IntoIterator<Item = &'b api::MacroTree>,
@@ -120,4 +158,11 @@ pub async fn mtreev_to_api<'a: 'b, 'b, A: 'b>(
 		out.push(t.to_api(do_atom).await);
 	}
 	out
+}
+
+pub async fn mtreev_fmt<'a: 'b, 'b, A: 'b + Format>(
+	v: impl IntoIterator<Item = &'b MTree<'a, A>>,
+	c: &(impl FmtCtx + ?Sized),
+) -> FmtUnit {
+	FmtUnit::sequence(" ", None, join_all(v.into_iter().map(|t| t.print(c))).await)
 }

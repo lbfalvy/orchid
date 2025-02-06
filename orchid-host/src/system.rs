@@ -13,6 +13,7 @@ use orchid_base::async_once_cell::OnceCell;
 use orchid_base::char_filter::char_filter_match;
 use orchid_base::clone;
 use orchid_base::error::{OrcErrv, OrcRes};
+use orchid_base::format::{FmtCtx, FmtUnit, Format};
 use orchid_base::interner::Tok;
 use orchid_base::parse::Comment;
 use orchid_base::reqnot::{ReqNot, Requester};
@@ -97,12 +98,14 @@ impl System {
 			this.ctx.owned_atoms.write().await.remove(&drop);
 		}))
 	}
-	pub async fn print(&self) -> String {
+	pub fn downgrade(&self) -> WeakSystem { WeakSystem(Rc::downgrade(&self.0)) }
+}
+impl Format for System {
+	async fn print<'a>(&'a self, _c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
 		let ctor = (self.0.ext.system_ctors().find(|c| c.id() == self.0.decl_id))
 			.expect("System instance with no associated constructor");
-		format!("System({} @ {} #{})", ctor.name(), ctor.priority(), self.0.id.0)
+		format!("System({} @ {} #{})", ctor.name(), ctor.priority(), self.0.id.0).into()
 	}
-	pub fn downgrade(&self) -> WeakSystem { WeakSystem(Rc::downgrade(&self.0)) }
 }
 
 pub struct WeakSystem(Weak<SystemInstData>);
