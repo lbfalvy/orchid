@@ -102,11 +102,17 @@ pub struct Variant {
 	pub elements: Vec<FmtElement>,
 }
 
+#[test]
+fn variants_parse_test() {
+	let vars = Variants::default().bounded("({0})");
+	println!("final: {vars:?}")
+}
+
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Default)]
 pub struct Variants(pub Vec<Variant>);
 impl Variants {
 	fn parse_phs(s: &'_ str) -> Vec<FmtElement> {
-		let re = Regex::new(r"(?<tpl>\{\d+?[bl]?\})| (\{\{)|(\}\})").unwrap();
+		let re = Regex::new(r"(?<tpl>\{\d+?[bl]?\})|(\{\{)|(\}\})").unwrap();
 		let matches = re.captures_iter(s);
 		let slots = matches.into_iter().filter_map(|m| m.name("tpl")).map(|tpl| {
 			let no_opencurly = tpl.as_str().strip_prefix("{").expect("required by regex");
@@ -126,7 +132,7 @@ impl Variants {
 			let idx = num.parse::<u32>().expect("Decimal digits required by regex");
 			(tpl.range(), idx, bounded)
 		});
-		(iter::once(None).chain(slots.into_iter().map(Some)).chain(None).tuple_windows())
+		(iter::once(None).chain(slots.into_iter().map(Some)).chain([None]).tuple_windows())
 			.flat_map(|(l, r)| {
 				let string = match (l, &r) {
 					(None, Some((r, ..))) => &s[..r.start],

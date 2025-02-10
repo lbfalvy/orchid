@@ -91,6 +91,15 @@ impl Format for Item {
 				tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("macro {{\n\t{0}\n}}")))
 					.units([Variants::sequence(rules.len(), "\n", None)
 						.units(join_all(rules.iter().map(|r| r.print(c))).await)]),
+			ItemKind::Member(mem) => match mem.kind.get() {
+				None => format!("lazy {}", mem.name).into(),
+				Some(MemberKind::Const(val)) =>
+					tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("const {0} = {1}")))
+						.units([mem.name.rc().into(), val.print(c).await]),
+				Some(MemberKind::Mod(module)) =>
+					tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("module {0} {{\n\t{1}\n}}")))
+						.units([mem.name.rc().into(), module.print(c).boxed_local().await]),
+			},
 			_ => panic!(),
 		};
 		tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("{0}\n{1}")))
@@ -161,6 +170,15 @@ impl Module {
 			stream! { for item in m.items { yield Item::from_api(item, path, sys).boxed_local().await } }
 				.collect::<Vec<_>>()
 				.await,
+		)
+	}
+}
+impl Format for Module {
+	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
+		let import_str = self.imports.iter().map(|i| format!("import {i}")).join("\n");
+		let head_str = format!("{import_str}\nexport ::({})\n", self.exports.iter().join(", "));
+		Variants::sequence(self.items.len() + 1, "\n", None).units(
+			[head_str.into()].into_iter().chain(join_all(self.items.iter().map(|i| i.print(c))).await),
 		)
 	}
 }

@@ -262,9 +262,9 @@ impl<A: AtomRepr, X: ExtraTok> Format for Token<'_, A, X> {
 			Self::Ph(ph) => format!("{ph}").into(),
 			Self::S(p, b) => FmtUnit::new(
 				match *p {
-					Paren::Round => Rc::new(Variants::default().bounded("({0b})")),
-					Paren::Curly => Rc::new(Variants::default().bounded("{{{0b}}}")),
-					Paren::Square => Rc::new(Variants::default().bounded("[{0b}]")),
+					Paren::Round => tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("({0b})"))),
+					Paren::Curly => tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("{{{0b}}}"))),
+					Paren::Square => tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("[{0b}]"))),
 				},
 				[ttv_fmt(b, c).await],
 			),

@@ -76,19 +76,24 @@ impl Format for Expr {
 				ExprKind::Call(f, x) => tl_cache!(Rc<Variants>: Rc::new(Variants::default()
 					.unbounded("{0} {1l}")
 					.bounded("({0} {1b})")))
-				.units([f.print(c).await, x.print(c).await]),
+				.units([
+					print_expr(f, c, visited).boxed_local().await,
+					print_expr(x, c, visited).boxed_local().await,
+				]),
 				ExprKind::Const(c) => format!("{c}").into(),
 				ExprKind::Lambda(None, body) => tl_cache!(Rc<Variants>: Rc::new(Variants::default()
 					.unbounded("\\.{0l}")
 					.bounded("(\\.{0b})")))
-				.units([body.print(c).await]),
+				.units([print_expr(body, c, visited).boxed_local().await]),
 				ExprKind::Lambda(Some(path), body) => tl_cache!(Rc<Variants>: Rc::new(Variants::default()
 					.unbounded("\\{0b}. {1l}")
 					.bounded("(\\{0b}. {1b})")))
-				.units([format!("{path}").into(), body.print(c).await]),
+				.units([format!("{path}").into(), print_expr(body, c, visited).boxed_local().await]),
 				ExprKind::Seq(l, r) =>
-					tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("[{0b}]{1l}")))
-						.units([l.print(c).await, r.print(c).await]),
+					tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("[{0b}]{1l}"))).units([
+						print_expr(l, c, visited).boxed_local().await,
+						print_expr(r, c, visited).boxed_local().await,
+					]),
 			}
 		}
 	}

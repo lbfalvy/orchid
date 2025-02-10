@@ -52,7 +52,7 @@ impl<'a, A> MTree<'a, A> {
 }
 impl<A: Format> Format for MTree<'_, A> {
 	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
-		self.tok.print(c).await
+		self.tok.print(c).boxed_local().await
 	}
 }
 
@@ -108,7 +108,7 @@ impl<A: Format> Format for MTok<'_, A> {
 			Self::Atom(a) => a.print(c).await,
 			Self::Done(d) =>
 				FmtUnit::new(tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("(Done){0l}"))), [
-					d.print(c).await,
+					d.print(c).boxed_local().await,
 				]),
 			Self::Lambda(arg, b) => FmtUnit::new(
 				tl_cache!(Rc<Variants>: Rc::new(Variants::default()
@@ -120,7 +120,7 @@ impl<A: Format> Format for MTok<'_, A> {
 			Self::Ph(ph) => format!("{ph}").into(),
 			Self::Ref(r) =>
 				FmtUnit::new(tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("(ref){0l}"))), [
-					r.print(c).await,
+					r.print(c).boxed_local().await,
 				]),
 			Self::S(p, body) => FmtUnit::new(
 				match *p {

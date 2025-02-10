@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 use futures::{Stream, TryStreamExt, io};
 use orchid_base::clone;
 use orchid_base::error::ReporterImpl;
-use orchid_base::format::{FmtCtxImpl, take_first};
+use orchid_base::format::{FmtCtxImpl, Format, take_first};
 use orchid_base::logging::{LogStrategy, Logger};
 use orchid_base::parse::Snippet;
 use orchid_base::tree::ttv_fmt;
@@ -111,7 +111,7 @@ async fn main() -> io::Result<ExitCode> {
 						return;
 					}
 					for item in ptree {
-						println!("{item:?}")
+						println!("{}", take_first(&item.print(&FmtCtxImpl { i: &ctx.i }).await, true))
 					}
 				},
 			}
