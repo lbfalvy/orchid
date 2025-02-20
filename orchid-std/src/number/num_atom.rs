@@ -1,11 +1,13 @@
 use orchid_api_derive::Coding;
 use orchid_base::error::OrcRes;
+use orchid_base::format::FmtUnit;
 use orchid_extension::atom::{
 	AtomFactory, Atomic, AtomicFeatures, MethodSetBuilder, ToAtom, TypAtom,
 };
 use orchid_extension::atom_thin::{ThinAtom, ThinVariant};
 use orchid_extension::conv::TryFromExpr;
 use orchid_extension::expr::Expr;
+use orchid_extension::system::SysCtx;
 use ordered_float::NotNan;
 
 #[derive(Clone, Debug, Coding)]
@@ -15,7 +17,9 @@ impl Atomic for Int {
 	type Data = Self;
 	fn reg_reqs() -> MethodSetBuilder<Self> { MethodSetBuilder::new() }
 }
-impl ThinAtom for Int {}
+impl ThinAtom for Int {
+	async fn print(&self, _: SysCtx) -> FmtUnit { self.0.to_string().into() }
+}
 impl TryFromExpr for Int {
 	async fn try_from_expr(expr: Expr) -> OrcRes<Self> {
 		TypAtom::<Int>::try_from_expr(expr).await.map(|t| t.value)
@@ -29,7 +33,9 @@ impl Atomic for Float {
 	type Data = Self;
 	fn reg_reqs() -> MethodSetBuilder<Self> { MethodSetBuilder::new() }
 }
-impl ThinAtom for Float {}
+impl ThinAtom for Float {
+	async fn print(&self, _: SysCtx) -> FmtUnit { self.0.to_string().into() }
+}
 impl TryFromExpr for Float {
 	async fn try_from_expr(expr: Expr) -> OrcRes<Self> {
 		TypAtom::<Float>::try_from_expr(expr).await.map(|t| t.value)

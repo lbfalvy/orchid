@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
-use std::fmt;
 use std::future::Future;
 use std::rc::{Rc, Weak};
+use std::{fmt, mem};
 
 use async_stream::stream;
 use derive_destructure::destructure;
@@ -9,12 +9,12 @@ use futures::StreamExt;
 use futures::future::join_all;
 use hashbrown::HashMap;
 use itertools::Itertools;
-use orchid_base::async_once_cell::OnceCell;
 use orchid_base::char_filter::char_filter_match;
 use orchid_base::clone;
 use orchid_base::error::{OrcErrv, OrcRes};
 use orchid_base::format::{FmtCtx, FmtUnit, Format};
 use orchid_base::interner::Tok;
+use orchid_base::location::Pos;
 use orchid_base::parse::Comment;
 use orchid_base::reqnot::{ReqNot, Requester};
 use orchid_base::tree::ttv_from_api;
@@ -24,7 +24,7 @@ use substack::{Stackframe, Substack};
 use crate::api;
 use crate::ctx::Ctx;
 use crate::extension::{Extension, WeakExtension};
-use crate::tree::{Member, ParsTokTree};
+use crate::tree::{ItemKind, Member, Module, ParsTokTree};
 
 #[derive(destructure)]
 struct SystemInstData {
@@ -33,7 +33,6 @@ struct SystemInstData {
 	decl_id: api::SysDeclId,
 	lex_filter: api::CharFilter,
 	id: api::SysId,
-	const_root: OnceCell<Vec<Member>>,
 	line_types: Vec<Tok<String>>,
 }
 impl Drop for SystemInstData {
@@ -45,7 +44,6 @@ impl fmt::Debug for SystemInstData {
 			.field("decl_id", &self.decl_id)
 			.field("lex_filter", &self.lex_filter)
 			.field("id", &self.id)
-			.field("const_root", &self.const_root)
 			.field("line_types", &self.line_types)
 			.finish_non_exhaustive()
 	}
@@ -135,25 +133,26 @@ impl SystemCtor {
 			ext: ext.clone(),
 			ctx: ext.ctx().clone(),
 			lex_filter: sys_inst.lex_filter,
-			const_root: OnceCell::new(),
 			line_types: join_all(sys_inst.line_types.iter().map(|m| Tok::from_api(*m, &ext.ctx().i)))
 				.await,
 			id,
 		}));
-		(data.0.const_root.get_or_init(
-			clone!(data, ext; stream! {
-				for (k, v) in sys_inst.const_root {
-					yield Member::from_api(
-						api::Member { name: k, kind: v },
-						&mut vec![Tok::from_api(k, &ext.ctx().i).await],
-						&data,
-					).await
-				}
-			})
-			.collect(),
-		))
+		let const_root = clone!(data, ext; stream! {
+			for (k, v) in sys_inst.const_root {
+				yield Member::from_api(
+					api::Member { name: k, kind: v },
+					&mut vec![Tok::from_api(k, &ext.ctx().i).await],
+					&data,
+				).await;
+			}
+		})
+		.map(|mem| ItemKind::Member(mem).at(Pos::None))
+		.collect::<Vec<_>>()
 		.await;
 		ext.ctx().systems.write().await.insert(id, data.downgrade());
+		let mut swap = Module::default();
+		mem::swap(&mut swap, &mut *ext.ctx().root.write().await);
+		*ext.ctx().root.write().await = Module::new(swap.items.into_iter().chain(const_root));
 		data
 	}
 }

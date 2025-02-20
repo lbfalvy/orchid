@@ -11,6 +11,7 @@ use orchid_extension::tree::{MemKind, comments, fun, module, root_mod};
 
 use crate::OrcString;
 use crate::number::num_atom::{Float, Int};
+use crate::number::num_lexer::NumLexer;
 use crate::string::str_atom::{IntStrAtom, StrAtom};
 use crate::string::str_lexer::StringLexer;
 
@@ -32,7 +33,7 @@ impl SystemCard for StdSystem {
 }
 impl System for StdSystem {
 	async fn request(_: ExtReq<'_>, req: Self::Req) -> Receipt<'_> { match req {} }
-	fn lexers() -> Vec<orchid_extension::lexer::LexerObj> { vec![&StringLexer] }
+	fn lexers() -> Vec<orchid_extension::lexer::LexerObj> { vec![&StringLexer, &NumLexer] }
 	fn parsers() -> Vec<orchid_extension::parser::ParserObj> { vec![] }
 	fn vfs() -> DeclFs { DeclFs::Mod(&[]) }
 	fn env() -> Vec<(String, MemKind)> {

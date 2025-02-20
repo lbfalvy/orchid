@@ -2,6 +2,7 @@ use std::any::{Any, TypeId, type_name};
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
+use std::num::NonZeroU32;
 use std::ops::Deref;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -12,6 +13,7 @@ use async_std::stream;
 use dyn_clone::{DynClone, clone_box};
 use futures::future::LocalBoxFuture;
 use futures::{FutureExt, StreamExt};
+use orchid_api_derive::Coding;
 use orchid_api_traits::{Coding, Decode, Encode, Request, enc_vec};
 use orchid_base::clone;
 use orchid_base::error::{OrcErr, OrcRes, mk_err};
@@ -28,6 +30,9 @@ use crate::api;
 use crate::expr::{Expr, ExprData, ExprHandle, ExprKind};
 use crate::gen_expr::GExpr;
 use crate::system::{DynSystemCard, SysCtx, atom_info_for, downcast_atom};
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
+pub struct AtomTypeId(pub NonZeroU32);
 
 pub trait AtomCard: 'static + Sized {
 	type Data: Clone + Coding + Sized;
@@ -72,7 +77,7 @@ impl<A: Atomic + AtomicFeaturesImpl<A::Variant>> AtomicFeatures for A {
 
 pub fn get_info<A: AtomCard>(
 	sys: &(impl DynSystemCard + ?Sized),
-) -> (api::AtomId, Box<dyn AtomDynfo>) {
+) -> (AtomTypeId, Box<dyn AtomDynfo>) {
 	atom_info_for(sys, TypeId::of::<A>()).unwrap_or_else(|| {
 		panic!("Atom {} not associated with system {}", type_name::<A>(), sys.name())
 	})

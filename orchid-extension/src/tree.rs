@@ -21,7 +21,7 @@ use crate::atom::{AtomFactory, ForeignAtom};
 use crate::conv::ToExpr;
 use crate::entrypoint::MemberRecord;
 use crate::func_atom::{ExprFunc, Fun};
-use crate::gen_expr::GExpr;
+use crate::gen_expr::{GExpr, arg, call, lambda, seq};
 use crate::macros::Rule;
 use crate::system::SysCtx;
 
@@ -92,8 +92,20 @@ pub fn root_mod(
 	(name.to_string(), kind)
 }
 pub fn fun<I, O>(exported: bool, name: &str, xf: impl ExprFunc<I, O>) -> Vec<GenItem> {
-	let fac =
-		LazyMemberFactory::new(move |sym| async { MemKind::Const(Fun::new(sym, xf).await.to_expr()) });
+	let fac = LazyMemberFactory::new(move |sym| async {
+		return MemKind::Const(build_lambdas(Fun::new(sym, xf).await, 0));
+		fn build_lambdas(fun: Fun, i: u64) -> GExpr {
+			if i < fun.arity().into() {
+				return lambda(i, [build_lambdas(fun, i + 1)]);
+			}
+			let arity = fun.arity();
+			seq(
+				(0..arity)
+					.map(|i| arg(i as u64))
+					.chain([call([fun.to_expr()].into_iter().chain((0..arity).map(|i| arg(i as u64))))]),
+			)
+		}
+	});
 	with_export(GenMember { name: name.to_string(), kind: MemKind::Lazy(fac) }, exported)
 }
 pub fn macro_block(prio: Option<f64>, rules: impl IntoIterator<Item = Rule>) -> Vec<GenItem> {

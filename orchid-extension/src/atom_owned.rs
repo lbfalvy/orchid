@@ -1,20 +1,24 @@
 use std::any::{Any, TypeId, type_name};
 use std::borrow::Cow;
 use std::future::Future;
+use std::num::NonZero;
+use std::ops::Deref;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::atomic::AtomicU64;
 
 use async_once_cell::OnceCell;
 use async_std::io::{Read, Write};
+use async_std::sync::{RwLock, RwLockReadGuard};
 use futures::FutureExt;
 use futures::future::{LocalBoxFuture, ready};
 use itertools::Itertools;
+use memo_map::MemoMap;
 use never::Never;
+use orchid_api::AtomId;
 use orchid_api_traits::{Decode, Encode, enc_vec};
-use orchid_base::clone;
 use orchid_base::error::OrcRes;
 use orchid_base::format::FmtUnit;
-use orchid_base::id_store::{IdRecord, IdStore};
 use orchid_base::name::Sym;
 
 use crate::api;
@@ -31,23 +35,39 @@ impl AtomicVariant for OwnedVariant {}
 impl<A: OwnedAtom + Atomic<Variant = OwnedVariant>> AtomicFeaturesImpl<OwnedVariant> for A {
 	fn _factory(self) -> AtomFactory {
 		AtomFactory::new(move |ctx| async move {
-			let rec = ctx.obj_store.add(Box::new(self));
-			let (id, _) = get_info::<A>(ctx.cted.inst().card());
-			let mut data = enc_vec(&id).await;
-			rec.encode(Pin::<&mut Vec<u8>>::new(&mut data)).await;
-			api::Atom { drop: Some(api::AtomId(rec.id())), data, owner: ctx.id }
+			let serial = ctx.obj_store.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+			let atom_id = api::AtomId(NonZero::new(serial + 1).unwrap());
+			let (typ_id, _) = get_info::<A>(ctx.cted.inst().card());
+			let mut data = enc_vec(&typ_id).await;
+			self.encode(Pin::<&mut Vec<u8>>::new(&mut data)).await;
+			ctx.obj_store.1.read().await.insert(atom_id, Box::new(self));
+			api::Atom { drop: Some(atom_id), data, owner: ctx.id }
 		})
 	}
 	fn _info() -> Self::_Info { OwnedAtomDynfo { msbuild: A::reg_reqs(), ms: OnceCell::new() } }
 	type _Info = OwnedAtomDynfo<A>;
 }
 
-fn with_atom<'a, U>(
+/// While an atom read guard is held, no atom can be removed.
+pub(crate) struct AtomReadGuard<'a> {
 	id: api::AtomId,
-	ctx: &'a SysCtx,
-	f: impl FnOnce(IdRecord<'a, Box<dyn DynOwnedAtom>>) -> U,
-) -> U {
-	f(ctx.obj_store.get(id.0).unwrap_or_else(|| panic!("Received invalid atom ID: {}", id.0)))
+	guard: RwLockReadGuard<'a, MemoMap<AtomId, Box<dyn DynOwnedAtom>>>,
+}
+impl<'a> AtomReadGuard<'a> {
+	async fn new(id: api::AtomId, ctx: &'a SysCtx) -> Self {
+		let guard = ctx.obj_store.1.read().await;
+		assert!(guard.get(&id).is_some(), "Received invalid atom ID: {}", id.0);
+		Self { id, guard }
+	}
+}
+impl Deref for AtomReadGuard<'_> {
+	type Target = dyn DynOwnedAtom;
+	fn deref(&self) -> &Self::Target { &**self.guard.get(&self.id).unwrap() }
+}
+
+pub(crate) async fn take_atom(id: api::AtomId, ctx: &SysCtx) -> Box<dyn DynOwnedAtom> {
+	let mut g = ctx.obj_store.1.write().await;
+	g.remove(&id).unwrap_or_else(|| panic!("Received invalid atom ID: {}", id.0))
 }
 
 pub struct OwnedAtomDynfo<T: OwnedAtom> {
@@ -64,24 +84,19 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 		.boxed_local()
 	}
 	fn call(&self, AtomCtx(_, id, ctx): AtomCtx, arg: api::ExprTicket) -> LocalBoxFuture<'_, GExpr> {
-		with_atom(id.unwrap(), &ctx, |a| a.remove()).dyn_call(ctx.clone(), arg)
+		async move { take_atom(id.unwrap(), &ctx).await.dyn_call(ctx.clone(), arg).await }.boxed_local()
 	}
 	fn call_ref<'a>(
 		&'a self,
 		AtomCtx(_, id, ctx): AtomCtx<'a>,
 		arg: api::ExprTicket,
 	) -> LocalBoxFuture<'a, GExpr> {
-		async move {
-			with_atom(id.unwrap(), &ctx, |a| clone!(ctx; async move { a.dyn_call_ref(ctx, arg).await }))
-				.await
-		}
-		.boxed_local()
+		async move { AtomReadGuard::new(id.unwrap(), &ctx).await.dyn_call_ref(ctx.clone(), arg).await }
+			.boxed_local()
 	}
 	fn print(&self, AtomCtx(_, id, ctx): AtomCtx<'_>) -> LocalBoxFuture<'_, FmtUnit> {
-		async move {
-			with_atom(id.unwrap(), &ctx, |a| clone!(ctx; async move { a.dyn_print(ctx).await })).await
-		}
-		.boxed_local()
+		async move { AtomReadGuard::new(id.unwrap(), &ctx).await.dyn_print(ctx.clone()).await }
+			.boxed_local()
 	}
 	fn handle_req<'a, 'b: 'a, 'c: 'a>(
 		&'a self,
@@ -91,13 +106,9 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 		rep: Pin<&'c mut dyn Write>,
 	) -> LocalBoxFuture<'a, bool> {
 		async move {
-			with_atom(id.unwrap(), &ctx, |a| {
-				clone!(ctx; async move {
-					let ms = self.ms.get_or_init(self.msbuild.pack(ctx.clone())).await;
-					ms.dispatch(a.as_any_ref().downcast_ref().unwrap(), ctx, key, req, rep).await
-				})
-			})
-			.await
+			let a = AtomReadGuard::new(id.unwrap(), &ctx).await;
+			let ms = self.ms.get_or_init(self.msbuild.pack(ctx.clone())).await;
+			ms.dispatch(a.as_any_ref().downcast_ref().unwrap(), ctx.clone(), key, req, rep).await
 		}
 		.boxed_local()
 	}
@@ -105,12 +116,10 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 		&'a self,
 		AtomCtx(_, id, ctx): AtomCtx<'a>,
 	) -> LocalBoxFuture<'a, OrcRes<Option<GExpr>>> {
-		async move { with_atom(id.unwrap(), &ctx, |a| a.remove().dyn_command(ctx.clone())).await }
-			.boxed_local()
+		async move { take_atom(id.unwrap(), &ctx).await.dyn_command(ctx.clone()).await }.boxed_local()
 	}
 	fn drop(&self, AtomCtx(_, id, ctx): AtomCtx) -> LocalBoxFuture<'_, ()> {
-		async move { with_atom(id.unwrap(), &ctx, |a| a.remove().dyn_free(ctx.clone())).await }
-			.boxed_local()
+		async move { take_atom(id.unwrap(), &ctx).await.dyn_free(ctx.clone()).await }.boxed_local()
 	}
 	fn serialize<'a, 'b: 'a>(
 		&'a self,
@@ -120,9 +129,8 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 		async move {
 			let id = id.unwrap();
 			id.encode(write.as_mut()).await;
-			with_atom(id, &ctx, |a| clone!(ctx; async move { a.dyn_serialize(ctx, write).await }))
-				.await
-				.map(|v| v.into_iter().map(|t| t.handle().tk).collect_vec())
+			let refs = AtomReadGuard::new(id, &ctx).await.dyn_serialize(ctx.clone(), write).await;
+			refs.map(|v| v.into_iter().map(|t| t.handle().tk).collect_vec())
 		}
 		.boxed_local()
 	}
@@ -305,4 +313,4 @@ impl<T: OwnedAtom> DynOwnedAtom for T {
 	}
 }
 
-pub type ObjStore = Rc<IdStore<Box<dyn DynOwnedAtom>>>;
+pub type ObjStore = Rc<(AtomicU64, RwLock<MemoMap<api::AtomId, Box<dyn DynOwnedAtom>>>)>;

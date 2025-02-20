@@ -2,8 +2,8 @@ use itertools::Itertools;
 use orchid_base::error::{OrcErr, OrcRes, mk_err, mk_errv};
 use orchid_base::interner::Interner;
 use orchid_base::location::Pos;
-use orchid_base::tree::{vname_tv, wrap_tokv};
-use orchid_base::vname;
+use orchid_base::sym;
+use orchid_base::tree::wrap_tokv;
 use orchid_extension::atom::AtomicFeatures;
 use orchid_extension::lexer::{LexContext, Lexer, err_not_applicable};
 use orchid_extension::tree::{GenTok, GenTokTree};
@@ -57,7 +57,7 @@ fn parse_string(str: &str) -> Result<String, StringError> {
 		}
 		let (mut pos, code) = iter.next().expect("lexer would have continued");
 		let next = match code {
-			c @ ('\\' | '"' | '$') => c,
+			c @ ('\\' | '"' | '\'' | '$') => c,
 			'b' => '\x08',
 			'f' => '\x0f',
 			'n' => '\n',
@@ -94,12 +94,14 @@ fn parse_string(str: &str) -> Result<String, StringError> {
 #[derive(Default)]
 pub struct StringLexer;
 impl Lexer for StringLexer {
-	const CHAR_FILTER: &'static [std::ops::RangeInclusive<char>] = &['"'..='"'];
+	const CHAR_FILTER: &'static [std::ops::RangeInclusive<char>] = &['"'..='"', '\''..='\''];
 	async fn lex<'a>(all: &'a str, ctx: &'a LexContext<'a>) -> OrcRes<(&'a str, GenTokTree<'a>)> {
-		let Some(mut tail) = all.strip_prefix('"') else {
+		let Some((mut tail, delim)) = (all.strip_prefix('"').map(|t| (t, '"')))
+			.or_else(|| all.strip_prefix('\'').map(|t| (t, '\'')))
+		else {
 			return Err(err_not_applicable(ctx.i).await.into());
 		};
-		let mut ret = GenTok::X(IntStrAtom::from(ctx.i.i("").await).factory()).at(ctx.tok_ran(0, all));
+		let mut ret = None;
 		let mut cur = String::new();
 		let mut errors = vec![];
 		async fn str_to_gen<'a>(
@@ -116,19 +118,20 @@ impl Lexer for StringLexer {
 			GenTok::X(IntStrAtom::from(ctx.i.i(&*str_val).await).factory())
 				.at(ctx.tok_ran(str.len() as u32, tail)) as GenTokTree<'a>
 		}
-		let add_frag = |prev: GenTokTree<'a>, new: GenTokTree<'a>| async {
-			wrap_tokv(
-				vname_tv(&vname!(std::string::concat; ctx.i).await, new.range.end).chain([prev, new]),
-			)
+		let add_frag = |prev: Option<GenTokTree<'a>>, new: GenTokTree<'a>| async {
+			let Some(prev) = prev else { return new };
+			let concat_fn = GenTok::Reference(sym!(std::string::concat; ctx.i).await)
+				.at(prev.range.start..prev.range.start);
+			wrap_tokv([concat_fn, prev, new])
 		};
 		loop {
-			if let Some(rest) = tail.strip_prefix('"') {
+			if let Some(rest) = tail.strip_prefix(delim) {
 				return Ok((rest, add_frag(ret, str_to_gen(&mut cur, tail, &mut errors, ctx).await).await));
 			} else if let Some(rest) = tail.strip_prefix('$') {
-				ret = add_frag(ret, str_to_gen(&mut cur, tail, &mut errors, ctx).await).await;
+				ret = Some(add_frag(ret, str_to_gen(&mut cur, tail, &mut errors, ctx).await).await);
 				let (new_tail, tree) = ctx.recurse(rest).await?;
 				tail = new_tail;
-				ret = add_frag(ret, tree).await;
+				ret = Some(add_frag(ret, tree).await);
 			} else if tail.starts_with('\\') {
 				// parse_string will deal with it, we just have to skip the next char
 				tail = &tail[2..];

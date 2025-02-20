@@ -1,4 +1,4 @@
-use std::any::Any;
+use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -17,8 +17,8 @@ use hashbrown::HashMap;
 use orchid_api_traits::{Channel, Coding, Decode, Encode, MsgSet, Request};
 use trait_set::trait_set;
 
-use crate::clone;
 use crate::logging::Logger;
+use crate::{api, clone};
 
 pub struct Receipt<'a>(PhantomData<&'a mut ()>);
 
@@ -204,7 +204,8 @@ impl<T: MsgSet> DynRequester for ReqNot<T> {
 			mem::drop(g);
 			let rn = self.clone();
 			send(&buf, rn).await;
-			RawReply(recv.recv().await.unwrap())
+			let items = recv.recv().await;
+			RawReply(items.unwrap())
 		})
 	}
 }
@@ -222,6 +223,7 @@ pub trait Requester: DynRequester {
 		MappedRequester::new(self, logger)
 	}
 }
+
 impl<This: DynRequester + ?Sized> Requester for This {
 	async fn request<R: Request + Into<Self::Transfer>>(&self, data: R) -> R::Response {
 		let req = format!("{data:?}");

@@ -1,9 +1,9 @@
 mod check_api_refs;
 mod orcx;
 
-use std::io;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::{env, io};
 
 use check_api_refs::check_api_refs;
 use clap::{Parser, Subcommand};
@@ -29,6 +29,9 @@ pub enum Commands {
 pub static EXIT_OK: AtomicBool = AtomicBool::new(true);
 
 fn main() -> io::Result<ExitCode> {
+	if let Some(root) = env::var_os("CARGO_WORKSPACE_DIR") {
+		env::set_current_dir(root)?;
+	}
 	let args = Args::parse();
 	match &args.command {
 		Commands::CheckApiRefs => check_api_refs(&args)?,

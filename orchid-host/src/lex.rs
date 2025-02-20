@@ -8,6 +8,7 @@ use orchid_base::error::{OrcErrv, OrcRes, mk_errv};
 use orchid_base::interner::Tok;
 use orchid_base::location::Pos;
 use orchid_base::match_mapping;
+use orchid_base::name::Sym;
 use orchid_base::number::{num_to_err, parse_num};
 use orchid_base::parse::{name_char, name_start, op_char, unrep_space};
 use orchid_base::tokens::PARENS;
@@ -156,7 +157,7 @@ pub async fn lex_once(ctx: &mut LexCtx<'_>) -> OrcRes<ParsTokTree> {
 					.lex(source, pos, |pos| async move {
 						let mut ctx_g = ctx_lck.lock().await;
 						match lex_once(&mut ctx_g.push(pos)).boxed_local().await {
-							Ok(t) => Some(api::SubLexed { pos, ticket: ctx_g.add_subtree(t) }),
+							Ok(t) => Some(api::SubLexed { pos: t.range.end, ticket: ctx_g.add_subtree(t) }),
 							Err(e) => {
 								errors_lck.lock().await.push(e);
 								None
@@ -203,6 +204,7 @@ async fn tt_to_owned(api: &api::TokenTree, ctx: &mut LexCtx<'_>) -> ParsTokTree 
 		Bottom(err => OrcErrv::from_api(err, &ctx.ctx.i).await),
 		LambdaHead(arg => ttv_to_owned(arg, ctx).boxed_local().await),
 		Name(name => Tok::from_api(*name, &ctx.ctx.i).await),
+		Reference(tstrv => Sym::from_api(*tstrv, &ctx.ctx.i).await),
 		S(p.clone(), b => ttv_to_owned(b, ctx).boxed_local().await),
 		BR, NS,
 		Comment(c.clone()),

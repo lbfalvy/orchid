@@ -140,7 +140,7 @@ impl Variants {
 					(Some((r, ..)), None) => &s[r.end..],
 					(None, None) => s,
 				};
-				let str_item = FmtElement::String(Rc::new(string.to_string()));
+				let str_item = FmtElement::String(Rc::new(string.replace("{{", "{").replace("}}", "}")));
 				match r {
 					None => itertools::Either::Left([str_item]),
 					Some((_, idx, bounded)) =>

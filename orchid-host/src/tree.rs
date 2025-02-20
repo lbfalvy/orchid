@@ -1,26 +1,28 @@
 use std::fmt::Debug;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
 
+use async_once_cell::OnceCell;
+use async_std::sync::Mutex;
 use async_stream::stream;
 use futures::future::join_all;
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
 use never::Never;
-use orchid_base::error::OrcRes;
 use orchid_base::format::{FmtCtx, FmtUnit, Format, Variants};
 use orchid_base::interner::Tok;
 use orchid_base::location::Pos;
 use orchid_base::macros::{mtreev_fmt, mtreev_from_api};
 use orchid_base::name::Sym;
 use orchid_base::parse::{Comment, Import};
-use orchid_base::tree::{AtomRepr, TokTree, Token, ttv_fmt};
+use orchid_base::tree::{AtomRepr, TokTree, Token};
 use orchid_base::{clone, tl_cache};
 use ordered_float::NotNan;
+use substack::Substack;
 
 use crate::api;
 use crate::atom::AtomHand;
-use crate::expr::Expr;
+use crate::ctx::Ctx;
+use crate::expr::{Expr, mtreev_to_expr};
 use crate::macros::{MacTok, MacTree};
 use crate::system::System;
 
@@ -41,13 +43,16 @@ pub enum ItemKind {
 	Import(Import),
 	Macro(Option<NotNan<f64>>, Vec<Rule>),
 }
+impl ItemKind {
+	pub fn at(self, pos: Pos) -> Item { Item { comments: vec![], pos, kind: self } }
+}
 
 impl Item {
 	pub async fn from_api(tree: api::Item, path: &mut Vec<Tok<String>>, sys: &System) -> Self {
 		let kind = match tree.kind {
 			api::ItemKind::Member(m) => ItemKind::Member(Member::from_api(m, path, sys).await),
 			api::ItemKind::Import(name) => ItemKind::Import(Import {
-				path: Sym::from_api(name, &sys.ctx().i).await.iter().collect(),
+				path: Sym::from_api(name, &sys.ctx().i).await.iter().cloned().collect(),
 				name: None,
 			}),
 			api::ItemKind::Export(e) => ItemKind::Export(Tok::from_api(e, &sys.ctx().i).await),
@@ -108,11 +113,23 @@ impl Format for Item {
 }
 
 pub struct Member {
-	pub name: Tok<String>,
-	pub kind: OnceLock<MemberKind>,
-	pub lazy: Mutex<Option<LazyMemberHandle>>,
+	name: Tok<String>,
+	kind: OnceCell<MemberKind>,
+	lazy: Mutex<Option<LazyMemberHandle>>,
 }
 impl Member {
+	pub fn name(&self) -> Tok<String> { self.name.clone() }
+	pub async fn kind(&self) -> &MemberKind {
+		(self.kind.get_or_init(async {
+			let handle = self.lazy.lock().await.take().expect("Neither known nor lazy");
+			handle.run().await
+		}))
+		.await
+	}
+	pub async fn kind_mut(&mut self) -> &mut MemberKind {
+		self.kind().await;
+		self.kind.get_mut().expect("kind() already filled the cell")
+	}
 	pub async fn from_api(api: api::Member, path: &mut Vec<Tok<String>>, sys: &System) -> Self {
 		path.push(Tok::from_api(api.name, &sys.ctx().i).await);
 		let kind = match api.kind {
@@ -127,10 +144,10 @@ impl Member {
 			api::MemberKind::Module(m) => MemberKind::Mod(Module::from_api(m, path, sys).await),
 		};
 		let name = path.pop().unwrap();
-		Member { name, kind: OnceLock::from(kind), lazy: Mutex::default() }
+		Member { name, kind: OnceCell::from(kind), lazy: Mutex::default() }
 	}
 	pub fn new(name: Tok<String>, kind: MemberKind) -> Self {
-		Member { name, kind: OnceLock::from(kind), lazy: Mutex::default() }
+		Member { name, kind: OnceCell::from(kind), lazy: Mutex::default() }
 	}
 }
 impl Debug for Member {
@@ -148,7 +165,7 @@ pub enum MemberKind {
 	Mod(Module),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Module {
 	pub imports: Vec<Sym>,
 	pub exports: Vec<Tok<String>>,
@@ -172,6 +189,40 @@ impl Module {
 				.await,
 		)
 	}
+	pub async fn walk(
+		&self,
+		allow_private: bool,
+		path: impl IntoIterator<Item = Tok<String>>,
+	) -> Result<&Module, WalkError> {
+		let mut cur = self;
+		for (pos, step) in path.into_iter().enumerate() {
+			let Some(member) = (cur.items.iter())
+				.filter_map(|it| if let ItemKind::Member(m) = &it.kind { Some(m) } else { None })
+				.find(|m| m.name == step)
+			else {
+				return Err(WalkError { pos, kind: WalkErrorKind::Missing });
+			};
+			if !allow_private && !cur.exports.contains(&step) {
+				return Err(WalkError { pos, kind: WalkErrorKind::Private });
+			}
+			match member.kind().await {
+				MemberKind::Const(_) => return Err(WalkError { pos, kind: WalkErrorKind::Constant }),
+				MemberKind::Mod(m) => cur = m,
+			}
+		}
+		Ok(cur)
+	}
+}
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub enum WalkErrorKind {
+	Missing,
+	Private,
+	Constant,
+}
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct WalkError {
+	pub pos: usize,
+	pub kind: WalkErrorKind,
 }
 impl Format for Module {
 	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
@@ -185,20 +236,20 @@ impl Format for Module {
 
 pub struct LazyMemberHandle(api::TreeId, System, Vec<Tok<String>>);
 impl LazyMemberHandle {
-	pub async fn run(self) -> OrcRes<MemberKind> {
+	pub async fn run(self) -> MemberKind {
 		match self.1.get_tree(self.0).await {
-			api::MemberKind::Const(c) => Ok(MemberKind::Const(Code {
+			api::MemberKind::Const(c) => MemberKind::Const(Code {
 				bytecode: Expr::from_api(&c, &mut self.1.ext().clone()).await.into(),
 				locator: CodeLocator { steps: self.1.ctx().i.i(&self.2).await, rule_loc: None },
 				source: None,
-			})),
+			}),
 			api::MemberKind::Module(m) =>
-				Ok(MemberKind::Mod(Module::from_api(m, &mut { self.2 }, &self.1).await)),
+				MemberKind::Mod(Module::from_api(m, &mut { self.2 }, &self.1).await),
 			api::MemberKind::Lazy(id) => Self(id, self.1, self.2).run().boxed_local().await,
 		}
 	}
 	pub fn into_member(self, name: Tok<String>) -> Member {
-		Member { name, kind: OnceLock::new(), lazy: Mutex::new(Some(self)) }
+		Member { name, kind: OnceCell::new(), lazy: Mutex::new(Some(self)) }
 	}
 }
 
@@ -237,15 +288,27 @@ pub enum RuleKind {
 #[derive(Debug)]
 pub struct Code {
 	locator: CodeLocator,
-	source: Option<Vec<ParsTokTree>>,
-	bytecode: OnceLock<Expr>,
+	source: Option<Vec<MacTree>>,
+	bytecode: OnceCell<Expr>,
 }
 impl Code {
 	pub fn from_expr(locator: CodeLocator, expr: Expr) -> Self {
 		Self { locator, source: None, bytecode: expr.into() }
 	}
-	pub fn from_code(locator: CodeLocator, code: Vec<ParsTokTree>) -> Self {
-		Self { locator, source: Some(code), bytecode: OnceLock::new() }
+	pub fn from_code(locator: CodeLocator, code: Vec<MacTree>) -> Self {
+		Self { locator, source: Some(code), bytecode: OnceCell::new() }
+	}
+	pub fn source(&self) -> Option<&Vec<MacTree>> { self.source.as_ref() }
+	pub fn set_source(&mut self, source: Vec<MacTree>) {
+		self.source = Some(source);
+		self.bytecode = OnceCell::new();
+	}
+	pub async fn get_bytecode(&self, ctx: &Ctx) -> &Expr {
+		(self.bytecode.get_or_init(async {
+			let src = self.source.as_ref().expect("no bytecode or source");
+			mtreev_to_expr(src, Substack::Bottom, ctx).await.at(Pos::None)
+		}))
+		.await
 	}
 }
 impl Format for Code {
@@ -254,7 +317,7 @@ impl Format for Code {
 			return bc.print(c).await;
 		}
 		if let Some(src) = &self.source {
-			return ttv_fmt(src, c).await;
+			return mtreev_fmt(src, c).await;
 		}
 		panic!("Code must be initialized with at least one state")
 	}

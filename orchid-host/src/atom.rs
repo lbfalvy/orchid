@@ -10,6 +10,7 @@ use orchid_base::tree::AtomRepr;
 use crate::api;
 use crate::ctx::Ctx;
 use crate::expr::Expr;
+use crate::extension::Extension;
 use crate::system::System;
 
 #[derive(destructure)]
@@ -75,6 +76,8 @@ impl AtomHand {
 			Err(hand) => reqnot.request(api::CallRef(hand.api_ref(), arg.id())).await,
 		}
 	}
+	pub fn sys(&self) -> &System { &self.0.owner }
+	pub fn ext(&self) -> &Extension { self.sys().ext() }
 	pub async fn req(&self, key: api::TStrv, req: Vec<u8>) -> Option<Vec<u8>> {
 		self.0.owner.reqnot().request(api::Fwded(self.0.api_ref(), key, req)).await
 	}

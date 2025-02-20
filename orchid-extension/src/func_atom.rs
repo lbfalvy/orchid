@@ -13,6 +13,7 @@ use never::Never;
 use orchid_api_traits::Encode;
 use orchid_base::clone;
 use orchid_base::error::OrcRes;
+use orchid_base::format::{FmtCtxImpl, Format, take_first};
 use orchid_base::name::Sym;
 use trait_set::trait_set;
 
@@ -61,6 +62,7 @@ impl Fun {
 		};
 		Self { args: vec![], arity: F::ARITY, path, fun }
 	}
+	pub fn arity(&self) -> u8 { self.arity }
 }
 impl Atomic for Fun {
 	type Data = ();
@@ -71,6 +73,7 @@ impl OwnedAtom for Fun {
 	type Refs = Vec<Expr>;
 	async fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(()) }
 	async fn call_ref(&self, arg: ExprHandle) -> GExpr {
+		std::io::Write::flush(&mut std::io::stderr()).unwrap();
 		let new_args = self.args.iter().cloned().chain([Expr::from_handle(Rc::new(arg))]).collect_vec();
 		if new_args.len() == self.arity.into() {
 			(self.fun)(new_args).await.to_expr()
@@ -89,6 +92,9 @@ impl OwnedAtom for Fun {
 		let path = Sym::from_api(ctx.decode().await, &sys.i).await;
 		let (arity, fun) = FUNS.with(|f| f.clone()).lock().await.get(&path).unwrap().clone();
 		Self { args, arity, path, fun }
+	}
+	async fn print(&self, _: SysCtx) -> orchid_base::format::FmtUnit {
+		format!("{}:{}/{}", self.path, self.args.len(), self.arity).into()
 	}
 }
 

@@ -1,7 +1,6 @@
 use std::borrow::Borrow;
 use std::fmt::{self, Debug, Display};
 use std::future::Future;
-use std::iter;
 use std::marker::PhantomData;
 use std::ops::Range;
 use std::rc::Rc;
@@ -20,7 +19,7 @@ use crate::error::OrcErrv;
 use crate::format::{FmtCtx, FmtUnit, Format, Variants};
 use crate::interner::{Interner, Tok};
 use crate::location::Pos;
-use crate::name::PathSlice;
+use crate::name::Sym;
 use crate::parse::Snippet;
 use crate::{api, match_mapping, tl_cache};
 
@@ -39,6 +38,7 @@ pub fn recur<'a, A: AtomRepr, X: ExtraTok>(
 		let tok = match tok {
 			tok @ (Token::Atom(_) | Token::BR | Token::Bottom(_) | Token::Comment(_) | Token::NS) => tok,
 			tok @ (Token::Name(_) | Token::Slot(_) | Token::X(_) | Token::Ph(_) | Token::Macro(_)) => tok,
+			tok @ Token::Reference(_) => tok,
 			Token::LambdaHead(arg) =>
 				Token::LambdaHead(arg.into_iter().map(|tt| recur(tt, f)).collect_vec()),
 			Token::S(p, b) => Token::S(p, b.into_iter().map(|tt| recur(tt, f)).collect_vec()),
@@ -87,7 +87,8 @@ impl<'b, A: AtomRepr, X: ExtraTok> TokTree<'b, A, X> {
 			Comment(c.clone()),
 			Slot(id => TokHandle::new(*id)),
 			Ph(ph => Ph::from_api(ph, i).await),
-			Macro(*prio)
+			Macro(*prio),
+			Reference(tok => Sym::from_api(*tok, i).await)
 		});
 		Self { range: tt.range.clone(), tok }
 	}
@@ -105,6 +106,7 @@ impl<'b, A: AtomRepr, X: ExtraTok> TokTree<'b, A, X> {
 			S(*p, b => ttv_to_api(b, do_extra).boxed_local().await),
 			Ph(ph.to_api()),
 			Macro(*prio),
+			Reference(sym.to_api()),
 		} {
 			Token::X(x) => return do_extra(x, self.range.clone()).await
 		});
@@ -117,6 +119,7 @@ impl<'b, A: AtomRepr, X: ExtraTok> TokTree<'b, A, X> {
 	) -> api::TokenTree {
 		let token = match self.tok {
 			Token::Atom(a) => api::Token::Atom(a.to_api().await),
+			Token::Reference(sym) => api::Token::Reference(sym.to_api()),
 			Token::BR => api::Token::BR,
 			Token::NS => api::Token::NS,
 			Token::Bottom(e) => api::Token::Bottom(e.to_api()),
@@ -191,18 +194,6 @@ pub async fn ttv_into_api<'a, A: AtomRepr, X: ExtraTok>(
 	.await
 }
 
-/// This takes a position and not a range because it assigns the range to
-/// multiple leaf tokens, which is only valid if it's a zero-width range
-pub fn vname_tv<'a: 'b, 'b, A: AtomRepr + 'a, X: ExtraTok + 'a>(
-	name: &'b PathSlice,
-	pos: u32,
-) -> impl Iterator<Item = TokTree<'a, A, X>> + 'b {
-	let (head, tail) = name.split_first().expect("Empty vname");
-	iter::once(Token::Name(head.clone()))
-		.chain(tail.iter().flat_map(|t| [Token::NS, Token::Name(t.clone())]))
-		.map(move |t| t.at(pos..pos))
-}
-
 pub fn wrap_tokv<'a, A: AtomRepr, X: ExtraTok>(
 	items: impl IntoIterator<Item = TokTree<'a, A, X>>,
 ) -> TokTree<'a, A, X> {
@@ -219,19 +210,43 @@ pub fn wrap_tokv<'a, A: AtomRepr, X: ExtraTok>(
 
 pub use api::Paren;
 
+/// Lexer output variant
 #[derive(Clone, Debug)]
 pub enum Token<'a, A: AtomRepr, X: ExtraTok> {
+	/// Information about the code addressed to the human reader or dev tooling
+	/// It has no effect on the behaviour of the program unless it's explicitly
+	/// read via reflection
 	Comment(Arc<String>),
+	/// The part of a lambda between `\` and `.` enclosing the argument. The body
+	/// stretches to the end of the enclosing parens or the end of the const line
 	LambdaHead(Vec<TokTree<'a, A, X>>),
+	/// A binding, operator, or a segment of a namespaced::name
 	Name(Tok<String>),
+	/// The namespace separator ::
 	NS,
+	/// A line break
 	BR,
+	/// `()`, `[]`, or `{}`
 	S(Paren, Vec<TokTree<'a, A, X>>),
+	/// A fully formed reference to external code emitted by a lexer plugin
+	Reference(Sym),
+	/// A value emitted by a lexer plugin
 	Atom(A),
+	/// A grammar error emitted by a lexer plugin if it was possible to continue
+	/// reading. Parsers should treat it as an atom unless it prevents parsing,
+	/// in which case both this and a relevant error should be returned.
 	Bottom(OrcErrv),
+	/// An instruction from a plugin for the lexer to embed a subexpression
+	/// without retransmitting it. It should not appear anywhere outside lexer
+	/// plugin responses.
 	Slot(TokHandle<'a>),
+	/// Additional domain-specific token types
 	X(X),
+	/// A placeholder for metaprogramming, either $name, ..$name, ..$name:N,
+	/// ...$name, or ...$name:N
 	Ph(Ph),
+	/// `macro` or `macro(`X`)` where X is any valid floating point number
+	/// expression. `macro` is not a valid name in Orchid for this reason.
 	Macro(Option<NotNan<f64>>),
 }
 impl<'a, A: AtomRepr, X: ExtraTok> Token<'a, A, X> {
@@ -258,6 +273,7 @@ impl<A: AtomRepr, X: ExtraTok> Format for Token<'_, A, X> {
 				]),
 			Self::NS => "::".to_string().into(),
 			Self::Name(n) => format!("{n}").into(),
+			Self::Reference(sym) => format!("{sym}").into(),
 			Self::Slot(th) => format!("{th}").into(),
 			Self::Ph(ph) => format!("{ph}").into(),
 			Self::S(p, b) => FmtUnit::new(

@@ -23,7 +23,7 @@ use orchid_base::clone;
 use orchid_base::interner::{Interner, Tok};
 use orchid_base::logging::Logger;
 use orchid_base::macros::{mtreev_from_api, mtreev_to_api};
-use orchid_base::name::{PathSlice, Sym};
+use orchid_base::name::Sym;
 use orchid_base::parse::{Comment, Snippet};
 use orchid_base::reqnot::{ReqNot, RequestHandle, Requester};
 use orchid_base::tree::{ttv_from_api, ttv_to_api};
@@ -31,8 +31,8 @@ use substack::Substack;
 use trait_set::trait_set;
 
 use crate::api;
-use crate::atom::{AtomCtx, AtomDynfo};
-use crate::atom_owned::ObjStore;
+use crate::atom::{AtomCtx, AtomDynfo, AtomTypeId};
+use crate::atom_owned::{ObjStore, take_atom};
 use crate::fs::VirtFS;
 use crate::lexer::{LexContext, err_cascade, err_not_applicable};
 use crate::macros::{Rule, RuleCtx};
@@ -72,7 +72,7 @@ trait_set! {
 	pub trait WARCallback<'a, T> = FnOnce(
 		Box<dyn AtomDynfo>,
 		SysCtx,
-		api::AtomId,
+		AtomTypeId,
 		&'a [u8]
 	) -> LocalBoxFuture<'a, T>
 }
@@ -86,8 +86,8 @@ pub async fn with_atom_record<'a, F: Future<Output = SysCtx>, T>(
 	let mut data = &atom.data[..];
 	let ctx = get_sys_ctx(atom.owner, reqnot).await;
 	let inst = ctx.cted.inst();
-	let id = api::AtomId::decode(Pin::new(&mut data)).await;
-	let atom_record = atom_by_idx(inst.card(), id).expect("Atom ID reserved");
+	let id = AtomTypeId::decode(Pin::new(&mut data)).await;
+	let atom_record = atom_by_idx(inst.card(), id.clone()).expect("Atom ID reserved");
 	cb(atom_record, ctx, id, data).await
 }
 
@@ -127,7 +127,7 @@ impl ExtPort for ExtensionOwner {
 }
 
 pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
-	let api::HostHeader { log_strategy } =
+	let api::HostHeader { log_strategy, msg_logs } =
 		api::HostHeader::decode(Pin::new(&mut async_std::io::stdin())).await;
 	let mut buf = Vec::new();
 	let decls = (data.systems.iter().enumerate())
@@ -142,6 +142,7 @@ pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 	std::io::stdout().flush().unwrap();
 	let exiting = Arc::new(AtomicBool::new(false));
 	let logger = Logger::new(log_strategy);
+	let msg_logger = Logger::new(msg_logs);
 	let interner_cell = Rc::new(RefCell::new(None::<Rc<Interner>>));
 	let interner_weak = Rc::downgrade(&interner_cell);
 	let obj_store = ObjStore::default();
@@ -158,26 +159,29 @@ pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 			}.boxed_local())
 	});
 	let rn = ReqNot::<api::ExtMsgSet>::new(
-		logger.clone(),
+		msg_logger.clone(),
 		move |a, _| async move { send_parent_msg(a).await.unwrap() }.boxed_local(),
-		clone!(systems, exiting, mk_ctx, obj_store; move |n, reqnot| {
-			clone!(systems, exiting, mk_ctx, obj_store; async move {
+		clone!(systems, exiting, mk_ctx; move |n, reqnot| {
+			clone!(systems, exiting, mk_ctx; async move {
 				match n {
 					api::HostExtNotif::Exit => exiting.store(true, Ordering::Relaxed),
 					api::HostExtNotif::SystemDrop(api::SystemDrop(sys_id)) =>
 						mem::drop(systems.lock().await.remove(&sys_id)),
-					api::HostExtNotif::AtomDrop(api::AtomDrop(sys_id, atom)) =>
-						obj_store.get(atom.0).unwrap().remove().dyn_free(mk_ctx(sys_id, reqnot).await).await,
+					api::HostExtNotif::AtomDrop(api::AtomDrop(sys_id, atom)) => {
+						let ctx = mk_ctx(sys_id, reqnot).await;
+						take_atom(atom, &ctx).await.dyn_free(ctx.clone()).await
+					}
 				}
 			}.boxed_local())
 		}),
 		{
-			clone!(systems, logger, mk_ctx, interner_weak, obj_store, spawner, decls);
+			clone!(systems, logger, mk_ctx, interner_weak, obj_store, spawner, decls, msg_logger);
 			move |hand, req| {
-				clone!(systems, logger, mk_ctx, interner_weak, obj_store, spawner, decls);
+				clone!(systems, logger, mk_ctx, interner_weak, obj_store, spawner, decls, msg_logger);
 				async move {
 					let interner_cell = interner_weak.upgrade().expect("Interner dropped before request");
 					let i = interner_cell.borrow().clone().expect("Request arrived before interner set");
+					writeln!(msg_logger, "{} extension received request {req:?}", data.name);
 					match req {
 						api::HostExtReq::Ping(ping @ api::Ping) => hand.handle(&ping, &()).await,
 						api::HostExtReq::Sweep(sweep @ api::Sweep) =>
@@ -270,7 +274,7 @@ pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 							let ctx = mk_ctx(*sys_id, hand.reqnot()).await;
 							let systems_g = systems.lock().await;
 							let path = join_all(path.iter().map(|t| Tok::from_api(*t, &i))).await;
-							let vfs = systems_g[sys_id].vfses[vfs_id].load(PathSlice::new(&path), ctx).await;
+							let vfs = systems_g[sys_id].vfses[vfs_id].load(&path, ctx).await;
 							hand.handle(&vfs_read, &vfs).await
 						},
 						api::HostExtReq::LexExpr(lex @ api::LexExpr { sys, text, pos, id }) => {
@@ -386,7 +390,7 @@ pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 							let api::DeserAtom(sys, buf, refs) = &deser;
 							let mut read = &mut &buf[..];
 							let ctx = mk_ctx(*sys, hand.reqnot()).await;
-							let id = api::AtomId::decode(Pin::new(&mut read)).await;
+							let id = AtomTypeId::decode(Pin::new(&mut read)).await;
 							let inst = ctx.cted.inst();
 							let nfo = atom_by_idx(inst.card(), id).expect("Deserializing atom with invalid ID");
 							hand.handle(&deser, &nfo.deserialize(ctx.clone(), read, refs).await).await

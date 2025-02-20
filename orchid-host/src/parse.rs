@@ -10,8 +10,7 @@ use orchid_base::location::Pos;
 use orchid_base::macros::{MTok, MTree};
 use orchid_base::name::Sym;
 use orchid_base::parse::{
-	Comment, Import, Parsed, Snippet, expect_end, line_items, parse_multiname, strip_fluff,
-	try_pop_no_fluff,
+	Comment, Import, Parsed, Snippet, expect_end, line_items, parse_multiname, try_pop_no_fluff,
 };
 use orchid_base::tree::{Paren, TokTree, Token};
 use substack::Substack;
@@ -19,9 +18,7 @@ use substack::Substack;
 use crate::atom::AtomHand;
 use crate::macros::MacTree;
 use crate::system::System;
-use crate::tree::{
-	Code, CodeLocator, Item, ItemKind, Member, MemberKind, Module, ParsTokTree, Rule, RuleKind,
-};
+use crate::tree::{Code, CodeLocator, Item, ItemKind, Member, MemberKind, Module, Rule, RuleKind};
 
 type ParsSnippet<'a> = Snippet<'a, 'static, AtomHand, Never>;
 
@@ -66,7 +63,7 @@ pub async fn parse_item(
 					let Parsed { output: exports, tail } = parse_multiname(ctx.reporter(), tail).await?;
 					let mut ok = Vec::new();
 					for (e, pos) in exports {
-						match (&e.path.as_slice(), e.name) {
+						match (&e.path[..], e.name) {
 							([], Some(n)) =>
 								ok.push(Item { comments: comments.clone(), pos, kind: ItemKind::Export(n) }),
 							(_, Some(_)) => ctx.reporter().report(mk_err(
@@ -129,7 +126,7 @@ pub async fn parse_exportable_item(
 		let (name, body) = parse_module(ctx, path, tail).await?;
 		ItemKind::Member(Member::new(name, MemberKind::Mod(body)))
 	} else if discr == tail.i().i("const").await {
-		let (name, val) = parse_const(tail).await?;
+		let (name, val) = parse_const(tail, path.clone()).await?;
 		let locator = CodeLocator::to_const(tail.i().i(&path.push(name.clone()).unreverse()).await);
 		ItemKind::Member(Member::new(name, MemberKind::Const(Code::from_code(locator, val))))
 	} else if let Some(sys) = ctx.systems().find(|s| s.can_parse(discr.clone())) {
@@ -174,7 +171,10 @@ pub async fn parse_module(
 	Ok((name, Module::new(parse_items(ctx, path, body).await?)))
 }
 
-pub async fn parse_const(tail: ParsSnippet<'_>) -> OrcRes<(Tok<String>, Vec<ParsTokTree>)> {
+pub async fn parse_const(
+	tail: ParsSnippet<'_>,
+	path: Substack<'_, Tok<String>>,
+) -> OrcRes<(Tok<String>, Vec<MacTree>)> {
 	let Parsed { output, tail } = try_pop_no_fluff(tail).await?;
 	let Some(name) = output.as_name() else {
 		return Err(mk_errv(
@@ -192,20 +192,25 @@ pub async fn parse_const(tail: ParsSnippet<'_>) -> OrcRes<(Tok<String>, Vec<Pars
 		));
 	}
 	try_pop_no_fluff(tail).await?;
-	Ok((name, tail.iter().flat_map(strip_fluff).collect_vec()))
+	Ok((name, parse_mtree(tail, path).await?))
 }
 
-pub async fn parse_mtree(mut snip: ParsSnippet<'_>) -> OrcRes<Vec<MacTree>> {
+pub async fn parse_mtree(
+	mut snip: ParsSnippet<'_>,
+	path: Substack<'_, Tok<String>>,
+) -> OrcRes<Vec<MacTree>> {
 	let mut mtreev = Vec::new();
 	while let Some((ttree, tail)) = snip.pop_front() {
+		snip = tail;
 		let (range, tok, tail) = match &ttree.tok {
-			Token::S(p, b) => (
-				ttree.range.clone(),
-				MTok::S(*p, parse_mtree(Snippet::new(ttree, b, snip.i())).boxed_local().await?),
-				tail,
-			),
+			Token::S(p, b) => {
+				let b = parse_mtree(Snippet::new(ttree, b, snip.i()), path.clone()).boxed_local().await?;
+				(ttree.range.clone(), MTok::S(*p, b), tail)
+			},
+			Token::Reference(name) => (ttree.range.clone(), MTok::Name(name.clone()), tail),
 			Token::Name(tok) => {
-				let mut segments = vec![tok.clone()];
+				let mut segments = path.unreverse();
+				segments.push(tok.clone());
 				let mut end = ttree.range.end;
 				while let Some((TokTree { tok: Token::NS, .. }, tail)) = snip.pop_front() {
 					let Parsed { output, tail } = try_pop_no_fluff(tail).await?;
@@ -225,29 +230,27 @@ pub async fn parse_mtree(mut snip: ParsSnippet<'_>) -> OrcRes<Vec<MacTree>> {
 			},
 			Token::NS => {
 				return Err(mk_errv(
-					tail.i().i("Unexpected :: in macro pattern").await,
-					":: can only follow a name outside export statements",
+					tail.i().i("Unexpected :: in expression").await,
+					":: can only follow a name",
 					[Pos::Range(ttree.range.clone()).into()],
 				));
 			},
 			Token::Ph(ph) => (ttree.range.clone(), MTok::Ph(ph.clone()), tail),
-			Token::Atom(_) | Token::Macro(_) => {
+			Token::Macro(_) => {
 				return Err(mk_errv(
-					tail.i().i("Unsupported token in macro patterns").await,
-					format!(
-						"Macro patterns can only contain names, braces, and lambda, not {}.",
-						tail.fmt(ttree).await
-					),
+					tail.i().i("Invalid keyword in expression").await,
+					"Expressions cannot use `macro` as a name.",
 					[Pos::Range(ttree.range.clone()).into()],
 				));
 			},
+			Token::Atom(a) => (ttree.range.clone(), MTok::Atom(a.clone()), tail),
 			Token::BR | Token::Comment(_) => continue,
 			Token::Bottom(e) => return Err(e.clone()),
 			Token::LambdaHead(arg) => (
 				ttree.range.start..snip.pos().end,
 				MTok::Lambda(
-					parse_mtree(Snippet::new(ttree, arg, snip.i())).boxed_local().await?,
-					parse_mtree(tail).boxed_local().await?,
+					parse_mtree(Snippet::new(ttree, arg, snip.i()), path.clone()).boxed_local().await?,
+					parse_mtree(tail, path.clone()).boxed_local().await?,
 				),
 				Snippet::new(ttree, &[], snip.i()),
 			),
@@ -303,10 +306,10 @@ pub async fn parse_macro(
 		rules.push(Rule {
 			comments: item.output,
 			pos: Pos::Range(tail.pos()),
-			pattern: parse_mtree(pat).await?,
+			pattern: parse_mtree(pat, path.clone()).await?,
 			kind: RuleKind::Native(Code::from_code(
 				CodeLocator::to_rule(tail.i().i(&path.unreverse()).await, macro_i, i as u16),
-				body.to_vec(),
+				parse_mtree(body, path.clone()).await?,
 			)),
 		})
 	}

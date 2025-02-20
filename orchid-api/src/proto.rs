@@ -33,17 +33,22 @@ use crate::{atom, expr, interner, lexer, logging, macros, parser, system, tree, 
 static HOST_INTRO: &[u8] = b"Orchid host, binary API v0\n";
 pub struct HostHeader {
 	pub log_strategy: logging::LogStrategy,
+	pub msg_logs: logging::LogStrategy,
 }
 impl Decode for HostHeader {
 	async fn decode<R: Read + ?Sized>(mut read: Pin<&mut R>) -> Self {
 		read_exact(read.as_mut(), HOST_INTRO).await;
-		Self { log_strategy: logging::LogStrategy::decode(read).await }
+		Self {
+			log_strategy: logging::LogStrategy::decode(read.as_mut()).await,
+			msg_logs: logging::LogStrategy::decode(read.as_mut()).await,
+		}
 	}
 }
 impl Encode for HostHeader {
 	async fn encode<W: Write + ?Sized>(&self, mut write: Pin<&mut W>) {
 		write_exact(write.as_mut(), HOST_INTRO).await;
-		self.log_strategy.encode(write).await
+		self.log_strategy.encode(write.as_mut()).await;
+		self.msg_logs.encode(write.as_mut()).await
 	}
 }
 
@@ -159,7 +164,10 @@ mod tests {
 	#[test]
 	fn host_header_enc() {
 		spin_on(async {
-			let hh = HostHeader { log_strategy: logging::LogStrategy::File("SomeFile".to_string()) };
+			let hh = HostHeader {
+				log_strategy: logging::LogStrategy::File("SomeFile".to_string()),
+				msg_logs: logging::LogStrategy::File("SomeFile".to_string()),
+			};
 			let mut enc = &enc_vec(&hh).await[..];
 			eprintln!("Encoded to {enc:?}");
 			HostHeader::decode(Pin::new(&mut enc)).await;

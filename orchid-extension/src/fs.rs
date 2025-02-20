@@ -3,8 +3,7 @@ use std::num::NonZero;
 use futures::FutureExt;
 use futures::future::LocalBoxFuture;
 use hashbrown::HashMap;
-use orchid_base::interner::Interner;
-use orchid_base::name::PathSlice;
+use orchid_base::interner::{Interner, Tok};
 
 use crate::api;
 use crate::system::SysCtx;
@@ -12,7 +11,7 @@ use crate::system::SysCtx;
 pub trait VirtFS: Send + Sync + 'static {
 	fn load<'a>(
 		&'a self,
-		path: &'a PathSlice,
+		path: &'a [Tok<String>],
 		ctx: SysCtx,
 	) -> LocalBoxFuture<'a, api::OrcResult<api::Loaded>>;
 }

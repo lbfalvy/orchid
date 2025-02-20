@@ -49,6 +49,7 @@ impl OwnedAtom for StrAtom {
 	async fn serialize(&self, _: SysCtx, sink: Pin<&mut (impl Write + ?Sized)>) -> Self::Refs {
 		self.deref().encode(sink).await
 	}
+	async fn print(&self, _: SysCtx) -> FmtUnit { format!("{:?}", &*self.0).into() }
 	async fn deserialize(mut ctx: impl DeserializeCtx, _: Self::Refs) -> Self {
 		Self::new(Rc::new(ctx.read::<String>().await))
 	}

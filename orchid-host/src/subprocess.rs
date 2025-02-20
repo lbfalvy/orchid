@@ -19,6 +19,7 @@ use crate::ctx::Ctx;
 pub async fn ext_command(
 	cmd: std::process::Command,
 	logger: Logger,
+	msg_logs: Logger,
 	ctx: Ctx,
 ) -> io::Result<ExtInit> {
 	let prog_pbuf = PathBuf::from(cmd.get_program());
@@ -29,7 +30,9 @@ pub async fn ext_command(
 		.stderr(async_process::Stdio::piped())
 		.spawn()?;
 	let mut stdin = child.stdin.take().unwrap();
-	api::HostHeader { log_strategy: logger.strat() }.encode(Pin::new(&mut stdin)).await;
+	api::HostHeader { log_strategy: logger.strat(), msg_logs: msg_logs.strat() }
+		.encode(Pin::new(&mut stdin))
+		.await;
 	let mut stdout = child.stdout.take().unwrap();
 	let header = api::ExtensionHeader::decode(Pin::new(&mut stdout)).await;
 	let child_stderr = child.stderr.take().unwrap();
@@ -41,7 +44,7 @@ pub async fn ext_command(
 				if 0 == reader.read_line(&mut buf).await.unwrap() {
 					break;
 				}
-				logger.log(buf);
+				logger.log(buf.strip_suffix('\n').expect("Readline implies this"));
 			}
 		})
 	})?;
@@ -73,9 +76,6 @@ impl Drop for Subprocess {
 }
 impl ExtPort for Subprocess {
 	fn send<'a>(&'a self, msg: &'a [u8]) -> LocalBoxFuture<'a, ()> {
-		if msg.starts_with(&[0, 0, 0, 0x1c]) {
-			panic!("Received unnecessary prefix");
-		}
 		async { send_msg(Pin::new(&mut *self.stdin.lock().await), msg).await.unwrap() }.boxed_local()
 	}
 	fn recv<'a>(
@@ -83,6 +83,7 @@ impl ExtPort for Subprocess {
 		cb: Box<dyn FnOnce(&[u8]) -> LocalBoxFuture<'_, ()> + 'a>,
 	) -> LocalBoxFuture<'a, ()> {
 		Box::pin(async {
+			std::io::Write::flush(&mut std::io::stderr()).unwrap();
 			match recv_msg(self.stdout.lock().await.as_mut()).await {
 				Ok(msg) => cb(&msg).await,
 				Err(e) if e.kind() == io::ErrorKind::BrokenPipe => (),

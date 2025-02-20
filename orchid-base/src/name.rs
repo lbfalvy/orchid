@@ -20,137 +20,6 @@ trait_set! {
 	pub trait NameIter = Iterator<Item = Tok<String>> + DoubleEndedIterator + ExactSizeIterator;
 }
 
-/// A borrowed name fragment which can be empty. See [VPath] for the owned
-/// variant.
-#[derive(Hash, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct PathSlice([Tok<String>]);
-impl PathSlice {
-	/// Create a new [PathSlice]
-	pub fn new(slice: &[Tok<String>]) -> &PathSlice {
-		// SAFETY: This is ok because PathSlice is #[repr(transparent)]
-		unsafe { &*(slice as *const [Tok<String>] as *const PathSlice) }
-	}
-	/// Convert to an owned name fragment
-	pub fn to_vpath(&self) -> VPath { VPath(self.0.to_vec()) }
-	/// Iterate over the tokens
-	pub fn iter(&self) -> impl NameIter + '_ { self.into_iter() }
-	/// Iterate over the segments
-	pub fn str_iter(&self) -> impl Iterator<Item = &'_ str> {
-		Box::new(self.0.iter().map(|s| s.as_str()))
-	}
-	/// Find the longest shared prefix of this name and another sequence
-	pub fn coprefix<'a>(&'a self, other: &PathSlice) -> &'a PathSlice {
-		&self[0..self.iter().zip(other.iter()).take_while(|(l, r)| l == r).count() as u16]
-	}
-	/// Find the longest shared suffix of this name and another sequence
-	pub fn cosuffix<'a>(&'a self, other: &PathSlice) -> &'a PathSlice {
-		&self[0..self.iter().zip(other.iter()).take_while(|(l, r)| l == r).count() as u16]
-	}
-	/// Remove another
-	pub fn strip_prefix<'a>(&'a self, other: &PathSlice) -> Option<&'a PathSlice> {
-		let shared = self.coprefix(other).len();
-		(shared == other.len()).then_some(PathSlice::new(&self[shared..]))
-	}
-	/// Number of path segments
-	pub fn len(&self) -> u16 { self.0.len().try_into().expect("Too long name!") }
-	pub fn get<I: NameIndex>(&self, index: I) -> Option<&I::Output> { index.get(self) }
-	/// Whether there are any path segments. In other words, whether this is a
-	/// valid name
-	pub fn is_empty(&self) -> bool { self.len() == 0 }
-	/// Obtain a reference to the held slice. With all indexing traits shadowed,
-	/// this is better done explicitly
-	pub fn as_slice(&self) -> &[Tok<String>] { self }
-	/// Global empty path slice
-	pub fn empty() -> &'static Self { PathSlice::new(&[]) }
-}
-impl fmt::Debug for PathSlice {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "VName({self})") }
-}
-impl fmt::Display for PathSlice {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "{}", self.str_iter().join("::"))
-	}
-}
-impl Borrow<[Tok<String>]> for PathSlice {
-	fn borrow(&self) -> &[Tok<String>] { &self.0 }
-}
-impl<'a> IntoIterator for &'a PathSlice {
-	type IntoIter = Cloned<slice::Iter<'a, Tok<String>>>;
-	type Item = Tok<String>;
-	fn into_iter(self) -> Self::IntoIter { self.0.iter().cloned() }
-}
-
-pub trait NameIndex {
-	type Output: ?Sized;
-	fn get(self, name: &PathSlice) -> Option<&Self::Output>;
-}
-impl<T: NameIndex> Index<T> for PathSlice {
-	type Output = T::Output;
-	fn index(&self, index: T) -> &Self::Output { index.get(self).expect("Index out of bounds") }
-}
-
-mod idx_impls {
-	use std::ops;
-
-	use super::{NameIndex, PathSlice, conv_range};
-	use crate::interner::Tok;
-
-	impl NameIndex for u16 {
-		type Output = Tok<String>;
-		fn get(self, name: &PathSlice) -> Option<&Self::Output> { name.0.get(self as usize) }
-	}
-
-	impl NameIndex for ops::RangeFull {
-		type Output = PathSlice;
-		fn get(self, name: &PathSlice) -> Option<&Self::Output> { Some(name) }
-	}
-
-	macro_rules! impl_range_index_for_pathslice {
-		($range:ident) => {
-			impl ops::Index<ops::$range<u16>> for PathSlice {
-				type Output = Self;
-				fn index(&self, index: ops::$range<u16>) -> &Self::Output {
-					Self::new(&self.0[conv_range::<u16, usize>(index)])
-				}
-			}
-		};
-	}
-
-	impl_range_index_for_pathslice!(RangeFrom);
-	impl_range_index_for_pathslice!(RangeTo);
-	impl_range_index_for_pathslice!(Range);
-	impl_range_index_for_pathslice!(RangeInclusive);
-	impl_range_index_for_pathslice!(RangeToInclusive);
-}
-
-impl Deref for PathSlice {
-	type Target = [Tok<String>];
-
-	fn deref(&self) -> &Self::Target { &self.0 }
-}
-impl Borrow<PathSlice> for [Tok<String>] {
-	fn borrow(&self) -> &PathSlice { PathSlice::new(self) }
-}
-impl<const N: usize> Borrow<PathSlice> for [Tok<String>; N] {
-	fn borrow(&self) -> &PathSlice { PathSlice::new(&self[..]) }
-}
-impl Borrow<PathSlice> for Vec<Tok<String>> {
-	fn borrow(&self) -> &PathSlice { PathSlice::new(&self[..]) }
-}
-pub fn conv_bound<T: Into<U> + Clone, U>(bound: Bound<&T>) -> Bound<U> {
-	match bound {
-		Bound::Included(i) => Bound::Included(i.clone().into()),
-		Bound::Excluded(i) => Bound::Excluded(i.clone().into()),
-		Bound::Unbounded => Bound::Unbounded,
-	}
-}
-pub fn conv_range<'a, T: Into<U> + Clone + 'a, U: 'a>(
-	range: impl RangeBounds<T>,
-) -> (Bound<U>, Bound<U>) {
-	(conv_bound(range.start_bound()), conv_bound(range.end_bound()))
-}
-
 /// A token path which may be empty. [VName] is the non-empty,
 /// [PathSlice] is the borrowed version
 #[derive(Clone, Default, Hash, PartialEq, Eq)]
@@ -227,22 +96,19 @@ impl IntoIterator for VPath {
 	fn into_iter(self) -> Self::IntoIter { self.0.into_iter() }
 }
 impl Borrow<[Tok<String>]> for VPath {
-	fn borrow(&self) -> &[Tok<String>] { self.0.borrow() }
-}
-impl Borrow<PathSlice> for VPath {
-	fn borrow(&self) -> &PathSlice { PathSlice::new(&self.0[..]) }
+	fn borrow(&self) -> &[Tok<String>] { &self.0[..] }
 }
 impl Deref for VPath {
-	type Target = PathSlice;
+	type Target = [Tok<String>];
 	fn deref(&self) -> &Self::Target { self.borrow() }
 }
 
 impl<T> Index<T> for VPath
-where PathSlice: Index<T>
+where [Tok<String>]: Index<T>
 {
-	type Output = <PathSlice as Index<T>>::Output;
+	type Output = <[Tok<String>] as Index<T>>::Output;
 
-	fn index(&self, index: T) -> &Self::Output { &Borrow::<PathSlice>::borrow(self)[index] }
+	fn index(&self, index: T) -> &Self::Output { &Borrow::<[Tok<String>]>::borrow(self)[index] }
 }
 
 /// A mutable representation of a namespaced identifier of at least one segment.
@@ -311,20 +177,17 @@ impl IntoIterator for VName {
 	fn into_iter(self) -> Self::IntoIter { self.0.into_iter() }
 }
 impl<T> Index<T> for VName
-where PathSlice: Index<T>
+where [Tok<String>]: Index<T>
 {
-	type Output = <PathSlice as Index<T>>::Output;
+	type Output = <[Tok<String>] as Index<T>>::Output;
 
 	fn index(&self, index: T) -> &Self::Output { &self.deref()[index] }
 }
 impl Borrow<[Tok<String>]> for VName {
 	fn borrow(&self) -> &[Tok<String>] { self.0.borrow() }
 }
-impl Borrow<PathSlice> for VName {
-	fn borrow(&self) -> &PathSlice { PathSlice::new(&self.0[..]) }
-}
 impl Deref for VName {
-	type Target = PathSlice;
+	type Target = [Tok<String>];
 	fn deref(&self) -> &Self::Target { self.borrow() }
 }
 
@@ -384,20 +247,17 @@ impl fmt::Display for Sym {
 	}
 }
 impl<T> Index<T> for Sym
-where PathSlice: Index<T>
+where [Tok<String>]: Index<T>
 {
-	type Output = <PathSlice as Index<T>>::Output;
+	type Output = <[Tok<String>] as Index<T>>::Output;
 
 	fn index(&self, index: T) -> &Self::Output { &self.deref()[index] }
 }
 impl Borrow<[Tok<String>]> for Sym {
 	fn borrow(&self) -> &[Tok<String>] { &self.0[..] }
 }
-impl Borrow<PathSlice> for Sym {
-	fn borrow(&self) -> &PathSlice { PathSlice::new(&self.0[..]) }
-}
 impl Deref for Sym {
-	type Target = PathSlice;
+	type Target = [Tok<String>];
 	fn deref(&self) -> &Self::Target { self.borrow() }
 }
 
@@ -405,10 +265,10 @@ impl Deref for Sym {
 /// handled together in datastructures. The names can never be empty
 #[allow(clippy::len_without_is_empty)] // never empty
 pub trait NameLike:
-	'static + Clone + Eq + Hash + fmt::Debug + fmt::Display + Borrow<PathSlice>
+	'static + Clone + Eq + Hash + fmt::Debug + fmt::Display + Borrow<[Tok<String>]>
 {
 	/// Convert into held slice
-	fn as_slice(&self) -> &[Tok<String>] { Borrow::<PathSlice>::borrow(self) }
+	fn as_slice(&self) -> &[Tok<String>] { Borrow::<[Tok<String>]>::borrow(self) }
 	/// Get iterator over tokens
 	fn iter(&self) -> impl NameIter + '_ { self.as_slice().iter().cloned() }
 	/// Get iterator over string segments
@@ -425,14 +285,14 @@ pub trait NameLike:
 		NonZeroUsize::try_from(self.iter().count()).expect("NameLike never empty")
 	}
 	/// Like slice's `split_first` except we know that it always returns Some
-	fn split_first(&self) -> (Tok<String>, &PathSlice) {
+	fn split_first(&self) -> (Tok<String>, &[Tok<String>]) {
 		let (foot, torso) = self.as_slice().split_last().expect("NameLike never empty");
-		(foot.clone(), PathSlice::new(torso))
+		(foot.clone(), torso)
 	}
 	/// Like slice's `split_last` except we know that it always returns Some
-	fn split_last(&self) -> (Tok<String>, &PathSlice) {
+	fn split_last(&self) -> (Tok<String>, &[Tok<String>]) {
 		let (foot, torso) = self.as_slice().split_last().expect("NameLike never empty");
-		(foot.clone(), PathSlice::new(torso))
+		(foot.clone(), torso)
 	}
 	/// Get the first element
 	fn first(&self) -> Tok<String> { self.split_first().0 }
@@ -498,7 +358,7 @@ mod test {
 
 	use test_executors::spin_on;
 
-	use super::{PathSlice, Sym, VName};
+	use super::{NameLike, Sym, VName};
 	use crate::interner::{Interner, Tok};
 	use crate::name::VPath;
 
@@ -508,8 +368,7 @@ mod test {
 			let i = Interner::new_master();
 			let myname = vname!(foo::bar; i).await;
 			let _borrowed_slice: &[Tok<String>] = myname.borrow();
-			let _borrowed_pathslice: &PathSlice = myname.borrow();
-			let _deref_pathslice: &PathSlice = &myname;
+			let _deref_pathslice: &[Tok<String>] = &myname;
 			let _as_slice_out: &[Tok<String>] = myname.as_slice();
 		})
 	}

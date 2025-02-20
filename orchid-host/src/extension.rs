@@ -18,7 +18,7 @@ use orchid_base::clone;
 use orchid_base::format::{FmtCtxImpl, Format};
 use orchid_base::interner::Tok;
 use orchid_base::logging::Logger;
-use orchid_base::reqnot::{ReqNot, Requester as _};
+use orchid_base::reqnot::{DynRequester, ReqNot, Requester as _};
 
 use crate::api;
 use crate::atom::AtomHand;
@@ -54,7 +54,7 @@ impl Drop for ExtensionData {
 #[derive(Clone)]
 pub struct Extension(Rc<ExtensionData>);
 impl Extension {
-	pub fn new(init: ExtInit, logger: Logger, ctx: Ctx) -> io::Result<Self> {
+	pub fn new(init: ExtInit, logger: Logger, msg_logger: Logger, ctx: Ctx) -> io::Result<Self> {
 		Ok(Self(Rc::new_cyclic(|weak: &Weak<ExtensionData>| ExtensionData {
 			exprs: ExprStore::default(),
 			ctx: ctx.clone(),
@@ -67,7 +67,7 @@ impl Extension {
 			lex_recur: Mutex::default(),
 			mac_recur: Mutex::default(),
 			reqnot: ReqNot::new(
-				logger,
+				msg_logger,
 				clone!(weak; move |sfn, _| clone!(weak; async move {
 					let data = weak.upgrade().unwrap();
 					data.init.send(sfn).await
@@ -100,6 +100,7 @@ impl Extension {
 						clone!(weak, ctx);
 						Box::pin(async move {
 							let this = Self(weak.upgrade().unwrap());
+							writeln!(this.reqnot().logger(), "Host received request {req:?}");
 							let i = this.ctx().i.clone();
 							match req {
 								api::ExtHostReq::Ping(ping) => hand.handle(&ping, &()).await,
@@ -213,8 +214,17 @@ impl Extension {
 	}
 	pub async fn recv_one(&self) {
 		let reqnot = self.0.reqnot.clone();
-		(self.0.init.recv(Box::new(move |msg| async move { reqnot.receive(msg).await }.boxed_local())))
-			.await;
+		let ctx = self.ctx().clone();
+		(self.0.init.recv(Box::new(move |msg| {
+			Box::pin(async move {
+				let msg = msg.to_vec();
+				let reqnot = reqnot.clone();
+				(ctx.spawn)(Box::pin(async move {
+					reqnot.receive(&msg).await;
+				}))
+			})
+		})))
+		.await;
 	}
 	pub fn system_drop(&self, id: api::SysId) {
 		let rc = self.clone();

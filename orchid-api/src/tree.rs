@@ -32,6 +32,8 @@ pub enum Token {
 	LambdaHead(Vec<TokenTree>),
 	/// A name segment or an operator.
 	Name(TStr),
+	/// An absolute name
+	Reference(TStrv),
 	/// ::
 	NS,
 	/// Line break.

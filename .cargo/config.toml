@@ -3,6 +3,7 @@ xtask = "run --quiet --package xtask --"
 orcx = "xtask orcx"
 
 [env]
+CARGO_WORKSPACE_DIR = { value = "", relative = true }
 ORCHID_EXTENSIONS = "target/debug/orchid-std"
 ORCHID_DEFAULT_SYSTEMS = "orchid::std"
 ORCHID_LOG_BUFFERS = "true"

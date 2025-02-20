@@ -21,7 +21,10 @@ impl Logger {
 	pub fn write_fmt(&self, fmt: Arguments) {
 		match &self.0 {
 			api::LogStrategy::Discard => (),
-			api::LogStrategy::StdErr => stderr().write_fmt(fmt).expect("Could not write to stderr!"),
+			api::LogStrategy::StdErr => {
+				stderr().write_fmt(fmt).expect("Could not write to stderr!");
+				stderr().flush().expect("Could not flush stderr")
+			},
 			api::LogStrategy::File(f) => {
 				let mut file = (File::options().write(true).create(true).truncate(true).open(f))
 					.expect("Could not open logfile");

@@ -2,7 +2,7 @@ use orchid_api_derive::{Coding, Hierarchy};
 
 use crate::ExtHostNotif;
 
-#[derive(Clone, Debug, Coding)]
+#[derive(Clone, Debug, Coding, PartialEq, Eq, Hash)]
 pub enum LogStrategy {
 	StdErr,
 	File(String),

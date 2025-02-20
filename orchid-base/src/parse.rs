@@ -10,7 +10,7 @@ use crate::error::{OrcRes, Reporter, mk_err, mk_errv};
 use crate::format::{Format, take_first_fmt};
 use crate::interner::{Interner, Tok};
 use crate::location::Pos;
-use crate::name::VPath;
+use crate::name::{VName, VPath};
 use crate::tree::{AtomRepr, ExtraTok, Paren, TokTree, Token};
 
 pub fn name_start(c: char) -> bool { c.is_alphabetic() || c == '_' }

@@ -12,6 +12,7 @@ use orchid_base::interner::Interner;
 use crate::api;
 use crate::atom::WeakAtomHand;
 use crate::system::{System, WeakSystem};
+use crate::tree::Module;
 
 pub struct CtxData {
 	pub i: Rc<Interner>,
@@ -19,6 +20,7 @@ pub struct CtxData {
 	pub systems: RwLock<HashMap<api::SysId, WeakSystem>>,
 	pub system_id: RefCell<NonZeroU16>,
 	pub owned_atoms: RwLock<HashMap<api::AtomId, WeakAtomHand>>,
+	pub root: RwLock<Module>,
 }
 #[derive(Clone)]
 pub struct Ctx(Rc<CtxData>);
@@ -34,6 +36,7 @@ impl Ctx {
 			systems: RwLock::default(),
 			system_id: RefCell::new(NonZero::new(1).unwrap()),
 			owned_atoms: RwLock::default(),
+			root: RwLock::new(Module::default()),
 		}))
 	}
 	pub(crate) async fn system_inst(&self, id: api::SysId) -> Option<System> {

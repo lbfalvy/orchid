@@ -3,7 +3,9 @@ use std::rc::Rc;
 
 use async_once_cell::OnceCell;
 use derive_destructure::destructure;
+use orchid_api::ExtAtomPrint;
 use orchid_base::error::OrcErrv;
+use orchid_base::format::{FmtCtx, FmtUnit, Format};
 use orchid_base::location::Pos;
 use orchid_base::reqnot::Requester;
 
@@ -74,6 +76,16 @@ impl Expr {
 	pub fn ctx(&self) -> SysCtx { self.handle.ctx.clone() }
 
 	pub fn gen(&self) -> GExpr { GExpr { pos: Pos::SlotTarget, kind: GExprKind::Slot(self.clone()) } }
+}
+impl Format for Expr {
+	async fn print<'a>(&'a self, _c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
+		match &self.data().await.kind {
+			ExprKind::Opaque => "OPAQUE".to_string().into(),
+			ExprKind::Bottom(b) => format!("Bottom({b})").into(),
+			ExprKind::Atom(a) =>
+				FmtUnit::from_api(&self.handle.ctx.reqnot.request(ExtAtomPrint(a.atom.clone())).await),
+		}
+	}
 }
 
 #[derive(Clone, Debug)]
