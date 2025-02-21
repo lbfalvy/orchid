@@ -34,10 +34,10 @@ async fn err_type(pos: Pos, i: &Interner) -> OrcErr {
 impl<A: AtomicFeatures> TryFromExpr for TypAtom<'_, A> {
 	async fn try_from_expr(expr: Expr) -> OrcRes<Self> {
 		match expr.atom().await {
-			Err(ex) => Err(err_not_atom(ex.data().await.pos.clone(), &ex.ctx().i).await.into()),
+			Err(ex) => Err(err_not_atom(ex.data().await.pos.clone(), ex.ctx().i()).await.into()),
 			Ok(f) => match downcast_atom::<A>(f).await {
 				Ok(a) => Ok(a),
-				Err(f) => Err(err_type(f.pos(), &f.ctx().i).await.into()),
+				Err(f) => Err(err_type(f.pos(), f.ctx().i()).await.into()),
 			},
 		}
 	}

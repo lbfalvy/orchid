@@ -46,7 +46,7 @@ pub struct GenItem {
 impl GenItem {
 	pub async fn into_api(self, ctx: &mut impl TreeIntoApiCtx) -> api::Item {
 		let kind = match self.kind {
-			GenItemKind::Export(n) => api::ItemKind::Export(ctx.sys().i.i::<String>(&n).await.to_api()),
+			GenItemKind::Export(n) => api::ItemKind::Export(ctx.sys().i().i::<String>(&n).await.to_api()),
 			GenItemKind::Member(mem) => api::ItemKind::Member(mem.into_api(ctx).await),
 			GenItemKind::Import(cn) => api::ItemKind::Import(cn.tok().to_api()),
 			GenItemKind::Macro(priority, gen_rules) => {
@@ -60,7 +60,7 @@ impl GenItem {
 		let comments = join_all(self.comments.iter().map(|c| async {
 			api::Comment {
 				location: api::Location::Inherit,
-				text: ctx.sys().i.i::<String>(c).await.to_api(),
+				text: ctx.sys().i().i::<String>(c).await.to_api(),
 			}
 		}))
 		.await;
@@ -92,8 +92,8 @@ pub fn root_mod(
 	(name.to_string(), kind)
 }
 pub fn fun<I, O>(exported: bool, name: &str, xf: impl ExprFunc<I, O>) -> Vec<GenItem> {
-	let fac = LazyMemberFactory::new(move |sym| async {
-		return MemKind::Const(build_lambdas(Fun::new(sym, xf).await, 0));
+	let fac = LazyMemberFactory::new(move |sym, ctx| async {
+		return MemKind::Const(build_lambdas(Fun::new(sym, ctx, xf).await, 0));
 		fn build_lambdas(fun: Fun, i: u64) -> GExpr {
 			if i < fun.arity().into() {
 				return lambda(i, [build_lambdas(fun, i + 1)]);
@@ -129,16 +129,16 @@ pub fn comments<'a>(
 
 trait_set! {
 	trait LazyMemberCallback =
-		FnOnce(Sym) -> LocalBoxFuture<'static, MemKind> + DynClone
+		FnOnce(Sym, SysCtx) -> LocalBoxFuture<'static, MemKind> + DynClone
 }
 pub struct LazyMemberFactory(Box<dyn LazyMemberCallback>);
 impl LazyMemberFactory {
 	pub fn new<F: Future<Output = MemKind> + 'static>(
-		cb: impl FnOnce(Sym) -> F + Clone + 'static,
+		cb: impl FnOnce(Sym, SysCtx) -> F + Clone + 'static,
 	) -> Self {
-		Self(Box::new(|s| cb(s).boxed_local()))
+		Self(Box::new(|s, ctx| cb(s, ctx).boxed_local()))
 	}
-	pub async fn build(self, path: Sym) -> MemKind { (self.0)(path).await }
+	pub async fn build(self, path: Sym, ctx: SysCtx) -> MemKind { (self.0)(path, ctx).await }
 }
 impl Clone for LazyMemberFactory {
 	fn clone(&self) -> Self { Self(clone_box(&*self.0)) }
@@ -157,7 +157,7 @@ pub struct GenMember {
 }
 impl GenMember {
 	pub async fn into_api(self, ctx: &mut impl TreeIntoApiCtx) -> api::Member {
-		let name = ctx.sys().i.i::<String>(&self.name).await;
+		let name = ctx.sys().i().i::<String>(&self.name).await;
 		api::Member {
 			kind: self.kind.into_api(&mut ctx.push_path(name.clone())).await,
 			name: name.to_api(),
@@ -197,7 +197,7 @@ pub trait TreeIntoApiCtx {
 	fn req(&self) -> &impl ReqHandlish;
 }
 
-pub struct TIACtxImpl<'a, 'b, RH: ReqHandlish> {
+pub struct TreeIntoApiCtxImpl<'a, 'b, RH: ReqHandlish> {
 	pub sys: SysCtx,
 	pub basepath: &'a [Tok<String>],
 	pub path: Substack<'a, Tok<String>>,
@@ -206,10 +206,10 @@ pub struct TIACtxImpl<'a, 'b, RH: ReqHandlish> {
 	pub req: &'a RH,
 }
 
-impl<RH: ReqHandlish> TreeIntoApiCtx for TIACtxImpl<'_, '_, RH> {
+impl<RH: ReqHandlish> TreeIntoApiCtx for TreeIntoApiCtxImpl<'_, '_, RH> {
 	fn sys(&self) -> SysCtx { self.sys.clone() }
 	fn push_path(&mut self, seg: Tok<String>) -> impl TreeIntoApiCtx {
-		TIACtxImpl {
+		TreeIntoApiCtxImpl {
 			req: self.req,
 			lazy_members: self.lazy_members,
 			rules: self.rules,

@@ -74,7 +74,7 @@ impl OwnedAtom for IntStrAtom {
 	}
 	async fn deserialize(mut ctx: impl DeserializeCtx, _: ()) -> Self {
 		let s = ctx.decode::<String>().await;
-		Self(ctx.sys().i.i(&s).await)
+		Self(ctx.sys().i().i(&s).await)
 	}
 }
 
@@ -92,7 +92,7 @@ pub enum OrcStringKind<'a> {
 impl OrcString<'_> {
 	pub async fn get_string(&self) -> Rc<String> {
 		match &self.kind {
-			OrcStringKind::Int(tok) => self.ctx.i.ex(**tok).await.rc(),
+			OrcStringKind::Int(tok) => self.ctx.i().ex(**tok).await.rc(),
 			OrcStringKind::Val(atom) => atom.request(StringGetVal).await,
 		}
 	}
@@ -106,7 +106,7 @@ impl TryFromExpr for OrcString<'static> {
 		let ctx = expr.ctx();
 		match TypAtom::<IntStrAtom>::try_from_expr(expr).await {
 			Ok(t) => Ok(OrcString { ctx: t.data.ctx(), kind: OrcStringKind::Int(t) }),
-			Err(e) => Err(mk_errv(ctx.i.i("A string was expected").await, "", e.pos_iter())),
+			Err(e) => Err(mk_errv(ctx.i().i("A string was expected").await, "", e.pos_iter())),
 		}
 	}
 }

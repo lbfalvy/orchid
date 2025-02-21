@@ -9,7 +9,6 @@ use async_stream::try_stream;
 use camino::Utf8PathBuf;
 use clap::{Parser, Subcommand};
 use futures::{Stream, TryStreamExt, io};
-use orchid_base::clone;
 use orchid_base::error::ReporterImpl;
 use orchid_base::format::{FmtCtxImpl, Format, take_first};
 use orchid_base::location::Pos;
@@ -74,7 +73,6 @@ fn get_all_extensions<'a>(
 			let init = ext_command(Command::new(exe.as_os_str()), logger.clone(), msg_logger.clone(), ctx.clone()).await
 				.unwrap();
 			let ext = Extension::new(init, logger.clone(), msg_logger.clone(), ctx.clone())?;
-			spawn_local(clone!(ext; async move { loop { ext.recv_one().await }}));
 			yield ext
 		}
 	}
@@ -168,12 +166,8 @@ async fn main() -> io::Result<ExitCode> {
 					if args.verbose {
 						println!("lexed: {}", take_first(&ttv_fmt(&lexemes, &FmtCtxImpl { i }).await, true));
 					}
-					let mtreev = parse_mtree(
-						Snippet::new(&lexemes[0], &lexemes, i),
-						Substack::Bottom.push(i.i("orcx").await).push(i.i("input").await),
-					)
-					.await
-					.unwrap();
+					let mtreev =
+						parse_mtree(Snippet::new(&lexemes[0], &lexemes, i), Substack::Bottom).await.unwrap();
 					if args.verbose {
 						let fmt = mtreev_fmt(&mtreev, &FmtCtxImpl { i }).await;
 						println!("parsed: {}", take_first(&fmt, true));

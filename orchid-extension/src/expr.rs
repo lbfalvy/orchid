@@ -23,7 +23,7 @@ impl ExprHandle {
 	pub(crate) fn from_args(ctx: SysCtx, tk: api::ExprTicket) -> Self { Self { ctx, tk } }
 	pub fn get_ctx(&self) -> SysCtx { self.ctx.clone() }
 	pub async fn clone(&self) -> Self {
-		self.ctx.reqnot.notify(api::Acquire(self.ctx.id, self.tk)).await;
+		self.ctx.reqnot().notify(api::Acquire(self.ctx.sys_id(), self.tk)).await;
 		Self { ctx: self.ctx.clone(), tk: self.tk }
 	}
 }
@@ -34,9 +34,9 @@ impl fmt::Debug for ExprHandle {
 }
 impl Drop for ExprHandle {
 	fn drop(&mut self) {
-		let notif = api::Release(self.ctx.id, self.tk);
-		let SysCtx { reqnot, spawner, .. } = self.ctx.clone();
-		spawner(Box::pin(async move { reqnot.notify(notif).await }))
+		let notif = api::Release(self.ctx.sys_id(), self.tk);
+		let reqnot = self.ctx.reqnot().clone();
+		self.ctx.spawner()(Box::pin(async move { reqnot.notify(notif).await }))
 	}
 }
 
@@ -53,13 +53,13 @@ impl Expr {
 
 	pub async fn data(&self) -> &ExprData {
 		(self.data.get_or_init(async {
-			let details = self.handle.ctx.reqnot.request(api::Inspect { target: self.handle.tk }).await;
-			let pos = Pos::from_api(&details.location, &self.handle.ctx.i).await;
+			let details = self.handle.ctx.reqnot().request(api::Inspect { target: self.handle.tk }).await;
+			let pos = Pos::from_api(&details.location, self.handle.ctx.i()).await;
 			let kind = match details.kind {
 				api::InspectedKind::Atom(a) =>
 					ExprKind::Atom(ForeignAtom::new(self.handle.clone(), a, pos.clone())),
 				api::InspectedKind::Bottom(b) =>
-					ExprKind::Bottom(OrcErrv::from_api(&b, &self.handle.ctx.i).await),
+					ExprKind::Bottom(OrcErrv::from_api(&b, self.handle.ctx.i()).await),
 				api::InspectedKind::Opaque => ExprKind::Opaque,
 			};
 			ExprData { pos, kind }
@@ -83,7 +83,7 @@ impl Format for Expr {
 			ExprKind::Opaque => "OPAQUE".to_string().into(),
 			ExprKind::Bottom(b) => format!("Bottom({b})").into(),
 			ExprKind::Atom(a) =>
-				FmtUnit::from_api(&self.handle.ctx.reqnot.request(ExtAtomPrint(a.atom.clone())).await),
+				FmtUnit::from_api(&self.handle.ctx.reqnot().request(ExtAtomPrint(a.atom.clone())).await),
 		}
 	}
 }

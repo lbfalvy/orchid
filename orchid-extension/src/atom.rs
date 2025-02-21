@@ -42,6 +42,13 @@ pub trait AtomicVariant {}
 pub trait Atomic: 'static + Sized {
 	type Variant: AtomicVariant;
 	type Data: Clone + Coding + Sized + 'static;
+	/// Register handlers for IPC calls. If this atom implements [Supports], you
+	/// should register your implementations here. If this atom doesn't
+	/// participate in IPC at all, use the below body.
+	/// ```
+	/// MethodSetBuilder::new()
+	/// ```
+	// this method isn't default-implemented to prevent bugs from forgetting to register IPC requests.
 	fn reg_reqs() -> MethodSetBuilder<Self>;
 }
 impl<A: Atomic> AtomCard for A {
@@ -106,9 +113,9 @@ impl ForeignAtom<'static> {
 		ForeignAtom { _life: PhantomData, atom, ctx: handle.ctx.clone(), expr: Some(handle), pos }
 	}
 	pub async fn request<M: AtomMethod>(&self, m: M) -> Option<M::Response> {
-		let rep = (self.ctx.reqnot.request(api::Fwd(
+		let rep = (self.ctx.reqnot().request(api::Fwd(
 			self.atom.clone(),
-			Sym::parse(M::NAME, &self.ctx.i).await.unwrap().tok().to_api(),
+			Sym::parse(M::NAME, self.ctx.i()).await.unwrap().tok().to_api(),
 			enc_vec(&m).await,
 		)))
 		.await?;
@@ -125,7 +132,7 @@ impl fmt::Debug for ForeignAtom<'_> {
 }
 impl Format for ForeignAtom<'_> {
 	async fn print<'a>(&'a self, _c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
-		FmtUnit::from_api(&self.ctx.reqnot.request(api::ExtAtomPrint(self.atom.clone())).await)
+		FmtUnit::from_api(&self.ctx.reqnot().request(api::ExtAtomPrint(self.atom.clone())).await)
 	}
 }
 impl AtomRepr for ForeignAtom<'_> {
@@ -145,7 +152,7 @@ pub struct NotTypAtom {
 impl NotTypAtom {
 	pub async fn mk_err(&self) -> OrcErr {
 		mk_err(
-			self.ctx.i.i("Not the expected type").await,
+			self.ctx.i().i("Not the expected type").await,
 			format!("This expression is not a {}", self.typ.name()),
 			[self.pos.clone().into()],
 		)
@@ -192,7 +199,7 @@ impl<A: AtomCard> MethodSetBuilder<A> {
 			handlers: stream::from_iter(self.handlers.iter())
 				.then(|(k, v)| {
 					clone!(ctx; async move {
-						(Sym::parse(k, &ctx.i).await.unwrap(), v.clone())
+						(Sym::parse(k, ctx.i()).await.unwrap(), v.clone())
 					})
 				})
 				.collect()
@@ -257,9 +264,9 @@ impl<A: AtomicFeatures> TypAtom<'_, A> {
 	pub async fn request<M: AtomMethod>(&self, req: M) -> M::Response
 	where A: Supports<M> {
 		M::Response::decode(Pin::new(
-			&mut &(self.data.ctx.reqnot.request(api::Fwd(
+			&mut &(self.data.ctx.reqnot().request(api::Fwd(
 				self.data.atom.clone(),
-				Sym::parse(M::NAME, &self.data.ctx.i).await.unwrap().tok().to_api(),
+				Sym::parse(M::NAME, self.data.ctx.i()).await.unwrap().tok().to_api(),
 				enc_vec(&req).await,
 			)))
 			.await
@@ -275,7 +282,7 @@ impl<A: AtomicFeatures> Deref for TypAtom<'_, A> {
 
 pub struct AtomCtx<'a>(pub &'a [u8], pub Option<api::AtomId>, pub SysCtx);
 impl FmtCtx for AtomCtx<'_> {
-	fn i(&self) -> &Interner { &self.2.i }
+	fn i(&self) -> &Interner { self.2.i() }
 }
 
 pub trait AtomDynfo: 'static {

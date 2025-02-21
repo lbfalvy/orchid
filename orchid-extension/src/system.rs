@@ -1,5 +1,5 @@
-use core::fmt;
-use std::any::{TypeId, type_name};
+use std::any::{Any, TypeId, type_name};
+use std::fmt;
 use std::future::Future;
 use std::num::NonZero;
 use std::pin::Pin;
@@ -7,6 +7,8 @@ use std::rc::Rc;
 
 use futures::future::LocalBoxFuture;
 use hashbrown::HashMap;
+use memo_map::MemoMap;
+use orchid_api::ExtMsgSet;
 use orchid_api_traits::{Coding, Decode};
 use orchid_base::boxed_iter::BoxedIter;
 use orchid_base::builtin::Spawner;
@@ -16,7 +18,6 @@ use orchid_base::reqnot::{Receipt, ReqNot};
 
 use crate::api;
 use crate::atom::{AtomCtx, AtomDynfo, AtomTypeId, AtomicFeatures, ForeignAtom, TypAtom, get_info};
-use crate::atom_owned::ObjStore;
 use crate::entrypoint::ExtReq;
 use crate::fs::DeclFs;
 use crate::func_atom::Fun;
@@ -116,11 +117,11 @@ where A: AtomicFeatures {
 	let mut data = &foreign.atom.data[..];
 	let ctx = foreign.ctx.clone();
 	let value = AtomTypeId::decode(Pin::new(&mut data)).await;
-	let own_inst = ctx.cted.inst();
-	let owner = if ctx.id == foreign.atom.owner {
+	let own_inst = ctx.get::<CtedObj>().inst();
+	let owner = if *ctx.get::<api::SysId>() == foreign.atom.owner {
 		own_inst.card()
 	} else {
-		(ctx.cted.deps().find(|s| s.id() == foreign.atom.owner))
+		(ctx.get::<CtedObj>().deps().find(|s| s.id() == foreign.atom.owner))
 			.ok_or_else(|| foreign.clone())?
 			.get_card()
 	};
@@ -133,18 +134,80 @@ where A: AtomicFeatures {
 	Ok(TypAtom { value, data: foreign })
 }
 
+// #[derive(Clone)]
+// pub struct SysCtx {
+// 	pub reqnot: ReqNot<api::ExtMsgSet>,
+// 	pub spawner: Spawner,
+// 	pub id: api::SysId,
+// 	pub cted: CtedObj,
+// 	pub logger: Logger,
+// 	pub obj_store: ObjStore,
+// 	pub i: Rc<Interner>,
+// }
+// impl fmt::Debug for SysCtx {
+// 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+// 		write!(f, "SysCtx({:?})", self.id)
+// 	}
+// }
+
 #[derive(Clone)]
-pub struct SysCtx {
-	pub reqnot: ReqNot<api::ExtMsgSet>,
-	pub spawner: Spawner,
-	pub id: api::SysId,
-	pub cted: CtedObj,
-	pub logger: Logger,
-	pub obj_store: ObjStore,
-	pub i: Rc<Interner>,
+pub struct SysCtx(Rc<MemoMap<TypeId, Box<dyn Any>>>);
+impl SysCtx {
+	pub fn new(
+		id: api::SysId,
+		i: Interner,
+		reqnot: ReqNot<ExtMsgSet>,
+		spawner: Spawner,
+		logger: Logger,
+		cted: CtedObj,
+	) -> Self {
+		let this = Self(Rc::new(MemoMap::new()));
+		this.add(id).add(i).add(reqnot).add(spawner).add(logger).add(cted);
+		this
+	}
+	pub fn add<T: SysCtxEntry>(&self, t: T) -> &Self {
+		assert!(self.0.insert(TypeId::of::<T>(), Box::new(t)), "Key already exists");
+		self
+	}
+	pub fn get_or_insert<T: SysCtxEntry>(&self, f: impl FnOnce() -> T) -> &T {
+		(self.0.get_or_insert_owned(TypeId::of::<T>(), || Box::new(f())).downcast_ref())
+			.expect("Keyed by TypeId")
+	}
+	pub fn get_or_default<T: SysCtxEntry + Default>(&self) -> &T {
+		self.get_or_insert(|| {
+			let rc_id = self.0.as_ref() as *const _ as *const () as usize;
+			eprintln!("Default-initializing {} in {}", type_name::<T>(), rc_id);
+			T::default()
+		})
+	}
+	pub fn try_get<T: SysCtxEntry>(&self) -> Option<&T> {
+		Some(self.0.get(&TypeId::of::<T>())?.downcast_ref().expect("Keyed by TypeId"))
+	}
+	pub fn get<T: SysCtxEntry>(&self) -> &T {
+		self.try_get().unwrap_or_else(|| panic!("Context {} missing", type_name::<T>()))
+	}
+	/// Shorthand to get the [Interner] instance
+	pub fn i(&self) -> &Interner { self.get::<Interner>() }
+	/// Shorthand to get the messaging link
+	pub fn reqnot(&self) -> &ReqNot<ExtMsgSet> { self.get::<ReqNot<ExtMsgSet>>() }
+	/// Shorthand to get the system ID
+	pub fn sys_id(&self) -> api::SysId { *self.get::<api::SysId>() }
+	/// Shorthand to get the task spawner callback
+	pub fn spawner(&self) -> &Spawner { self.get::<Spawner>() }
+	/// Shorthand to get the logger
+	pub fn logger(&self) -> &Logger { self.get::<Logger>() }
+	/// Shorthand to get the constructed system object
+	pub fn cted(&self) -> &CtedObj { self.get::<CtedObj>() }
 }
 impl fmt::Debug for SysCtx {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "SysCtx({:?})", self.id)
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "SysCtx({:?})", self.sys_id())
 	}
 }
+pub trait SysCtxEntry: 'static + Sized {}
+impl SysCtxEntry for api::SysId {}
+impl SysCtxEntry for ReqNot<api::ExtMsgSet> {}
+impl SysCtxEntry for Spawner {}
+impl SysCtxEntry for CtedObj {}
+impl SysCtxEntry for Logger {}
+impl SysCtxEntry for Interner {}

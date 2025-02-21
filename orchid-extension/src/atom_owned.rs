@@ -28,20 +28,23 @@ use crate::atom::{
 };
 use crate::expr::{Expr, ExprHandle};
 use crate::gen_expr::{GExpr, bot};
-use crate::system::SysCtx;
+use crate::system::{SysCtx, SysCtxEntry};
+use crate::system_ctor::CtedObj;
 
 pub struct OwnedVariant;
 impl AtomicVariant for OwnedVariant {}
 impl<A: OwnedAtom + Atomic<Variant = OwnedVariant>> AtomicFeaturesImpl<OwnedVariant> for A {
 	fn _factory(self) -> AtomFactory {
 		AtomFactory::new(move |ctx| async move {
-			let serial = ctx.obj_store.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+			let serial =
+				ctx.get_or_default::<ObjStore>().next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 			let atom_id = api::AtomId(NonZero::new(serial + 1).unwrap());
-			let (typ_id, _) = get_info::<A>(ctx.cted.inst().card());
+			let (typ_id, _) = get_info::<A>(ctx.get::<CtedObj>().inst().card());
 			let mut data = enc_vec(&typ_id).await;
 			self.encode(Pin::<&mut Vec<u8>>::new(&mut data)).await;
-			ctx.obj_store.1.read().await.insert(atom_id, Box::new(self));
-			api::Atom { drop: Some(atom_id), data, owner: ctx.id }
+			ctx.get_or_default::<ObjStore>().objects.read().await.insert(atom_id, Box::new(self));
+			eprintln!("Created atom {:?} of type {}", atom_id, type_name::<A>());
+			api::Atom { drop: Some(atom_id), data, owner: ctx.sys_id() }
 		})
 	}
 	fn _info() -> Self::_Info { OwnedAtomDynfo { msbuild: A::reg_reqs(), ms: OnceCell::new() } }
@@ -55,8 +58,9 @@ pub(crate) struct AtomReadGuard<'a> {
 }
 impl<'a> AtomReadGuard<'a> {
 	async fn new(id: api::AtomId, ctx: &'a SysCtx) -> Self {
-		let guard = ctx.obj_store.1.read().await;
-		assert!(guard.get(&id).is_some(), "Received invalid atom ID: {}", id.0);
+		let guard = ctx.get_or_default::<ObjStore>().objects.read().await;
+		let valid = guard.iter().map(|i| i.0).collect_vec();
+		assert!(guard.get(&id).is_some(), "Received invalid atom ID: {:?} not in {:?}", id, valid);
 		Self { id, guard }
 	}
 }
@@ -66,7 +70,7 @@ impl Deref for AtomReadGuard<'_> {
 }
 
 pub(crate) async fn take_atom(id: api::AtomId, ctx: &SysCtx) -> Box<dyn DynOwnedAtom> {
-	let mut g = ctx.obj_store.1.write().await;
+	let mut g = ctx.get_or_default::<ObjStore>().objects.write().await;
 	g.remove(&id).unwrap_or_else(|| panic!("Received invalid atom ID: {}", id.0))
 }
 
@@ -219,7 +223,7 @@ pub trait OwnedAtom: Atomic<Variant = OwnedVariant> + Any + Clone + 'static {
 	fn val(&self) -> impl Future<Output = Cow<'_, Self::Data>>;
 	#[allow(unused_variables)]
 	fn call_ref(&self, arg: ExprHandle) -> impl Future<Output = GExpr> {
-		async move { bot([err_not_callable(&arg.ctx.i).await]) }
+		async move { bot([err_not_callable(arg.ctx.i()).await]) }
 	}
 	fn call(self, arg: ExprHandle) -> impl Future<Output = GExpr> {
 		async {
@@ -231,7 +235,7 @@ pub trait OwnedAtom: Atomic<Variant = OwnedVariant> + Any + Clone + 'static {
 	}
 	#[allow(unused_variables)]
 	fn command(self, ctx: SysCtx) -> impl Future<Output = OrcRes<Option<GExpr>>> {
-		async move { Err(err_not_command(&ctx.i).await.into()) }
+		async move { Err(err_not_command(ctx.i()).await.into()) }
 	}
 	#[allow(unused_variables)]
 	fn free(self, ctx: SysCtx) -> impl Future<Output = ()> { async {} }
@@ -313,4 +317,9 @@ impl<T: OwnedAtom> DynOwnedAtom for T {
 	}
 }
 
-pub type ObjStore = Rc<(AtomicU64, RwLock<MemoMap<api::AtomId, Box<dyn DynOwnedAtom>>>)>;
+#[derive(Default)]
+struct ObjStore {
+	next_id: AtomicU64,
+	objects: RwLock<MemoMap<api::AtomId, Box<dyn DynOwnedAtom>>>,
+}
+impl SysCtxEntry for ObjStore {}

@@ -98,7 +98,7 @@ impl Interned for String {
 impl InternMarker for api::TStr {
 	type Interned = String;
 	async fn resolve(self, i: &Interner) -> Tok<Self::Interned> {
-		Tok::new(Rc::new(i.master.as_ref().unwrap().request(api::ExternStr(self)).await), self)
+		Tok::new(Rc::new(i.0.master.as_ref().unwrap().request(api::ExternStr(self)).await), self)
 	}
 	fn get_id(self) -> NonZeroU64 { self.0 }
 	fn from_id(id: NonZeroU64) -> Self { Self(id) }
@@ -125,7 +125,7 @@ impl Interned for Vec<Tok<String>> {
 impl InternMarker for api::TStrv {
 	type Interned = Vec<Tok<String>>;
 	async fn resolve(self, i: &Interner) -> Tok<Self::Interned> {
-		let rep = i.master.as_ref().unwrap().request(api::ExternStrv(self)).await;
+		let rep = i.0.master.as_ref().unwrap().request(api::ExternStrv(self)).await;
 		let data = futures::future::join_all(rep.into_iter().map(|m| i.ex(m))).await;
 		Tok::new(Rc::new(data), self)
 	}
@@ -217,24 +217,26 @@ pub struct TypedInterners {
 }
 
 #[derive(Default)]
-pub struct Interner {
+pub struct InternerData {
 	interners: Mutex<TypedInterners>,
 	master: Option<Box<dyn DynRequester<Transfer = api::IntReq>>>,
 }
+#[derive(Clone, Default)]
+pub struct Interner(Rc<InternerData>);
 impl Interner {
 	pub fn new_master() -> Self { Self::default() }
 	pub fn new_replica(req: impl DynRequester<Transfer = api::IntReq> + 'static) -> Self {
-		Self { master: Some(Box::new(req)), interners: Mutex::default() }
+		Self(Rc::new(InternerData { master: Some(Box::new(req)), interners: Mutex::default() }))
 	}
 	/// Intern some data; query its identifier if not known locally
 	pub async fn i<T: Interned>(&self, t: &(impl Internable<Interned = T> + ?Sized)) -> Tok<T> {
 		let data = t.get_owned();
-		let mut g = self.interners.lock().await;
+		let mut g = self.0.interners.lock().await;
 		let typed = T::bimap(&mut g);
 		if let Some(tok) = typed.by_value(&data) {
 			return tok;
 		}
-		let marker = match &self.master {
+		let marker = match &self.0.master {
 			Some(c) => data.clone().intern(&**c).await,
 			None =>
 				T::Marker::from_id(NonZeroU64::new(ID.fetch_add(1, atomic::Ordering::Relaxed)).unwrap()),
@@ -245,29 +247,29 @@ impl Interner {
 	}
 	/// Extern an identifier; query the data it represents if not known locally
 	pub async fn ex<M: InternMarker>(&self, marker: M) -> Tok<M::Interned> {
-		if let Some(tok) = M::Interned::bimap(&mut *self.interners.lock().await).by_marker(marker) {
+		if let Some(tok) = M::Interned::bimap(&mut *self.0.interners.lock().await).by_marker(marker) {
 			return tok;
 		}
-		assert!(self.master.is_some(), "ID not in local interner and this is master");
+		assert!(self.0.master.is_some(), "ID not in local interner and this is master");
 		let token = marker.resolve(self).await;
-		M::Interned::bimap(&mut *self.interners.lock().await).insert(token.clone());
+		M::Interned::bimap(&mut *self.0.interners.lock().await).insert(token.clone());
 		token
 	}
 	pub async fn sweep_replica(&self) -> api::Retained {
-		assert!(self.master.is_some(), "Not a replica");
-		let mut g = self.interners.lock().await;
+		assert!(self.0.master.is_some(), "Not a replica");
+		let mut g = self.0.interners.lock().await;
 		api::Retained { strings: g.strings.sweep_replica(), vecs: g.vecs.sweep_replica() }
 	}
 	pub async fn sweep_master(&self, retained: api::Retained) {
-		assert!(self.master.is_none(), "Not master");
-		let mut g = self.interners.lock().await;
+		assert!(self.0.master.is_none(), "Not master");
+		let mut g = self.0.interners.lock().await;
 		g.strings.sweep_master(retained.strings.into_iter().collect());
 		g.vecs.sweep_master(retained.vecs.into_iter().collect());
 	}
 }
 impl fmt::Debug for Interner {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "Interner{{ replica: {} }}", self.master.is_none())
+		write!(f, "Interner{{ replica: {} }}", self.0.master.is_none())
 	}
 }
 

@@ -1,13 +1,12 @@
 use std::ops::RangeInclusive;
 
 use orchid_base::error::OrcRes;
-use orchid_base::number::{Numeric, num_to_err, parse_num};
-use orchid_extension::atom::AtomicFeatures;
+use orchid_base::number::{num_to_err, parse_num};
+use orchid_extension::atom::ToAtom;
 use orchid_extension::lexer::{LexContext, Lexer};
 use orchid_extension::tree::{GenTok, GenTokTree};
-use ordered_float::NotNan;
 
-use super::num_atom::{Float, Int};
+use super::num_atom::Num;
 
 #[derive(Default)]
 pub struct NumLexer;
@@ -17,9 +16,7 @@ impl Lexer for NumLexer {
 		let ends_at = all.find(|c: char| !c.is_ascii_hexdigit() && !"xX._pP".contains(c));
 		let (chars, tail) = all.split_at(ends_at.unwrap_or(all.len()));
 		let fac = match parse_num(chars) {
-			Ok(Numeric::Float(f)) => Float(f).factory(),
-			Ok(Numeric::Uint(uint)) => Int(uint.try_into().unwrap()).factory(),
-			Ok(Numeric::Decimal(dec)) => Float(NotNan::new(dec.try_into().unwrap()).unwrap()).factory(),
+			Ok(numeric) => Num(numeric).to_atom_factory(),
 			Err(e) => return Err(num_to_err(e, ctx.pos(all), ctx.i).await.into()),
 		};
 		Ok((tail, GenTok::X(fac).at(ctx.pos(all)..ctx.pos(tail))))

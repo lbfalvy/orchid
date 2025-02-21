@@ -13,7 +13,6 @@ use never::Never;
 use orchid_api_traits::Encode;
 use orchid_base::clone;
 use orchid_base::error::OrcRes;
-use orchid_base::format::{FmtCtxImpl, Format, take_first};
 use orchid_base::name::Sym;
 use trait_set::trait_set;
 
@@ -22,7 +21,7 @@ use crate::atom_owned::{DeserializeCtx, OwnedAtom, OwnedVariant};
 use crate::conv::ToExpr;
 use crate::expr::{Expr, ExprHandle};
 use crate::gen_expr::GExpr;
-use crate::system::SysCtx;
+use crate::system::{SysCtx, SysCtxEntry};
 
 trait_set! {
 	trait FunCB = Fn(Vec<Expr>) -> LocalBoxFuture<'static, OrcRes<GExpr>> + 'static;
@@ -33,9 +32,9 @@ pub trait ExprFunc<I, O>: Clone + 'static {
 	fn apply(&self, v: Vec<Expr>) -> impl Future<Output = OrcRes<GExpr>>;
 }
 
-thread_local! {
-	static FUNS: Rc<Mutex<HashMap<Sym, (u8, Rc<dyn FunCB>)>>> = Rc::default();
-}
+#[derive(Default)]
+struct FunsCtx(Mutex<HashMap<Sym, (u8, Rc<dyn FunCB>)>>);
+impl SysCtxEntry for FunsCtx {}
 
 /// An Atom representing a partially applied named native function. These
 /// partial calls are serialized into the name of the native function and the
@@ -50,9 +49,9 @@ pub(crate) struct Fun {
 	fun: Rc<dyn FunCB>,
 }
 impl Fun {
-	pub async fn new<I, O, F: ExprFunc<I, O>>(path: Sym, f: F) -> Self {
-		let funs = FUNS.with(|funs| funs.clone());
-		let mut fung = funs.lock().await;
+	pub async fn new<I, O, F: ExprFunc<I, O>>(path: Sym, ctx: SysCtx, f: F) -> Self {
+		let funs: &FunsCtx = ctx.get_or_default();
+		let mut fung = funs.0.lock().await;
 		let fun = if let Some(x) = fung.get(&path) {
 			x.1.clone()
 		} else {
@@ -89,8 +88,8 @@ impl OwnedAtom for Fun {
 	}
 	async fn deserialize(mut ctx: impl DeserializeCtx, args: Self::Refs) -> Self {
 		let sys = ctx.sys();
-		let path = Sym::from_api(ctx.decode().await, &sys.i).await;
-		let (arity, fun) = FUNS.with(|f| f.clone()).lock().await.get(&path).unwrap().clone();
+		let path = Sym::from_api(ctx.decode().await, sys.i()).await;
+		let (arity, fun) = sys.get_or_default::<FunsCtx>().0.lock().await.get(&path).unwrap().clone();
 		Self { args, arity, path, fun }
 	}
 	async fn print(&self, _: SysCtx) -> orchid_base::format::FmtUnit {

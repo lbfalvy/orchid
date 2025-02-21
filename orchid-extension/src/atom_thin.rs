@@ -19,16 +19,17 @@ use crate::atom::{
 use crate::expr::ExprHandle;
 use crate::gen_expr::{GExpr, bot};
 use crate::system::SysCtx;
+use crate::system_ctor::CtedObj;
 
 pub struct ThinVariant;
 impl AtomicVariant for ThinVariant {}
 impl<A: ThinAtom + Atomic<Variant = ThinVariant>> AtomicFeaturesImpl<ThinVariant> for A {
 	fn _factory(self) -> AtomFactory {
 		AtomFactory::new(move |ctx| async move {
-			let (id, _) = get_info::<A>(ctx.cted.inst().card());
+			let (id, _) = get_info::<A>(ctx.get::<CtedObj>().inst().card());
 			let mut buf = enc_vec(&id).await;
 			self.encode(Pin::new(&mut buf)).await;
-			api::Atom { drop: None, data: buf, owner: ctx.id }
+			api::Atom { drop: None, data: buf, owner: ctx.sys_id() }
 		})
 	}
 	fn _info() -> Self::_Info { ThinAtomDynfo { msbuild: Self::reg_reqs(), ms: OnceCell::new() } }
@@ -106,7 +107,7 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
 	fn drop<'a>(&'a self, AtomCtx(buf, _, ctx): AtomCtx<'a>) -> LocalBoxFuture<'a, ()> {
 		async move {
 			let string_self = T::decode(Pin::new(&mut &buf[..])).await.print(ctx.clone()).await;
-			writeln!(ctx.logger, "Received drop signal for non-drop atom {string_self:?}");
+			writeln!(ctx.logger(), "Received drop signal for non-drop atom {string_self:?}");
 		}
 		.boxed_local()
 	}
@@ -117,11 +118,11 @@ pub trait ThinAtom:
 {
 	#[allow(unused_variables)]
 	fn call(&self, arg: ExprHandle) -> impl Future<Output = GExpr> {
-		async move { bot([err_not_callable(&arg.ctx.i).await]) }
+		async move { bot([err_not_callable(arg.ctx.i()).await]) }
 	}
 	#[allow(unused_variables)]
 	fn command(&self, ctx: SysCtx) -> impl Future<Output = OrcRes<Option<GExpr>>> {
-		async move { Err(err_not_command(&ctx.i).await.into()) }
+		async move { Err(err_not_command(ctx.i()).await.into()) }
 	}
 	#[allow(unused_variables)]
 	fn print(&self, ctx: SysCtx) -> impl Future<Output = FmtUnit> {

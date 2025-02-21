@@ -1,7 +1,5 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::pin::Pin;
-use std::thread;
 
 use async_process::{self, Child, ChildStdin, ChildStdout};
 use async_std::io::{self, BufReadExt, BufReader};
@@ -22,8 +20,6 @@ pub async fn ext_command(
 	msg_logs: Logger,
 	ctx: Ctx,
 ) -> io::Result<ExtInit> {
-	let prog_pbuf = PathBuf::from(cmd.get_program());
-	let prog = prog_pbuf.file_stem().unwrap_or(cmd.get_program()).to_string_lossy().to_string();
 	let mut child = async_process::Command::from(cmd)
 		.stdin(async_process::Stdio::piped())
 		.stdout(async_process::Stdio::piped())
@@ -36,18 +32,16 @@ pub async fn ext_command(
 	let mut stdout = child.stdout.take().unwrap();
 	let header = api::ExtensionHeader::decode(Pin::new(&mut stdout)).await;
 	let child_stderr = child.stderr.take().unwrap();
-	thread::Builder::new().name(format!("stderr-fwd:{prog}")).spawn(move || {
-		async_std::task::block_on(async move {
-			let mut reader = BufReader::new(child_stderr);
-			loop {
-				let mut buf = String::new();
-				if 0 == reader.read_line(&mut buf).await.unwrap() {
-					break;
-				}
-				logger.log(buf.strip_suffix('\n').expect("Readline implies this"));
+	(ctx.spawn)(Box::pin(async move {
+		let mut reader = BufReader::new(child_stderr);
+		loop {
+			let mut buf = String::new();
+			if 0 == reader.read_line(&mut buf).await.unwrap() {
+				break;
 			}
-		})
-	})?;
+			logger.log(buf.strip_suffix('\n').expect("Readline implies this"));
+		}
+	}));
 	Ok(ExtInit {
 		header,
 		port: Box::new(Subprocess {
@@ -87,6 +81,7 @@ impl ExtPort for Subprocess {
 			match recv_msg(self.stdout.lock().await.as_mut()).await {
 				Ok(msg) => cb(&msg).await,
 				Err(e) if e.kind() == io::ErrorKind::BrokenPipe => (),
+				Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => (),
 				Err(e) => panic!("Failed to read from stdout: {}, {e}", e.kind()),
 			}
 		})

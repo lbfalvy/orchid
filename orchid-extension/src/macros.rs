@@ -4,10 +4,11 @@ use ahash::HashMap;
 use futures::future::{LocalBoxFuture, join_all};
 use itertools::Itertools;
 use never::Never;
+use orchid_api::ExtMsgSet;
 use orchid_base::error::OrcRes;
 use orchid_base::interner::Tok;
 use orchid_base::macros::{MTree, mtreev_from_api, mtreev_to_api};
-use orchid_base::reqnot::Requester;
+use orchid_base::reqnot::{ReqNot, Requester};
 use trait_set::trait_set;
 
 use crate::api;
@@ -44,11 +45,11 @@ impl<'a> RuleCtx<'a> {
 			run_id: self.run_id,
 			query: mtreev_to_api(tree, &mut |b| match *b {}).await,
 		};
-		let Some(treev) = self.sys.reqnot.request(req).await else {
-			return Err(err_cascade(&self.sys.i).await.into());
+		let Some(treev) = self.sys.get::<ReqNot<ExtMsgSet>>().request(req).await else {
+			return Err(err_cascade(self.sys.i()).await.into());
 		};
 		static ATOM_MSG: &str = "Returned atom from Rule recursion";
-		Ok(mtreev_from_api(&treev, &self.sys.i, &mut |_| panic!("{ATOM_MSG}")).await)
+		Ok(mtreev_from_api(&treev, self.sys.i(), &mut |_| panic!("{ATOM_MSG}")).await)
 	}
 	pub fn getv(&mut self, key: &Tok<String>) -> Vec<MTree<'a, Never>> {
 		self.args.remove(key).expect("Key not found")
@@ -78,7 +79,7 @@ impl Rule {
 	pub(crate) async fn into_api(self, ctx: &mut impl TreeIntoApiCtx) -> api::MacroRule {
 		api::MacroRule {
 			comments: join_all(self.comments.iter().map(|c| async {
-				api::Comment { text: ctx.sys().i.i(c).await.to_api(), location: api::Location::Inherit }
+				api::Comment { text: ctx.sys().i().i(c).await.to_api(), location: api::Location::Inherit }
 			}))
 			.await,
 			location: api::Location::Inherit,
