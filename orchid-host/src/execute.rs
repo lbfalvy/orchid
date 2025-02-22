@@ -11,7 +11,7 @@ use orchid_base::name::NameLike;
 
 use crate::ctx::Ctx;
 use crate::expr::{Expr, ExprKind, PathSet, Step};
-use crate::tree::{ItemKind, MemberKind};
+use crate::tree::{ItemKind, MemberKind, Module, Root};
 
 type ExprGuard = Bound<RwLockWriteGuard<'static, ExprKind>, Expr>;
 
@@ -38,12 +38,13 @@ pub struct ExecCtx {
 	cur_pos: Pos,
 	did_pop: bool,
 	logger: Logger,
+	root: Root,
 }
 impl ExecCtx {
-	pub async fn new(ctx: Ctx, logger: Logger, init: Expr) -> Self {
+	pub async fn new(ctx: Ctx, logger: Logger, root: Root, init: Expr) -> Self {
 		let cur_pos = init.pos();
 		let cur = Bound::async_new(init, |init| init.kind().write()).await;
-		Self { ctx, gas: None, stack: vec![], cur, cur_pos, did_pop: false, logger }
+		Self { ctx, gas: None, stack: vec![], cur, cur_pos, did_pop: false, root, logger }
 	}
 	pub fn remaining_gas(&self) -> u64 { self.gas.expect("queried remaining_gas but no gas was set") }
 	pub fn set_gas(&mut self, gas: Option<u64>) { self.gas = gas }
@@ -91,38 +92,11 @@ impl ExecCtx {
 				},
 				ExprKind::Seq(a, b) if !self.did_pop => (ExprKind::Seq(a.clone(), b), StackOp::Push(a)),
 				ExprKind::Seq(_, b) => (ExprKind::Identity(b), StackOp::Nop),
-				ExprKind::Const(name) => {
-					let (cn, mp) = name.split_last();
-					let root_lock = self.ctx.root.read().await;
-					let module = root_lock.walk(true, mp.iter().cloned()).await.unwrap();
-					let member = (module.items.iter())
-						.filter_map(|it| if let ItemKind::Member(m) = &it.kind { Some(m) } else { None })
-						.find(|m| m.name() == cn);
-					match member {
-						None => (
-							ExprKind::Bottom(mk_errv(
-								self.ctx.i.i("Constant does not exist").await,
-								format!("{name} does not refer to a constant"),
-								[self.cur_pos.clone().into()],
-							)),
-							StackOp::Pop,
-						),
-						Some(mem) => match mem.kind().await {
-							MemberKind::Mod(_) => (
-								ExprKind::Bottom(mk_errv(
-									self.ctx.i.i("module used as constant").await,
-									format!("{name} is a module"),
-									[self.cur_pos.clone().into()],
-								)),
-								StackOp::Pop,
-							),
-							MemberKind::Const(c) => {
-								let value = c.get_bytecode(&self.ctx).await;
-								(ExprKind::Identity(value.clone()), StackOp::Nop)
-							},
-						},
-					}
-				},
+				ExprKind::Const(name) =>
+					match self.root.get_const_value(name, self.cur_pos.clone(), self.ctx.clone()).await {
+						Err(e) => (ExprKind::Bottom(e), StackOp::Pop),
+						Ok(v) => (ExprKind::Identity(v), StackOp::Nop),
+					},
 				ExprKind::Arg => panic!("This should not appear outside function bodies"),
 				ek @ ExprKind::Atom(_) => (ek, StackOp::Pop),
 				ExprKind::Bottom(bot) => (ExprKind::Bottom(bot.clone()), StackOp::Unwind(bot)),

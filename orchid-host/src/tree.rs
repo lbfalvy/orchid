@@ -2,17 +2,18 @@ use std::fmt::Debug;
 use std::rc::Rc;
 
 use async_once_cell::OnceCell;
-use async_std::sync::Mutex;
+use async_std::sync::{Mutex, RwLock};
 use async_stream::stream;
 use futures::future::join_all;
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
 use never::Never;
+use orchid_base::error::{OrcRes, mk_errv};
 use orchid_base::format::{FmtCtx, FmtUnit, Format, Variants};
 use orchid_base::interner::Tok;
 use orchid_base::location::Pos;
 use orchid_base::macros::{mtreev_fmt, mtreev_from_api};
-use orchid_base::name::Sym;
+use orchid_base::name::{NameLike, Sym};
 use orchid_base::parse::{Comment, Import};
 use orchid_base::tree::{AtomRepr, TokTree, Token};
 use orchid_base::{clone, tl_cache};
@@ -52,7 +53,7 @@ impl Item {
 		let kind = match tree.kind {
 			api::ItemKind::Member(m) => ItemKind::Member(Member::from_api(m, path, sys).await),
 			api::ItemKind::Import(name) => ItemKind::Import(Import {
-				path: Sym::from_api(name, &sys.ctx().i).await.iter().cloned().collect(),
+				path: Sym::from_api(name, &sys.ctx().i).await.iter().collect(),
 				name: None,
 			}),
 			api::ItemKind::Export(e) => ItemKind::Export(Tok::from_api(e, &sys.ctx().i).await),
@@ -66,11 +67,8 @@ impl Item {
 					let pos = Pos::from_api(&rule.location, &sys.ctx().i).await;
 					let pattern = mtreev_from_api(&rule.pattern, &sys.ctx().i, &mut {
 						clone!(pos, sys);
-						move |a| {
-							clone!(pos, sys);
-							Box::pin(async move {
-								MacTok::Atom(AtomHand::from_api(a, pos.clone(), &mut sys.ctx().clone()).await)
-							})
+						async move |a| {
+							MacTok::Atom(AtomHand::from_api(a, pos.clone(), &mut sys.ctx().clone()).await)
 						}
 					})
 					.await;
@@ -181,6 +179,11 @@ impl Module {
 			})
 			.collect_vec();
 		Self { imports: vec![], exports, items }
+	}
+	pub fn merge(&mut self, other: Module) {
+		let mut swap = Module::default();
+		std::mem::swap(self, &mut swap);
+		*self = Module::new(swap.items.into_iter().chain(other.items))
 	}
 	pub async fn from_api(m: api::Module, path: &mut Vec<Tok<String>>, sys: &System) -> Self {
 		Self::new(
@@ -338,5 +341,34 @@ impl CodeLocator {
 	pub fn to_const(steps: Tok<Vec<Tok<String>>>) -> Self { Self { steps, rule_loc: None } }
 	pub fn to_rule(steps: Tok<Vec<Tok<String>>>, macro_i: u16, rule_i: u16) -> Self {
 		Self { steps, rule_loc: Some((macro_i, rule_i)) }
+	}
+}
+
+#[derive(Clone)]
+pub struct Root(Rc<RwLock<Module>>);
+impl Root {
+	pub fn new(module: Module) -> Self { Self(Rc::new(RwLock::new(module))) }
+	pub async fn get_const_value(&self, name: impl NameLike, pos: Pos, ctx: Ctx) -> OrcRes<Expr> {
+		let (cn, mp) = name.split_last();
+		let root_lock = self.0.read().await;
+		let module = root_lock.walk(true, mp.iter().cloned()).await.unwrap();
+		let member = (module.items.iter())
+			.filter_map(|it| if let ItemKind::Member(m) = &it.kind { Some(m) } else { None })
+			.find(|m| m.name() == cn);
+		match member {
+			None => Err(mk_errv(
+				ctx.i.i("Constant does not exist").await,
+				format!("{name} does not refer to a constant"),
+				[pos.clone().into()],
+			)),
+			Some(mem) => match mem.kind().await {
+				MemberKind::Mod(_) => Err(mk_errv(
+					ctx.i.i("module used as constant").await,
+					format!("{name} is a module, not a constant"),
+					[pos.clone().into()],
+				)),
+				MemberKind::Const(c) => Ok((c.get_bytecode(&ctx).await).clone()),
+			},
+		}
 	}
 }

@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::mem;
@@ -35,7 +36,9 @@ pub struct Args {
 	#[arg(short, long, env = "ORCHID_DEFAULT_SYSTEMS", value_delimiter = ';')]
 	system: Vec<String>,
 	#[arg(short, long)]
-	verbose: bool,
+	logs: bool,
+	#[arg(short, long)]
+	msg_logs: bool,
 	#[command(subcommand)]
 	command: Commands,
 }
@@ -78,113 +81,117 @@ fn get_all_extensions<'a>(
 	}
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> io::Result<ExitCode> {
-	let mut code = ExitCode::SUCCESS;
-	LocalSet::new()
-		.run_until(async {
-			let args = Args::parse();
-			let ctx = &Ctx::new(Rc::new(|fut| mem::drop(spawn_local(fut))));
-			let i = &ctx.i;
-			let logger =
-				Logger::new(if args.verbose { LogStrategy::StdErr } else { LogStrategy::Discard });
-			let extensions = get_all_extensions(&args, &logger, &Logger::new(LogStrategy::Discard), ctx)
-				.try_collect::<Vec<Extension>>()
+	let code = Rc::new(RefCell::new(ExitCode::SUCCESS));
+	let local_set = LocalSet::new();
+	let code1 = code.clone();
+	local_set.spawn_local(async move {
+		let args = Args::parse();
+		let ctx = &Ctx::new(Rc::new(|fut| mem::drop(spawn_local(fut))));
+		let i = &ctx.i;
+		let logger = Logger::new(if args.logs { LogStrategy::StdErr } else { LogStrategy::Discard });
+		let msg_logger =
+			Logger::new(if args.msg_logs { LogStrategy::StdErr } else { LogStrategy::Discard });
+		let extensions = get_all_extensions(&args, &logger, &msg_logger, ctx)
+			.try_collect::<Vec<Extension>>()
+			.await
+			.unwrap();
+		match args.command {
+			Commands::Lex { file } => {
+				let (_, systems) = init_systems(&args.system, &extensions).await.unwrap();
+				let mut file = File::open(file.as_std_path()).unwrap();
+				let mut buf = String::new();
+				file.read_to_string(&mut buf).unwrap();
+				let lexemes = lex(i.i(&buf).await, &systems, ctx).await.unwrap();
+				println!("{}", take_first(&ttv_fmt(&lexemes, &FmtCtxImpl { i }).await, true))
+			},
+			Commands::Parse { file } => {
+				let (_, systems) = init_systems(&args.system, &extensions).await.unwrap();
+				let mut file = File::open(file.as_std_path()).unwrap();
+				let mut buf = String::new();
+				file.read_to_string(&mut buf).unwrap();
+				let lexemes = lex(i.i(&buf).await, &systems, ctx).await.unwrap();
+				let Some(first) = lexemes.first() else {
+					println!("File empty!");
+					return;
+				};
+				let reporter = ReporterImpl::new();
+				let pctx = ParseCtxImpl { reporter: &reporter, systems: &systems };
+				let snip = Snippet::new(first, &lexemes, i);
+				let ptree = parse_items(&pctx, Substack::Bottom, snip).await.unwrap();
+				if let Some(errv) = reporter.errv() {
+					eprintln!("{errv}");
+					*code1.borrow_mut() = ExitCode::FAILURE;
+					return;
+				}
+				if ptree.is_empty() {
+					eprintln!("File empty only after parsing, but no errors were reported");
+					*code1.borrow_mut() = ExitCode::FAILURE;
+					return;
+				}
+				for item in ptree {
+					println!("{}", take_first(&item.print(&FmtCtxImpl { i }).await, true))
+				}
+			},
+			Commands::Repl => loop {
+				let (root, systems) = init_systems(&args.system, &extensions).await.unwrap();
+				print!("\\.> ");
+				std::io::stdout().flush().unwrap();
+				let mut prompt = String::new();
+				stdin().read_line(&mut prompt).await.unwrap();
+				let lexemes = lex(i.i(prompt.trim()).await, &systems, ctx).await.unwrap();
+				if args.logs {
+					println!("lexed: {}", take_first(&ttv_fmt(&lexemes, &FmtCtxImpl { i }).await, true));
+				}
+				let mtreev = parse_mtree(
+					Snippet::new(&lexemes[0], &lexemes, i),
+					Substack::Bottom.push(i.i("orcx").await).push(i.i("input").await),
+				)
 				.await
 				.unwrap();
-			match args.command {
-				Commands::Lex { file } => {
-					let systems = init_systems(&args.system, &extensions).await.unwrap();
-					let mut file = File::open(file.as_std_path()).unwrap();
-					let mut buf = String::new();
-					file.read_to_string(&mut buf).unwrap();
-					let lexemes = lex(i.i(&buf).await, &systems, ctx).await.unwrap();
-					println!("{}", take_first(&ttv_fmt(&lexemes, &FmtCtxImpl { i }).await, true))
-				},
-				Commands::Parse { file } => {
-					let systems = init_systems(&args.system, &extensions).await.unwrap();
-					let mut file = File::open(file.as_std_path()).unwrap();
-					let mut buf = String::new();
-					file.read_to_string(&mut buf).unwrap();
-					let lexemes = lex(i.i(&buf).await, &systems, ctx).await.unwrap();
-					let Some(first) = lexemes.first() else {
-						println!("File empty!");
-						return;
-					};
-					let reporter = ReporterImpl::new();
-					let pctx = ParseCtxImpl { reporter: &reporter, systems: &systems };
-					let snip = Snippet::new(first, &lexemes, i);
-					let ptree = parse_items(&pctx, Substack::Bottom, snip).await.unwrap();
-					if let Some(errv) = reporter.errv() {
-						eprintln!("{errv}");
-						code = ExitCode::FAILURE;
-						return;
-					}
-					if ptree.is_empty() {
-						eprintln!("File empty only after parsing, but no errors were reported");
-						code = ExitCode::FAILURE;
-						return;
-					}
-					for item in ptree {
-						println!("{}", take_first(&item.print(&FmtCtxImpl { i }).await, true))
-					}
-				},
-				Commands::Repl => loop {
-					let systems = init_systems(&args.system, &extensions).await.unwrap();
-					print!("\\.> ");
-					std::io::stdout().flush().unwrap();
-					let mut prompt = String::new();
-					stdin().read_line(&mut prompt).await.unwrap();
-					let lexemes = lex(i.i(prompt.trim()).await, &systems, ctx).await.unwrap();
-					if args.verbose {
-						println!("lexed: {}", take_first(&ttv_fmt(&lexemes, &FmtCtxImpl { i }).await, true));
-					}
-					let mtreev = parse_mtree(
-						Snippet::new(&lexemes[0], &lexemes, i),
-						Substack::Bottom.push(i.i("orcx").await).push(i.i("input").await),
-					)
-					.await
-					.unwrap();
-					if args.verbose {
-						let fmt = mtreev_fmt(&mtreev, &FmtCtxImpl { i }).await;
-						println!("parsed: {}", take_first(&fmt, true));
-					}
-					let expr = mtreev_to_expr(&mtreev, Substack::Bottom, ctx).await;
-					let mut xctx = ExecCtx::new(ctx.clone(), logger.clone(), expr.at(Pos::None)).await;
-					xctx.set_gas(Some(1000));
-					xctx.execute().await;
-					match xctx.result() {
-						ExecResult::Value(val) =>
-							println!("{}", take_first(&val.print(&FmtCtxImpl { i }).await, false)),
-						ExecResult::Err(e) => println!("error: {e}"),
-						ExecResult::Gas(_) => println!("Ran out of gas!"),
-					}
-				},
-				Commands::Execute { code } => {
-					let systems = init_systems(&args.system, &extensions).await.unwrap();
-					let lexemes = lex(i.i(code.trim()).await, &systems, ctx).await.unwrap();
-					if args.verbose {
-						println!("lexed: {}", take_first(&ttv_fmt(&lexemes, &FmtCtxImpl { i }).await, true));
-					}
-					let mtreev =
-						parse_mtree(Snippet::new(&lexemes[0], &lexemes, i), Substack::Bottom).await.unwrap();
-					if args.verbose {
-						let fmt = mtreev_fmt(&mtreev, &FmtCtxImpl { i }).await;
-						println!("parsed: {}", take_first(&fmt, true));
-					}
-					let expr = mtreev_to_expr(&mtreev, Substack::Bottom, ctx).await;
-					let mut xctx = ExecCtx::new(ctx.clone(), logger.clone(), expr.at(Pos::None)).await;
-					xctx.set_gas(Some(1000));
-					xctx.execute().await;
-					match xctx.result() {
-						ExecResult::Value(val) =>
-							println!("{}", take_first(&val.print(&FmtCtxImpl { i }).await, false)),
-						ExecResult::Err(e) => println!("error: {e}"),
-						ExecResult::Gas(_) => println!("Ran out of gas!"),
-					}
-				},
-			}
-		})
-		.await;
-	Ok(code)
+				if args.logs {
+					let fmt = mtreev_fmt(&mtreev, &FmtCtxImpl { i }).await;
+					println!("parsed: {}", take_first(&fmt, true));
+				}
+				let expr = mtreev_to_expr(&mtreev, Substack::Bottom, ctx).await;
+				let mut xctx =
+					ExecCtx::new(ctx.clone(), logger.clone(), root.clone(), expr.at(Pos::None)).await;
+				xctx.set_gas(Some(1000));
+				xctx.execute().await;
+				match xctx.result() {
+					ExecResult::Value(val) =>
+						println!("{}", take_first(&val.print(&FmtCtxImpl { i }).await, false)),
+					ExecResult::Err(e) => println!("error: {e}"),
+					ExecResult::Gas(_) => println!("Ran out of gas!"),
+				}
+			},
+			Commands::Execute { code } => {
+				let (root, systems) = init_systems(&args.system, &extensions).await.unwrap();
+				let lexemes = lex(i.i(code.trim()).await, &systems, ctx).await.unwrap();
+				if args.logs {
+					println!("lexed: {}", take_first(&ttv_fmt(&lexemes, &FmtCtxImpl { i }).await, true));
+				}
+				let mtreev =
+					parse_mtree(Snippet::new(&lexemes[0], &lexemes, i), Substack::Bottom).await.unwrap();
+				if args.logs {
+					let fmt = mtreev_fmt(&mtreev, &FmtCtxImpl { i }).await;
+					println!("parsed: {}", take_first(&fmt, true));
+				}
+				let expr = mtreev_to_expr(&mtreev, Substack::Bottom, ctx).await;
+				let mut xctx = ExecCtx::new(ctx.clone(), logger.clone(), root, expr.at(Pos::None)).await;
+				xctx.set_gas(Some(1000));
+				xctx.execute().await;
+				match xctx.result() {
+					ExecResult::Value(val) =>
+						println!("{}", take_first(&val.print(&FmtCtxImpl { i }).await, false)),
+					ExecResult::Err(e) => println!("error: {e}"),
+					ExecResult::Gas(_) => println!("Ran out of gas!"),
+				}
+			},
+		}
+	});
+	local_set.await;
+	let x = *code.borrow();
+	Ok(x)
 }

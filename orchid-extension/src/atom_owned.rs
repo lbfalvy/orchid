@@ -35,7 +35,7 @@ pub struct OwnedVariant;
 impl AtomicVariant for OwnedVariant {}
 impl<A: OwnedAtom + Atomic<Variant = OwnedVariant>> AtomicFeaturesImpl<OwnedVariant> for A {
 	fn _factory(self) -> AtomFactory {
-		AtomFactory::new(move |ctx| async move {
+		AtomFactory::new(async move |ctx| {
 			let serial =
 				ctx.get_or_default::<ObjStore>().next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 			let atom_id = api::AtomId(NonZero::new(serial + 1).unwrap());
@@ -82,25 +82,26 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 	fn tid(&self) -> TypeId { TypeId::of::<T>() }
 	fn name(&self) -> &'static str { type_name::<T>() }
 	fn decode<'a>(&'a self, AtomCtx(data, ..): AtomCtx<'a>) -> LocalBoxFuture<'a, Box<dyn Any>> {
-		async {
+		Box::pin(async {
 			Box::new(<T as AtomCard>::Data::decode(Pin::new(&mut &data[..])).await) as Box<dyn Any>
-		}
-		.boxed_local()
+		})
 	}
 	fn call(&self, AtomCtx(_, id, ctx): AtomCtx, arg: api::ExprTicket) -> LocalBoxFuture<'_, GExpr> {
-		async move { take_atom(id.unwrap(), &ctx).await.dyn_call(ctx.clone(), arg).await }.boxed_local()
+		Box::pin(async move { take_atom(id.unwrap(), &ctx).await.dyn_call(ctx.clone(), arg).await })
 	}
 	fn call_ref<'a>(
 		&'a self,
 		AtomCtx(_, id, ctx): AtomCtx<'a>,
 		arg: api::ExprTicket,
 	) -> LocalBoxFuture<'a, GExpr> {
-		async move { AtomReadGuard::new(id.unwrap(), &ctx).await.dyn_call_ref(ctx.clone(), arg).await }
-			.boxed_local()
+		Box::pin(async move {
+			AtomReadGuard::new(id.unwrap(), &ctx).await.dyn_call_ref(ctx.clone(), arg).await
+		})
 	}
 	fn print(&self, AtomCtx(_, id, ctx): AtomCtx<'_>) -> LocalBoxFuture<'_, FmtUnit> {
-		async move { AtomReadGuard::new(id.unwrap(), &ctx).await.dyn_print(ctx.clone()).await }
-			.boxed_local()
+		Box::pin(
+			async move { AtomReadGuard::new(id.unwrap(), &ctx).await.dyn_print(ctx.clone()).await },
+		)
 	}
 	fn handle_req<'a, 'b: 'a, 'c: 'a>(
 		&'a self,
@@ -109,34 +110,32 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 		req: Pin<&'b mut dyn Read>,
 		rep: Pin<&'c mut dyn Write>,
 	) -> LocalBoxFuture<'a, bool> {
-		async move {
+		Box::pin(async move {
 			let a = AtomReadGuard::new(id.unwrap(), &ctx).await;
 			let ms = self.ms.get_or_init(self.msbuild.pack(ctx.clone())).await;
 			ms.dispatch(a.as_any_ref().downcast_ref().unwrap(), ctx.clone(), key, req, rep).await
-		}
-		.boxed_local()
+		})
 	}
 	fn command<'a>(
 		&'a self,
 		AtomCtx(_, id, ctx): AtomCtx<'a>,
 	) -> LocalBoxFuture<'a, OrcRes<Option<GExpr>>> {
-		async move { take_atom(id.unwrap(), &ctx).await.dyn_command(ctx.clone()).await }.boxed_local()
+		Box::pin(async move { take_atom(id.unwrap(), &ctx).await.dyn_command(ctx.clone()).await })
 	}
 	fn drop(&self, AtomCtx(_, id, ctx): AtomCtx) -> LocalBoxFuture<'_, ()> {
-		async move { take_atom(id.unwrap(), &ctx).await.dyn_free(ctx.clone()).await }.boxed_local()
+		Box::pin(async move { take_atom(id.unwrap(), &ctx).await.dyn_free(ctx.clone()).await })
 	}
 	fn serialize<'a, 'b: 'a>(
 		&'a self,
 		AtomCtx(_, id, ctx): AtomCtx<'a>,
 		mut write: Pin<&'b mut dyn Write>,
 	) -> LocalBoxFuture<'a, Option<Vec<api::ExprTicket>>> {
-		async move {
+		Box::pin(async move {
 			let id = id.unwrap();
 			id.encode(write.as_mut()).await;
 			let refs = AtomReadGuard::new(id, &ctx).await.dyn_serialize(ctx.clone(), write).await;
 			refs.map(|v| v.into_iter().map(|t| t.handle().tk).collect_vec())
-		}
-		.boxed_local()
+		})
 	}
 	fn deserialize<'a>(
 		&'a self,
@@ -144,13 +143,12 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 		data: &'a [u8],
 		refs: &'a [api::ExprTicket],
 	) -> LocalBoxFuture<'a, api::Atom> {
-		async move {
+		Box::pin(async move {
 			let refs =
 				refs.iter().map(|tk| Expr::from_handle(Rc::new(ExprHandle::from_args(ctx.clone(), *tk))));
 			let obj = T::deserialize(DeserCtxImpl(data, &ctx), T::Refs::from_iter(refs)).await;
 			obj._factory().build(ctx).await
-		}
-		.boxed_local()
+		})
 	}
 }
 

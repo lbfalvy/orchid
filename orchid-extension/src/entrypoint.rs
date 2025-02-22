@@ -1,23 +1,20 @@
 use std::cell::RefCell;
 use std::future::Future;
-use std::io::Write;
 use std::mem;
 use std::num::NonZero;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
-use async_std::channel::{Receiver, Sender};
+use async_std::channel::{self, Receiver, RecvError, Sender};
 use async_std::stream;
 use async_std::sync::Mutex;
 use futures::future::{LocalBoxFuture, join_all};
-use futures::{FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, stream_select};
 use hashbrown::HashMap;
 use itertools::Itertools;
 use orchid_api::{ApplyMacro, ExtMsgSet};
-use orchid_api_traits::{Decode, Encode, enc_vec};
-use orchid_base::builtin::{ExtPort, Spawner};
+use orchid_api_traits::{Decode, enc_vec};
+use orchid_base::builtin::{ExtInit, ExtPort, Spawner};
 use orchid_base::char_filter::{char_filter_match, char_filter_union, mk_char_filter};
 use orchid_base::clone;
 use orchid_base::interner::{Interner, Tok};
@@ -36,7 +33,6 @@ use crate::atom_owned::take_atom;
 use crate::fs::VirtFS;
 use crate::lexer::{LexContext, err_cascade, err_not_applicable};
 use crate::macros::{Rule, RuleCtx};
-use crate::msg::{recv_parent_msg, send_parent_msg};
 use crate::system::{SysCtx, atom_by_idx};
 use crate::system_ctor::{CtedObj, DynSystemCtor};
 use crate::tree::{GenTok, GenTokTree, LazyMemberFactory, TreeIntoApiCtxImpl, do_extra};
@@ -69,18 +65,18 @@ pub struct SystemRecord {
 }
 
 trait_set! {
-	pub trait WARCallback<'a, T> = FnOnce(
+	pub trait WithAtomRecordCallback<'a, T> = AsyncFnOnce(
 		Box<dyn AtomDynfo>,
 		SysCtx,
 		AtomTypeId,
 		&'a [u8]
-	) -> LocalBoxFuture<'a, T>
+	) -> T
 }
 
 pub async fn with_atom_record<'a, F: Future<Output = SysCtx>, T>(
 	get_sys_ctx: &impl Fn(api::SysId) -> F,
 	atom: &'a api::Atom,
-	cb: impl WARCallback<'a, T>,
+	cb: impl WithAtomRecordCallback<'a, T>,
 ) -> T {
 	let mut data = &atom.data[..];
 	let ctx = get_sys_ctx(atom.owner).await;
@@ -104,49 +100,41 @@ pub async fn with_atom_record<'a, F: Future<Output = SysCtx>, T>(
 // }
 
 pub struct ExtensionOwner {
-	rn: ReqNot<api::ExtMsgSet>,
+	_interner_cell: Rc<RefCell<Option<Interner>>>,
+	_systems_lock: Rc<Mutex<HashMap<api::SysId, SystemRecord>>>,
 	out_recv: Receiver<Vec<u8>>,
 	out_send: Sender<Vec<u8>>,
-	ext_header: api::ExtensionHeader,
 }
 
 impl ExtPort for ExtensionOwner {
 	fn send<'a>(&'a self, msg: &'a [u8]) -> LocalBoxFuture<'a, ()> {
-		self.rn.receive(msg).boxed_local()
+		Box::pin(async { self.out_send.send(msg.to_vec()).boxed_local().await.unwrap() })
 	}
-	fn recv<'a>(
-		&'a self,
-		cb: Box<dyn FnOnce(&[u8]) -> LocalBoxFuture<'_, ()> + 'a>,
-	) -> LocalBoxFuture<'a, ()> {
-		async {
-			let msg = self.out_recv.recv().await.unwrap();
-			cb(&msg[..]).await
-		}
-		.boxed_local()
+	fn recv(&self) -> LocalBoxFuture<'_, Option<Vec<u8>>> {
+		Box::pin(async {
+			match self.out_recv.recv().await {
+				Ok(v) => Some(v),
+				Err(RecvError) => None,
+			}
+		})
 	}
-}
-impl ExtensionOwner {
-	pub fn ext_header(&self) -> &api::ExtensionHeader { &self.ext_header }
-	// pub async fn new(data: ExtensionData, spawner: Spawner, header:
-	// api::HostHeader) -> Self { 	let decls =
-	// }
 }
 
-pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
-	let api::HostHeader { log_strategy, msg_logs } =
-		api::HostHeader::decode(Pin::new(&mut async_std::io::stdin())).await;
-	let mut buf = Vec::new();
+pub fn extension_init(
+	data: ExtensionData,
+	host_header: api::HostHeader,
+	spawner: Spawner,
+) -> ExtInit {
+	let api::HostHeader { log_strategy, msg_logs } = host_header;
 	let decls = (data.systems.iter().enumerate())
 		.map(|(id, sys)| (u16::try_from(id).expect("more than u16max system ctors"), sys))
 		.map(|(id, sys)| sys.decl(api::SysDeclId(NonZero::new(id + 1).unwrap())))
 		.collect_vec();
 	let systems_lock = Rc::new(Mutex::new(HashMap::<api::SysId, SystemRecord>::new()));
-	api::ExtensionHeader { name: data.name.to_string(), systems: decls.clone() }
-		.encode(Pin::new(&mut buf))
-		.await;
-	std::io::stdout().write_all(&buf).unwrap();
-	std::io::stdout().flush().unwrap();
-	let exiting = Arc::new(AtomicBool::new(false));
+	let ext_header = api::ExtensionHeader { name: data.name.to_string(), systems: decls.clone() };
+	let (out_send, in_recv) = channel::bounded::<Vec<u8>>(1);
+	let (in_send, out_recv) = channel::bounded::<Vec<u8>>(1);
+	let (exit_send, exit_recv) = channel::bounded(1);
 	let logger = Logger::new(log_strategy);
 	let msg_logger = Logger::new(msg_logs);
 	let interner_cell = Rc::new(RefCell::new(None::<Interner>));
@@ -159,9 +147,9 @@ pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 		x
 	}));
 	let init_ctx = {
-		clone!(systems_weak, interner_weak, spawner, logger);
+		clone!(interner_weak, spawner, logger);
 		move |id: api::SysId, cted: CtedObj, reqnot: ReqNot<ExtMsgSet>| {
-			clone!(systems_weak, interner_weak, spawner, logger; async move {
+			clone!(interner_weak, spawner, logger; async move {
 				let interner_rc =
 					interner_weak.upgrade().expect("System construction order while shutting down");
 				let i = interner_rc.borrow().clone().expect("mk_ctx called very early, no interner!");
@@ -171,11 +159,11 @@ pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 	};
 	let rn = ReqNot::<api::ExtMsgSet>::new(
 		msg_logger.clone(),
-		move |a, _| async move { send_parent_msg(a).await.unwrap() }.boxed_local(),
-		clone!(systems_weak, exiting, get_ctx; move |n, reqnot| {
-			clone!(systems_weak, exiting, get_ctx; async move {
+		move |a, _| clone!(in_send; Box::pin(async move { in_send.send(a.to_vec()).await.unwrap() })),
+		clone!(systems_weak, exit_send, get_ctx; move |n, _| {
+			clone!(systems_weak, exit_send, get_ctx; async move {
 				match n {
-					api::HostExtNotif::Exit => exiting.store(true, Ordering::Relaxed),
+					api::HostExtNotif::Exit => exit_send.send(()).await.unwrap(),
 					api::HostExtNotif::SystemDrop(api::SystemDrop(sys_id)) =>
 						if let Some(rc) = systems_weak.upgrade() {
 							mem::drop(rc.lock().await.remove(&sys_id))
@@ -188,9 +176,9 @@ pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 			}.boxed_local())
 		}),
 		{
-			clone!(logger, get_ctx, init_ctx, systems_weak, interner_weak, spawner, decls, msg_logger);
+			clone!(logger, get_ctx, init_ctx, systems_weak, interner_weak, decls, msg_logger);
 			move |hand, req| {
-				clone!(logger, get_ctx, init_ctx, systems_weak, interner_weak, spawner, decls, msg_logger);
+				clone!(logger, get_ctx, init_ctx, systems_weak, interner_weak, decls, msg_logger);
 				async move {
 					let interner_cell = interner_weak.upgrade().expect("Interner dropped before request");
 					let i = interner_cell.borrow().clone().expect("Request arrived before interner set");
@@ -302,11 +290,8 @@ pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 										return hand.handle(&lex, &eopt).await;
 									},
 									Ok((s, expr)) => {
-										let expr = expr
-											.to_api(&mut |f, r| {
-												clone!(sys_ctx; async move { do_extra(f, r, sys_ctx).await }).boxed_local()
-											})
-											.await;
+										let expr =
+											expr.to_api(&mut async |f, r| do_extra(f, r, sys_ctx.clone()).await).await;
 										let pos = (text.len() - s.len()) as u32;
 										return hand.handle(&lex, &Some(Ok(api::LexedExpr { pos, expr }))).await;
 									},
@@ -329,12 +314,9 @@ pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 							let o_line = match parser.parse(*exported, comments, tail) {
 								Err(e) => Err(e.to_api()),
 								Ok(t) => Ok(
-									ttv_to_api(t, &mut |f, range| {
-										clone!(ctx);
-										async move {
-											api::TokenTree { range, token: api::Token::Atom(f.clone().build(ctx).await) }
-										}
-										.boxed_local()
+									ttv_to_api(t, &mut async move |f, range| api::TokenTree {
+										range,
+										token: api::Token::Atom(f.clone().build(ctx.clone()).await),
 									})
 									.await,
 								),
@@ -344,52 +326,49 @@ pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 						api::HostExtReq::AtomReq(atom_req) => {
 							let atom = atom_req.get_atom();
 							let atom_req = atom_req.clone();
-							with_atom_record(&get_ctx, atom, move |nfo, ctx, id, buf| {
-								async move {
-									let actx = AtomCtx(buf, atom.drop, ctx.clone());
-									match &atom_req {
-										api::AtomReq::SerializeAtom(ser) => {
-											let mut buf = enc_vec(&id).await;
-											let refs_opt = nfo.serialize(actx, Pin::<&mut Vec<_>>::new(&mut buf)).await;
-											hand.handle(ser, &refs_opt.map(|refs| (buf, refs))).await
-										},
-										api::AtomReq::AtomPrint(print @ api::AtomPrint(_)) =>
-											hand.handle(print, &nfo.print(actx).await.to_api()).await,
-										api::AtomReq::Fwded(fwded) => {
-											let api::Fwded(_, key, payload) = &fwded;
-											let mut reply = Vec::new();
-											let key = Sym::from_api(*key, &i).await;
-											let some = nfo
-												.handle_req(
-													actx,
-													key,
-													Pin::<&mut &[u8]>::new(&mut &payload[..]),
-													Pin::<&mut Vec<_>>::new(&mut reply),
-												)
-												.await;
-											hand.handle(fwded, &some.then_some(reply)).await
-										},
-										api::AtomReq::CallRef(call @ api::CallRef(_, arg)) => {
-											let ret = nfo.call_ref(actx, *arg).await;
-											hand.handle(call, &ret.api_return(ctx.clone(), &hand).await).await
-										},
-										api::AtomReq::FinalCall(call @ api::FinalCall(_, arg)) => {
-											let ret = nfo.call(actx, *arg).await;
-											hand.handle(call, &ret.api_return(ctx.clone(), &hand).await).await
-										},
-										api::AtomReq::Command(cmd @ api::Command(_)) => match nfo.command(actx).await {
-											Err(e) => hand.handle(cmd, &Err(e.to_api())).await,
-											Ok(opt) => match opt {
-												None => hand.handle(cmd, &Ok(api::NextStep::Halt)).await,
-												Some(cont) => {
-													let cont = cont.api_return(ctx.clone(), &hand).await;
-													hand.handle(cmd, &Ok(api::NextStep::Continue(cont))).await
-												},
+							with_atom_record(&get_ctx, atom, async move |nfo, ctx, id, buf| {
+								let actx = AtomCtx(buf, atom.drop, ctx.clone());
+								match &atom_req {
+									api::AtomReq::SerializeAtom(ser) => {
+										let mut buf = enc_vec(&id).await;
+										let refs_opt = nfo.serialize(actx, Pin::<&mut Vec<_>>::new(&mut buf)).await;
+										hand.handle(ser, &refs_opt.map(|refs| (buf, refs))).await
+									},
+									api::AtomReq::AtomPrint(print @ api::AtomPrint(_)) =>
+										hand.handle(print, &nfo.print(actx).await.to_api()).await,
+									api::AtomReq::Fwded(fwded) => {
+										let api::Fwded(_, key, payload) = &fwded;
+										let mut reply = Vec::new();
+										let key = Sym::from_api(*key, &i).await;
+										let some = nfo
+											.handle_req(
+												actx,
+												key,
+												Pin::<&mut &[u8]>::new(&mut &payload[..]),
+												Pin::<&mut Vec<_>>::new(&mut reply),
+											)
+											.await;
+										hand.handle(fwded, &some.then_some(reply)).await
+									},
+									api::AtomReq::CallRef(call @ api::CallRef(_, arg)) => {
+										let ret = nfo.call_ref(actx, *arg).await;
+										hand.handle(call, &ret.api_return(ctx.clone(), &hand).await).await
+									},
+									api::AtomReq::FinalCall(call @ api::FinalCall(_, arg)) => {
+										let ret = nfo.call(actx, *arg).await;
+										hand.handle(call, &ret.api_return(ctx.clone(), &hand).await).await
+									},
+									api::AtomReq::Command(cmd @ api::Command(_)) => match nfo.command(actx).await {
+										Err(e) => hand.handle(cmd, &Err(e.to_api())).await,
+										Ok(opt) => match opt {
+											None => hand.handle(cmd, &Ok(api::NextStep::Halt)).await,
+											Some(cont) => {
+												let cont = cont.api_return(ctx.clone(), &hand).await;
+												hand.handle(cmd, &Ok(api::NextStep::Continue(cont))).await
 											},
 										},
-									}
+									},
 								}
-								.boxed_local()
 							})
 							.await
 						},
@@ -411,7 +390,7 @@ pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 							for (k, v) in params {
 								ctx.args.insert(
 									Tok::from_api(k, &i).await,
-									mtreev_from_api(&v, &i, &mut |_| panic!("No atom in macro prompt!")).await,
+									mtreev_from_api(&v, &i, &mut async |_| panic!("No atom in macro prompt!")).await,
 								);
 							}
 							let err_cascade = err_cascade(&i).await;
@@ -424,10 +403,9 @@ pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 									hand.handle_as(tok, &new_errors.map(|e| Err(e.to_api()))).await
 								},
 								Ok(t) => {
-									let result = mtreev_to_api(&t, &mut |a| {
-										clone!(sys_ctx; async move {
-											api::MacroToken::Atom(a.clone().build(sys_ctx.clone()).await)
-										}.boxed_local())
+									clone!(sys_ctx);
+									let result = mtreev_to_api(&t, &mut async |a| {
+										api::MacroToken::Atom(a.clone().build(sys_ctx.clone()).await)
 									})
 									.await;
 									hand.handle_as(tok, &Some(Ok(result))).await
@@ -441,8 +419,22 @@ pub async fn extension_main_logic(data: ExtensionData, spawner: Spawner) {
 		},
 	);
 	*interner_cell.borrow_mut() = Some(Interner::new_replica(rn.clone().map()));
-	while !exiting.load(Ordering::Relaxed) {
-		let rcvd = recv_parent_msg().await.unwrap();
-		spawner(Box::pin(clone!(rn; async move { rn.receive(&rcvd).await })))
+	spawner(Box::pin(clone!(spawner; async move {
+		let mut streams = stream_select! { in_recv.map(Some), exit_recv.map(|_| None) };
+		while let Some(item) = streams.next().await {
+			match item {
+				Some(rcvd) => spawner(Box::pin(clone!(rn; async move { rn.receive(&rcvd[..]).await }))),
+				None => break,
+			}
+		}
+	})));
+	ExtInit {
+		header: ext_header,
+		port: Box::new(ExtensionOwner {
+			out_recv,
+			out_send,
+			_interner_cell: interner_cell,
+			_systems_lock: systems_lock,
+		}),
 	}
 }

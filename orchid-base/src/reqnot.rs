@@ -17,8 +17,8 @@ use hashbrown::HashMap;
 use orchid_api_traits::{Channel, Coding, Decode, Encode, MsgSet, Request};
 use trait_set::trait_set;
 
+use crate::clone;
 use crate::logging::Logger;
-use crate::{api, clone};
 
 pub struct Receipt<'a>(PhantomData<&'a mut ()>);
 

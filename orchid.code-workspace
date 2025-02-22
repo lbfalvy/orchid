@@ -32,6 +32,8 @@
 		"rust-analyzer.rustfmt.extraArgs": [
 			"+nightly"
 		],
+		"rust-analyzer.cargo.features": "all",
+		"rust-analyzer.check.features": "all",
 		"files.associations": {
 			"*.mjsd": "markdown"
 		},

@@ -9,8 +9,7 @@ use std::sync::Arc;
 
 use async_std::io::{Read, ReadExt, Write, WriteExt};
 use async_stream::stream;
-use futures::future::LocalBoxFuture;
-use futures::{FutureExt, StreamExt};
+use futures::StreamExt;
 use never::Never;
 use ordered_float::NotNan;
 
@@ -28,11 +27,8 @@ pub trait Encode {
 pub trait Coding: Encode + Decode + Clone {
 	fn get_decoder<T: 'static, F: Future<Output = T> + 'static>(
 		map: impl Fn(Self) -> F + Clone + 'static,
-	) -> impl for<'a> Fn(Pin<&'a mut dyn Read>) -> LocalBoxFuture<'a, T> {
-		move |r| {
-			let map = map.clone();
-			async move { map(Self::decode(r).await).await }.boxed_local()
-		}
+	) -> impl AsyncFn(Pin<&mut dyn Read>) -> T {
+		async move |r| map(Self::decode(r).await).await
 	}
 }
 impl<T: Encode + Decode + Clone> Coding for T {}

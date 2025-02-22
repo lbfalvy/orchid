@@ -20,7 +20,7 @@ pub struct CtxData {
 	pub systems: RwLock<HashMap<api::SysId, WeakSystem>>,
 	pub system_id: RefCell<NonZeroU16>,
 	pub owned_atoms: RwLock<HashMap<api::AtomId, WeakAtomHand>>,
-	pub root: RwLock<Module>,
+	// pub root: RwLock<Module>,
 }
 #[derive(Clone)]
 pub struct Ctx(Rc<CtxData>);
@@ -36,7 +36,7 @@ impl Ctx {
 			systems: RwLock::default(),
 			system_id: RefCell::new(NonZero::new(1).unwrap()),
 			owned_atoms: RwLock::default(),
-			root: RwLock::new(Module::default()),
+			// root: RwLock::new(Module::default()),
 		}))
 	}
 	pub(crate) async fn system_inst(&self, id: api::SysId) -> Option<System> {

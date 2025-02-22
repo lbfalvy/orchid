@@ -25,7 +25,7 @@ pub struct ThinVariant;
 impl AtomicVariant for ThinVariant {}
 impl<A: ThinAtom + Atomic<Variant = ThinVariant>> AtomicFeaturesImpl<ThinVariant> for A {
 	fn _factory(self) -> AtomFactory {
-		AtomFactory::new(move |ctx| async move {
+		AtomFactory::new(async move |ctx| {
 			let (id, _) = get_info::<A>(ctx.get::<CtedObj>().inst().card());
 			let mut buf = enc_vec(&id).await;
 			self.encode(Pin::new(&mut buf)).await;
@@ -42,12 +42,12 @@ pub struct ThinAtomDynfo<T: ThinAtom> {
 }
 impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
 	fn print<'a>(&self, AtomCtx(buf, _, ctx): AtomCtx<'a>) -> LocalBoxFuture<'a, FmtUnit> {
-		async move { T::decode(Pin::new(&mut &buf[..])).await.print(ctx).await }.boxed_local()
+		Box::pin(async move { T::decode(Pin::new(&mut &buf[..])).await.print(ctx).await })
 	}
 	fn tid(&self) -> TypeId { TypeId::of::<T>() }
 	fn name(&self) -> &'static str { type_name::<T>() }
 	fn decode<'a>(&'a self, AtomCtx(buf, ..): AtomCtx<'a>) -> LocalBoxFuture<'a, Box<dyn Any>> {
-		async { Box::new(T::decode(Pin::new(&mut &buf[..])).await) as Box<dyn Any> }.boxed_local()
+		Box::pin(async { Box::new(T::decode(Pin::new(&mut &buf[..])).await) as Box<dyn Any> })
 	}
 	fn call<'a>(
 		&'a self,
@@ -102,14 +102,13 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
 		refs: &'a [api::ExprTicket],
 	) -> LocalBoxFuture<'a, api::Atom> {
 		assert!(refs.is_empty(), "Refs found when deserializing thin atom");
-		async { T::decode(Pin::new(&mut &data[..])).await._factory().build(ctx).await }.boxed_local()
+		Box::pin(async { T::decode(Pin::new(&mut &data[..])).await._factory().build(ctx).await })
 	}
 	fn drop<'a>(&'a self, AtomCtx(buf, _, ctx): AtomCtx<'a>) -> LocalBoxFuture<'a, ()> {
-		async move {
+		Box::pin(async move {
 			let string_self = T::decode(Pin::new(&mut &buf[..])).await.print(ctx.clone()).await;
 			writeln!(ctx.logger(), "Received drop signal for non-drop atom {string_self:?}");
-		}
-		.boxed_local()
+		})
 	}
 }
 

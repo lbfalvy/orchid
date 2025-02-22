@@ -133,8 +133,6 @@ impl OwnedAtom for Lambda {
 }
 
 mod expr_func_derives {
-	use std::future::Future;
-
 	use orchid_base::error::OrcRes;
 
 	use super::ExprFunc;
@@ -147,9 +145,9 @@ mod expr_func_derives {
       paste::paste!{
         impl<
           $($t: TryFromExpr, )*
-					Fut: Future<Output: ToExpr>,
-          Func: Fn($($t,)*) -> Fut + Clone + Send + Sync + 'static
-        > ExprFunc<($($t,)*), Fut::Output> for Func {
+					Out: ToExpr,
+          Func: AsyncFn($($t,)*) -> Out + Clone + Send + Sync + 'static
+        > ExprFunc<($($t,)*), Out> for Func {
           const ARITY: u8 = $arity;
           async fn apply(&self, v: Vec<Expr>) -> OrcRes<GExpr> {
             assert_eq!(v.len(), Self::ARITY.into(), "Arity mismatch");

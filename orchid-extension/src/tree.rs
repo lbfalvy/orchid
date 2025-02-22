@@ -1,4 +1,3 @@
-use std::future::Future;
 use std::num::NonZero;
 use std::ops::Range;
 use std::rc::Rc;
@@ -133,9 +132,7 @@ trait_set! {
 }
 pub struct LazyMemberFactory(Box<dyn LazyMemberCallback>);
 impl LazyMemberFactory {
-	pub fn new<F: Future<Output = MemKind> + 'static>(
-		cb: impl FnOnce(Sym, SysCtx) -> F + Clone + 'static,
-	) -> Self {
+	pub fn new(cb: impl AsyncFnOnce(Sym, SysCtx) -> MemKind + Clone + 'static) -> Self {
 		Self(Box::new(|s, ctx| cb(s, ctx).boxed_local()))
 	}
 	pub async fn build(self, path: Sym, ctx: SysCtx) -> MemKind { (self.0)(path, ctx).await }

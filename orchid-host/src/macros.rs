@@ -33,9 +33,8 @@ pub async fn macro_treev_to_api(mtree: Vec<MacTree>, slots: &mut Slots) -> Vec<a
 }
 
 pub async fn macro_treev_from_api(api: Vec<api::MacroTree>, ctx: Ctx) -> Vec<MacTree> {
-	mtreev_from_api(&api, &ctx.clone().i, &mut move |atom| {
-		clone!(ctx);
-		Box::pin(async move { MacTok::Atom(AtomHand::new(atom.clone(), &ctx).await) })
+	mtreev_from_api(&api, &ctx.clone().i, &mut async move |atom| {
+		MacTok::Atom(AtomHand::new(atom.clone(), &ctx).await)
 	})
 	.await
 }

@@ -319,8 +319,8 @@ trait_set! {
 }
 pub struct AtomFactory(Box<dyn AtomFactoryFn>);
 impl AtomFactory {
-	pub fn new<F: Future<Output = api::Atom> + 'static>(
-		f: impl FnOnce(SysCtx) -> F + Clone + 'static,
+	pub fn new(
+		f: impl AsyncFnOnce(SysCtx) -> api::Atom + Clone + 'static,
 	) -> Self {
 		Self(Box::new(|ctx| f(ctx).boxed_local()))
 	}

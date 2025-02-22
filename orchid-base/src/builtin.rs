@@ -6,7 +6,6 @@ use futures::future::LocalBoxFuture;
 use crate::api;
 
 pub type Spawner = Rc<dyn Fn(LocalBoxFuture<'static, ()>)>;
-pub type RecvCB<'a> = Box<dyn for<'b> FnOnce(&'b [u8]) -> LocalBoxFuture<'b, ()> + 'a>;
 
 /// The 3 primary contact points with an extension are
 /// - send a message
@@ -16,7 +15,7 @@ pub type RecvCB<'a> = Box<dyn for<'b> FnOnce(&'b [u8]) -> LocalBoxFuture<'b, ()>
 /// There are no ordering guarantees about these
 pub trait ExtPort {
 	fn send<'a>(&'a self, msg: &'a [u8]) -> LocalBoxFuture<'a, ()>;
-	fn recv<'a>(&'a self, cb: RecvCB<'a>) -> LocalBoxFuture<'a, ()>;
+	fn recv(&self) -> LocalBoxFuture<'_, Option<Vec<u8>>>;
 }
 
 pub struct ExtInit {
@@ -25,7 +24,7 @@ pub struct ExtInit {
 }
 impl ExtInit {
 	pub async fn send(&self, msg: &[u8]) { self.port.send(msg).await }
-	pub async fn recv<'a, 's: 'a>(&'s self, cb: RecvCB<'a>) { self.port.recv(Box::new(cb)).await }
+	pub async fn recv(&self) -> Option<Vec<u8>> { self.port.recv().await }
 }
 impl Deref for ExtInit {
 	type Target = api::ExtensionHeader;

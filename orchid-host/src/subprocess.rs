@@ -4,7 +4,7 @@ use std::pin::Pin;
 use async_process::{self, Child, ChildStdin, ChildStdout};
 use async_std::io::{self, BufReadExt, BufReader};
 use async_std::sync::Mutex;
-use futures::FutureExt;
+use futures::AsyncWriteExt;
 use futures::future::LocalBoxFuture;
 use orchid_api_traits::{Decode, Encode};
 use orchid_base::builtin::{ExtInit, ExtPort};
@@ -46,7 +46,7 @@ pub async fn ext_command(
 		header,
 		port: Box::new(Subprocess {
 			child: RefCell::new(Some(child)),
-			stdin: Mutex::new(Box::pin(stdin)),
+			stdin: Some(Mutex::new(Box::pin(stdin))),
 			stdout: Mutex::new(Box::pin(stdout)),
 			ctx,
 		}),
@@ -55,14 +55,16 @@ pub async fn ext_command(
 
 pub struct Subprocess {
 	child: RefCell<Option<Child>>,
-	stdin: Mutex<Pin<Box<ChildStdin>>>,
+	stdin: Option<Mutex<Pin<Box<ChildStdin>>>>,
 	stdout: Mutex<Pin<Box<ChildStdout>>>,
 	ctx: Ctx,
 }
 impl Drop for Subprocess {
 	fn drop(&mut self) {
 		let mut child = self.child.borrow_mut().take().unwrap();
+		let stdin = self.stdin.take().unwrap();
 		(self.ctx.spawn)(Box::pin(async move {
+			stdin.lock().await.close().await.unwrap();
 			let status = child.status().await.expect("Extension exited with error");
 			assert!(status.success(), "Extension exited with error {status}");
 		}))
@@ -70,18 +72,17 @@ impl Drop for Subprocess {
 }
 impl ExtPort for Subprocess {
 	fn send<'a>(&'a self, msg: &'a [u8]) -> LocalBoxFuture<'a, ()> {
-		async { send_msg(Pin::new(&mut *self.stdin.lock().await), msg).await.unwrap() }.boxed_local()
+		Box::pin(async {
+			send_msg(Pin::new(&mut *self.stdin.as_ref().unwrap().lock().await), msg).await.unwrap()
+		})
 	}
-	fn recv<'a>(
-		&'a self,
-		cb: Box<dyn FnOnce(&[u8]) -> LocalBoxFuture<'_, ()> + 'a>,
-	) -> LocalBoxFuture<'a, ()> {
+	fn recv(&self) -> LocalBoxFuture<'_, Option<Vec<u8>>> {
 		Box::pin(async {
 			std::io::Write::flush(&mut std::io::stderr()).unwrap();
 			match recv_msg(self.stdout.lock().await.as_mut()).await {
-				Ok(msg) => cb(&msg).await,
-				Err(e) if e.kind() == io::ErrorKind::BrokenPipe => (),
-				Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => (),
+				Ok(msg) => Some(msg),
+				Err(e) if e.kind() == io::ErrorKind::BrokenPipe => None,
+				Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => None,
 				Err(e) => panic!("Failed to read from stdout: {}, {e}", e.kind()),
 			}
 		})

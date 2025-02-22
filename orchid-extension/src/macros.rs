@@ -43,13 +43,13 @@ impl<'a> RuleCtx<'a> {
 	pub async fn recurse(&mut self, tree: &[MTree<'a, Never>]) -> OrcRes<Vec<MTree<'a, Never>>> {
 		let req = api::RunMacros {
 			run_id: self.run_id,
-			query: mtreev_to_api(tree, &mut |b| match *b {}).await,
+			query: mtreev_to_api(tree, &mut async |b| match *b {}).await,
 		};
 		let Some(treev) = self.sys.get::<ReqNot<ExtMsgSet>>().request(req).await else {
 			return Err(err_cascade(self.sys.i()).await.into());
 		};
 		static ATOM_MSG: &str = "Returned atom from Rule recursion";
-		Ok(mtreev_from_api(&treev, self.sys.i(), &mut |_| panic!("{ATOM_MSG}")).await)
+		Ok(mtreev_from_api(&treev, self.sys.i(), &mut async |_| panic!("{ATOM_MSG}")).await)
 	}
 	pub fn getv(&mut self, key: &Tok<String>) -> Vec<MTree<'a, Never>> {
 		self.args.remove(key).expect("Key not found")
@@ -83,7 +83,7 @@ impl Rule {
 			}))
 			.await,
 			location: api::Location::Inherit,
-			pattern: mtreev_to_api(&self.pattern, &mut |b| match *b {}).await,
+			pattern: mtreev_to_api(&self.pattern, &mut async |b| match *b {}).await,
 			id: ctx.with_rule(Rc::new(self)),
 		}
 	}

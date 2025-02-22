@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 pub use api::PhKind;
 use async_stream::stream;
-use futures::future::{LocalBoxFuture, join_all};
+use futures::future::join_all;
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
 use never::Never;
@@ -26,8 +26,7 @@ use crate::{api, match_mapping, tl_cache};
 trait_set! {
 	pub trait RecurCB<'a, A: AtomRepr, X: ExtraTok> = Fn(TokTree<'a, A, X>) -> TokTree<'a, A, X>;
 	pub trait ExtraTok = Format + Clone + fmt::Debug;
-	pub trait RefDoExtra<X> =
-		for<'b> FnMut(&'b X, Range<u32>) -> LocalBoxFuture<'b, api::TokenTree>;
+	pub trait RefDoExtra<X> = AsyncFnMut(&X, Range<u32>) -> api::TokenTree;
 }
 
 pub fn recur<'a, A: AtomRepr, X: ExtraTok>(

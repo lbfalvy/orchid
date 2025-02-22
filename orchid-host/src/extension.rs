@@ -2,13 +2,15 @@ use std::cell::RefCell;
 use std::future::Future;
 use std::io;
 use std::num::NonZeroU64;
+use std::pin::pin;
 use std::rc::{Rc, Weak};
 
 use async_std::channel::{self, Sender};
 use async_std::sync::Mutex;
+use async_stream::stream;
 use derive_destructure::destructure;
-use futures::FutureExt;
 use futures::future::{join, join_all};
+use futures::{FutureExt, StreamExt, stream, stream_select};
 use hashbrown::HashMap;
 use itertools::Itertools;
 use orchid_api::HostMsgSet;
@@ -41,13 +43,18 @@ pub struct ExtensionData {
 	logger: Logger,
 	next_pars: RefCell<NonZeroU64>,
 	exprs: ExprStore,
+	exiting_snd: Sender<()>,
 	lex_recur: Mutex<HashMap<api::ParsId, channel::Sender<ReqPair<api::SubLex>>>>,
 	mac_recur: Mutex<HashMap<api::ParsId, channel::Sender<ReqPair<api::RunMacros>>>>,
 }
 impl Drop for ExtensionData {
 	fn drop(&mut self) {
 		let reqnot = self.reqnot.clone();
-		(self.ctx.spawn)(Box::pin(async move { reqnot.notify(api::HostExtNotif::Exit).await }))
+		let exiting_snd = self.exiting_snd.clone();
+		(self.ctx.spawn)(Box::pin(async move {
+			reqnot.notify(api::HostExtNotif::Exit).await;
+			exiting_snd.send(()).await.unwrap()
+		}))
 	}
 }
 
@@ -57,43 +64,34 @@ impl Extension {
 	pub fn new(init: ExtInit, logger: Logger, msg_logger: Logger, ctx: Ctx) -> io::Result<Self> {
 		Ok(Self(Rc::new_cyclic(|weak: &Weak<ExtensionData>| {
 			let init = Rc::new(init);
+			let (exiting_snd, exiting_rcv) = channel::bounded::<()>(1);
 			(ctx.spawn)(clone!(init, weak, ctx; Box::pin(async move {
-				let reqnot_opt = weak.upgrade().map(|rc| rc.reqnot.clone());
-				if let Some(reqnot) = reqnot_opt {
-					let mut repeat = true;
-					while repeat {
-						repeat = false;
-						(init.recv(Box::new(|msg| {
-							repeat = true;
-							Box::pin(clone!(reqnot, ctx; async move {
-								let msg = msg.to_vec();
-								let reqnot = reqnot.clone();
-								(ctx.spawn)(Box::pin(async move {
-									reqnot.receive(&msg).await;
-								}))
-							}))
-						})))
-						.await;
+				let rcv_stream = stream! { loop { yield init.recv().await } };
+				let mut event_stream = pin!(stream::select(exiting_rcv.map(|()| None), rcv_stream));
+				while let Some(Some(msg)) = event_stream.next().await {
+					if let Some(reqnot) = weak.upgrade().map(|rc| rc.reqnot.clone()) {
+						let reqnot = reqnot.clone();
+						(ctx.spawn)(Box::pin(async move {
+							reqnot.receive(&msg).await;
+						}))
 					}
 				}
 			})));
 			ExtensionData {
+				exiting_snd,
 				exprs: ExprStore::default(),
 				ctx: ctx.clone(),
 				systems: (init.systems.iter().cloned())
 					.map(|decl| SystemCtor { decl, ext: WeakExtension(weak.clone()) })
 					.collect(),
 				logger: logger.clone(),
-				init,
+				init: init.clone(),
 				next_pars: RefCell::new(NonZeroU64::new(1).unwrap()),
 				lex_recur: Mutex::default(),
 				mac_recur: Mutex::default(),
 				reqnot: ReqNot::new(
 					msg_logger,
-					clone!(weak; move |sfn, _| clone!(weak; async move {
-					let data = weak.upgrade().unwrap();
-					data.init.send(sfn).await
-				}.boxed_local())),
+					move |sfn, _| clone!(init; Box::pin(async move { init.send(sfn).await })),
 					clone!(weak; move |notif, _| {
 						clone!(weak; Box::pin(async move {
 						let this = Extension(weak.upgrade().unwrap());

@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use async_stream::stream;
-use futures::future::{LocalBoxFuture, join_all};
+use futures::future::join_all;
 use futures::{FutureExt, StreamExt};
 use never::Never;
 use trait_set::trait_set;
@@ -22,9 +22,8 @@ impl MacroSlot<'_> {
 }
 
 trait_set! {
-	pub trait MacroAtomToApi<A> = for<'a> FnMut(&'a A) -> LocalBoxFuture<'a, api::MacroToken>;
-	pub trait MacroAtomFromApi<'a, A> =
-		for<'b> FnMut(&'b api::Atom) -> LocalBoxFuture<'b, MTok<'a, A>>;
+	pub trait MacroAtomToApi<A> = AsyncFnMut(&A) -> api::MacroToken;
+	pub trait MacroAtomFromApi<'a, A> = AsyncFnMut(&api::Atom) -> MTok<'a, A>;
 }
 
 #[derive(Clone, Debug)]
@@ -87,7 +86,7 @@ impl<'a, A> MTok<'a, A> {
 		})
 	}
 	pub(crate) async fn to_api(&self, do_atom: &mut impl MacroAtomToApi<A>) -> api::MacroToken {
-		fn sink<T>(n: &Never) -> LocalBoxFuture<'_, T> { match *n {} }
+		async fn sink<T>(n: &Never) -> T { match *n {} }
 		match_mapping!(&self, MTok => api::MacroToken {
 			Lambda(x => mtreev_to_api(x, do_atom).await, b => mtreev_to_api(b, do_atom).await),
 			Name(t.tok().to_api()),

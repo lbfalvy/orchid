@@ -24,7 +24,7 @@ use substack::{Stackframe, Substack};
 use crate::api;
 use crate::ctx::Ctx;
 use crate::extension::{Extension, WeakExtension};
-use crate::tree::{ItemKind, Member, Module, ParsTokTree};
+use crate::tree::{ItemKind, Member, Module, ParsTokTree, Root};
 
 #[derive(destructure)]
 struct SystemInstData {
@@ -80,7 +80,7 @@ impl System {
 		comments: Vec<Comment>,
 	) -> OrcRes<Vec<ParsTokTree>> {
 		let line =
-			join_all(line.iter().map(|t| async { t.to_api(&mut |n, _| match *n {}).await })).await;
+			join_all(line.iter().map(|t| async { t.to_api(&mut async |n, _| match *n {}).await })).await;
 		let comments = comments.iter().map(Comment::to_api).collect_vec();
 		match self.reqnot().request(api::ParseLine { exported, sys: self.id(), comments, line }).await {
 			Ok(parsed) => Ok(ttv_from_api(parsed, &mut self.ctx().clone(), &self.ctx().i).await),
@@ -122,7 +122,7 @@ impl SystemCtor {
 		self.decl.depends.iter().map(|s| &**s)
 	}
 	pub fn id(&self) -> api::SysDeclId { self.decl.id }
-	pub async fn run<'a>(&self, depends: impl IntoIterator<Item = &'a System>) -> System {
+	pub async fn run<'a>(&self, depends: impl IntoIterator<Item = &'a System>) -> (Module, System) {
 		let depends = depends.into_iter().map(|si| si.id()).collect_vec();
 		debug_assert_eq!(depends.len(), self.decl.depends.len(), "Wrong number of deps provided");
 		let ext = self.ext.upgrade().expect("SystemCtor should be freed before Extension");
@@ -150,10 +150,8 @@ impl SystemCtor {
 		.collect::<Vec<_>>()
 		.await;
 		ext.ctx().systems.write().await.insert(id, data.downgrade());
-		let mut swap = Module::default();
-		mem::swap(&mut swap, &mut *ext.ctx().root.write().await);
-		*ext.ctx().root.write().await = Module::new(swap.items.into_iter().chain(const_root));
-		data
+		let root = Module::new(const_root);
+		(root, data)
 	}
 }
 
@@ -166,7 +164,7 @@ pub enum SysResolvErr {
 pub async fn init_systems(
 	tgts: &[String],
 	exts: &[Extension],
-) -> Result<Vec<System>, SysResolvErr> {
+) -> Result<(Root, Vec<System>), SysResolvErr> {
 	let mut to_load = HashMap::<&str, &SystemCtor>::new();
 	let mut to_find = tgts.iter().map(|s| s.as_str()).collect::<VecDeque<&str>>();
 	while let Some(target) = to_find.pop_front() {
@@ -205,9 +203,11 @@ pub async fn init_systems(
 		walk_deps(&mut to_load, &mut to_load_ordered, Substack::Bottom.new_frame(tgt))?;
 	}
 	let mut systems = HashMap::<&str, System>::new();
+	let mut root = Module::default();
 	for ctor in to_load_ordered.iter() {
-		let sys = ctor.run(ctor.depends().map(|n| &systems[n])).await;
+		let (sys_root, sys) = ctor.run(ctor.depends().map(|n| &systems[n])).await;
 		systems.insert(ctor.name(), sys);
+		root.merge(sys_root);
 	}
-	Ok(systems.into_values().collect_vec())
+	Ok((Root::new(root), systems.into_values().collect_vec()))
 }

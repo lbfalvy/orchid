@@ -14,7 +14,9 @@ orchid-api = { version = "0.1.0", path = "../orchid-api" }
 orchid-api-derive = { version = "0.1.0", path = "../orchid-api-derive" }
 orchid-api-traits = { version = "0.1.0", path = "../orchid-api-traits" }
 orchid-base = { version = "0.1.0", path = "../orchid-base" }
-orchid-extension = { version = "0.1.0", path = "../orchid-extension" }
-ordered-float = "4.6.0"
+orchid-extension = { version = "0.1.0", path = "../orchid-extension", features = [
+  "tokio",
+] }
+ordered-float = "5.0.0"
 rust_decimal = "1.36.0"
 tokio = { version = "1.43.0", features = ["full"] }

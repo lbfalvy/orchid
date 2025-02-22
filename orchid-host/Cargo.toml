@@ -21,7 +21,7 @@ num-traits = "0.2.19"
 orchid-api = { version = "0.1.0", path = "../orchid-api" }
 orchid-api-traits = { version = "0.1.0", path = "../orchid-api-traits" }
 orchid-base = { version = "0.1.0", path = "../orchid-base" }
-ordered-float = "4.6.0"
+ordered-float = "5.0.0"
 paste = "1.0.15"
 substack = "1.1.1"
 test_executors = "0.3.2"
