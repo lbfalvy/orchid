@@ -7,7 +7,7 @@ An experimental lazy, pure functional programming language designed to be embedd
 
 ## Usage
 
-The standalone interpreter can be built as the binary target from this package. The language tutorial and standard library documentation is at [www.lbfalvy.com/orchid-reference](https://www.lbfalvy.com/orchid-reference/). Embedder guide and Rust API documentation are coming soon.
+The standalone interpreter can be built as the binary target from this package. The language tutorial and standard library documentation is at [www.lbfalvy.com/orchid-reference](https://lbfalvy.github.io/orchid-reference/). Embedder guide and Rust API documentation are coming soon.
 
 ## Design
 
@@ -43,4 +43,4 @@ Identifying marks include the Orchid logo, the ribbon image above, and the names
 
 Contact information includes email addresses, links to the source code and issue tracker.
 
-Words listed as identifying marks are explicltly not considered as such when they apear in technical interfaces or APIs. For example, shell commands, identifiers within the language,
+Words listed as identifying marks are explicltly not considered as such when they appear in technical interfaces or APIs. For example, shell commands, identifiers within Orchid or Rust code, and names in package registries are not considered as identifying marks.
