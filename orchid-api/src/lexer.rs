@@ -3,7 +3,7 @@ use std::ops::RangeInclusive;
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
-use crate::{ExtHostReq, HostExtReq, OrcResult, ParsId, SysId, TStr, TokenTree, TreeTicket};
+use crate::{ExtHostReq, HostExtReq, OrcResult, ParsId, SysId, TStr, TokenTree};
 
 /// - All ranges contain at least one character
 /// - All ranges are in increasing characeter order
@@ -42,5 +42,5 @@ impl Request for SubLex {
 #[derive(Clone, Debug, Coding)]
 pub struct SubLexed {
 	pub pos: u32,
-	pub ticket: TreeTicket,
+	pub tree: TokenTree,
 }

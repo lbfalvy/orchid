@@ -12,30 +12,29 @@ use futures::future::{LocalBoxFuture, join_all};
 use futures::{FutureExt, StreamExt, stream_select};
 use hashbrown::HashMap;
 use itertools::Itertools;
-use orchid_api::{ApplyMacro, ExtMsgSet};
-use orchid_api_traits::{Decode, enc_vec};
+use orchid_api::{ExtMsgSet, IntReq};
+use orchid_api_traits::{Decode, UnderRoot, enc_vec};
 use orchid_base::builtin::{ExtInit, ExtPort, Spawner};
 use orchid_base::char_filter::{char_filter_match, char_filter_union, mk_char_filter};
 use orchid_base::clone;
 use orchid_base::interner::{Interner, Tok};
 use orchid_base::logging::Logger;
-use orchid_base::macros::{mtreev_from_api, mtreev_to_api};
 use orchid_base::name::Sym;
 use orchid_base::parse::{Comment, Snippet};
 use orchid_base::reqnot::{ReqNot, RequestHandle, Requester};
-use orchid_base::tree::{ttv_from_api, ttv_to_api};
+use orchid_base::tree::{TokenVariant, ttv_from_api, ttv_into_api};
 use substack::Substack;
 use trait_set::trait_set;
 
 use crate::api;
 use crate::atom::{AtomCtx, AtomDynfo, AtomTypeId};
 use crate::atom_owned::take_atom;
+use crate::expr::{Expr, ExprHandle};
 use crate::fs::VirtFS;
 use crate::lexer::{LexContext, err_cascade, err_not_applicable};
-use crate::macros::{Rule, RuleCtx};
 use crate::system::{SysCtx, atom_by_idx};
 use crate::system_ctor::{CtedObj, DynSystemCtor};
-use crate::tree::{GenTok, GenTokTree, LazyMemberFactory, TreeIntoApiCtxImpl, do_extra};
+use crate::tree::{GenItemKind, GenTok, GenTokTree, LazyMemberFactory, TreeIntoApiCtxImpl};
 
 pub type ExtReq<'a> = RequestHandle<'a, api::ExtMsgSet>;
 pub type ExtReqNot = ReqNot<api::ExtMsgSet>;
@@ -60,7 +59,6 @@ pub struct SystemRecord {
 	vfses: HashMap<api::VfsId, &'static dyn VirtFS>,
 	declfs: api::EagerVfs,
 	lazy_members: HashMap<api::TreeId, MemberRecord>,
-	rules: HashMap<api::MacroId, Rc<Rule>>,
 	ctx: SysCtx,
 }
 
@@ -197,16 +195,17 @@ pub fn extension_init(
 									char_filter_union(&cf, &mk_char_filter(lx.char_filter().iter().cloned()))
 								});
 							let lazy_mems = Mutex::new(HashMap::new());
-							let rules = Mutex::new(HashMap::new());
 							let ctx = init_ctx(new_sys.id, cted.clone(), hand.reqnot()).await;
 							let const_root = stream::from_iter(cted.inst().dyn_env())
-								.then(|(k, v)| {
-									let (req, lazy_mems, rules) = (&hand, &lazy_mems, &rules);
+								.filter_map(
+									async |i| if let GenItemKind::Member(m) = i.kind { Some(m) } else { None },
+								)
+								.then(|mem| {
+									let (req, lazy_mems) = (&hand, &lazy_mems);
 									clone!(i, ctx; async move {
-										let name = i.i(&k).await.to_api();
-										let value = v.into_api(&mut TreeIntoApiCtxImpl {
+										let name = i.i(&mem.name).await.to_api();
+										let value = mem.kind.into_api(&mut TreeIntoApiCtxImpl {
 											lazy_members: &mut *lazy_mems.lock().await,
-											rules: &mut *rules.lock().await,
 											sys: ctx,
 											basepath: &[],
 											path: Substack::Bottom,
@@ -219,24 +218,23 @@ pub fn extension_init(
 								.collect()
 								.await;
 							let declfs = cted.inst().dyn_vfs().to_api_rec(&mut vfses, &i).await;
-							let record = SystemRecord {
-								declfs,
-								vfses,
-								ctx,
-								lazy_members: lazy_mems.into_inner(),
-								rules: rules.into_inner(),
-							};
+							let record =
+								SystemRecord { declfs, vfses, ctx, lazy_members: lazy_mems.into_inner() };
 							let systems = systems_weak.upgrade().expect("System constructed during shutdown");
 							systems.lock().await.insert(new_sys.id, record);
 							hand
-								.handle(&new_sys, &api::SystemInst { lex_filter, const_root, line_types: vec![] })
+								.handle(&new_sys, &api::NewSystemResponse {
+									lex_filter,
+									const_root,
+									line_types: vec![],
+								})
 								.await
 						},
 						api::HostExtReq::GetMember(get_tree @ api::GetMember(sys_id, tree_id)) => {
 							let sys_ctx = get_ctx(sys_id).await;
 							let systems = systems_weak.upgrade().expect("Member queried during shutdown");
 							let mut systems_g = systems.lock().await;
-							let SystemRecord { lazy_members, rules, .. } =
+							let SystemRecord { lazy_members, .. } =
 								systems_g.get_mut(&sys_id).expect("System not found");
 							let (path, cb) = match lazy_members.insert(tree_id, MemberRecord::Res) {
 								None => panic!("Tree for ID not found"),
@@ -249,7 +247,6 @@ pub fn extension_init(
 								path: Substack::Bottom,
 								basepath: &path,
 								lazy_members,
-								rules,
 								req: &hand,
 							};
 							hand.handle(&get_tree, &tree.into_api(&mut tia_ctx).await).await
@@ -277,7 +274,7 @@ pub fn extension_init(
 						api::HostExtReq::LexExpr(lex @ api::LexExpr { sys, text, pos, id }) => {
 							let sys_ctx = get_ctx(sys).await;
 							let text = Tok::from_api(text, &i).await;
-							let ctx = LexContext { sys, id, pos, reqnot: hand.reqnot(), text: &text, i: &i };
+							let ctx = LexContext { id, pos, text: &text, ctx: sys_ctx.clone() };
 							let trigger_char = text.chars().nth(pos as usize).unwrap();
 							let err_na = err_not_applicable(&i).await;
 							let err_cascade = err_cascade(&i).await;
@@ -290,8 +287,7 @@ pub fn extension_init(
 										return hand.handle(&lex, &eopt).await;
 									},
 									Ok((s, expr)) => {
-										let expr =
-											expr.to_api(&mut async |f, r| do_extra(f, r, sys_ctx.clone()).await).await;
+										let expr = expr.into_api(&mut (), &mut (sys_ctx, &hand)).await;
 										let pos = (text.len() - s.len()) as u32;
 										return hand.handle(&lex, &Some(Ok(api::LexedExpr { pos, expr }))).await;
 									},
@@ -301,25 +297,21 @@ pub fn extension_init(
 							hand.handle(&lex, &None).await
 						},
 						api::HostExtReq::ParseLine(pline) => {
-							let api::ParseLine { exported, comments, sys, line } = &pline;
+							let api::ParseLine { module, exported, comments, sys, line } = &pline;
 							let mut ctx = get_ctx(*sys).await;
 							let parsers = ctx.cted().inst().dyn_parsers();
 							let comments = join_all(comments.iter().map(|c| Comment::from_api(c, &i))).await;
-							let line: Vec<GenTokTree> = ttv_from_api(line, &mut ctx, &i).await;
-							let snip = Snippet::new(line.first().expect("Empty line"), &line, &i);
+							let line: Vec<GenTokTree> = ttv_from_api(line, &mut ctx, &mut (), &i).await;
+							let snip = Snippet::new(line.first().expect("Empty line"), &line);
 							let (head, tail) = snip.pop_front().unwrap();
 							let name = if let GenTok::Name(n) = &head.tok { n } else { panic!("No line head") };
 							let parser =
 								parsers.iter().find(|p| p.line_head() == **name).expect("No parser candidate");
-							let o_line = match parser.parse(*exported, comments, tail) {
+							let module = Sym::from_api(*module, ctx.i()).await;
+							let o_line = match parser.parse(ctx.clone(), module, *exported, comments, tail).await
+							{
 								Err(e) => Err(e.to_api()),
-								Ok(t) => Ok(
-									ttv_to_api(t, &mut async move |f, range| api::TokenTree {
-										range,
-										token: api::Token::Atom(f.clone().build(ctx.clone()).await),
-									})
-									.await,
-								),
+								Ok(t) => Ok(ttv_into_api(t, &mut (), &mut (ctx.clone(), &hand)).await),
 							};
 							hand.handle(&pline, &o_line).await
 						},
@@ -331,8 +323,15 @@ pub fn extension_init(
 								match &atom_req {
 									api::AtomReq::SerializeAtom(ser) => {
 										let mut buf = enc_vec(&id).await;
-										let refs_opt = nfo.serialize(actx, Pin::<&mut Vec<_>>::new(&mut buf)).await;
-										hand.handle(ser, &refs_opt.map(|refs| (buf, refs))).await
+										match nfo.serialize(actx, Pin::<&mut Vec<_>>::new(&mut buf)).await {
+											None => hand.handle(ser, &None).await,
+											Some(refs) => {
+												let refs =
+													join_all(refs.into_iter().map(|ex| async { ex.into_api(&mut ()).await }))
+														.await;
+												hand.handle(ser, &Some((buf, refs))).await
+											},
+										}
 									},
 									api::AtomReq::AtomPrint(print @ api::AtomPrint(_)) =>
 										hand.handle(print, &nfo.print(actx).await.to_api()).await,
@@ -351,11 +350,15 @@ pub fn extension_init(
 										hand.handle(fwded, &some.then_some(reply)).await
 									},
 									api::AtomReq::CallRef(call @ api::CallRef(_, arg)) => {
-										let ret = nfo.call_ref(actx, *arg).await;
+										// SAFETY: function calls own their argument implicitly
+										let expr_handle = unsafe { ExprHandle::from_args(ctx.clone(), *arg) };
+										let ret = nfo.call_ref(actx, Expr::from_handle(Rc::new(expr_handle))).await;
 										hand.handle(call, &ret.api_return(ctx.clone(), &hand).await).await
 									},
 									api::AtomReq::FinalCall(call @ api::FinalCall(_, arg)) => {
-										let ret = nfo.call(actx, *arg).await;
+										// SAFETY: function calls own their argument implicitly
+										let expr_handle = unsafe { ExprHandle::from_args(ctx.clone(), *arg) };
+										let ret = nfo.call(actx, Expr::from_handle(Rc::new(expr_handle))).await;
 										hand.handle(call, &ret.api_return(ctx.clone(), &hand).await).await
 									},
 									api::AtomReq::Command(cmd @ api::Command(_)) => match nfo.command(actx).await {
@@ -376,41 +379,15 @@ pub fn extension_init(
 							let api::DeserAtom(sys, buf, refs) = &deser;
 							let mut read = &mut &buf[..];
 							let ctx = get_ctx(*sys).await;
+							// SAFETY: deserialization implicitly grants ownership to previously owned exprs
+							let refs = (refs.iter())
+								.map(|tk| unsafe { ExprHandle::from_args(ctx.clone(), *tk) })
+								.map(|handle| Expr::from_handle(Rc::new(handle)))
+								.collect_vec();
 							let id = AtomTypeId::decode(Pin::new(&mut read)).await;
 							let inst = ctx.cted().inst();
 							let nfo = atom_by_idx(inst.card(), id).expect("Deserializing atom with invalid ID");
-							hand.handle(&deser, &nfo.deserialize(ctx.clone(), read, refs).await).await
-						},
-						orchid_api::HostExtReq::ApplyMacro(am) => {
-							let tok = hand.will_handle_as(&am);
-							let ApplyMacro { id, params, run_id, sys } = am;
-							let sys_ctx = get_ctx(sys).await;
-							let mut ctx =
-								RuleCtx { args: ahash::HashMap::default(), run_id, sys: sys_ctx.clone() };
-							for (k, v) in params {
-								ctx.args.insert(
-									Tok::from_api(k, &i).await,
-									mtreev_from_api(&v, &i, &mut async |_| panic!("No atom in macro prompt!")).await,
-								);
-							}
-							let err_cascade = err_cascade(&i).await;
-							let systems = systems_weak.upgrade().expect("macro call during shutdown");
-							let systems_g = systems.lock().await;
-							let rule = &systems_g[&sys].rules[&id];
-							match (rule.apply)(ctx).await {
-								Err(e) => {
-									let new_errors = e.keep_only(|e| *e != err_cascade);
-									hand.handle_as(tok, &new_errors.map(|e| Err(e.to_api()))).await
-								},
-								Ok(t) => {
-									clone!(sys_ctx);
-									let result = mtreev_to_api(&t, &mut async |a| {
-										api::MacroToken::Atom(a.clone().build(sys_ctx.clone()).await)
-									})
-									.await;
-									hand.handle_as(tok, &Some(Ok(result))).await
-								},
-							}
+							hand.handle(&deser, &nfo.deserialize(ctx.clone(), read, &refs).await).await
 						},
 					}
 				}
@@ -418,7 +395,8 @@ pub fn extension_init(
 			}
 		},
 	);
-	*interner_cell.borrow_mut() = Some(Interner::new_replica(rn.clone().map()));
+	*interner_cell.borrow_mut() =
+		Some(Interner::new_replica(rn.clone().map(|ir: IntReq| ir.into_root())));
 	spawner(Box::pin(clone!(spawner; async move {
 		let mut streams = stream_select! { in_recv.map(Some), exit_recv.map(|_| None) };
 		while let Some(item) = streams.next().await {

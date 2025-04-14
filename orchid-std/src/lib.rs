@@ -1,7 +1,6 @@
-mod number;
+mod macros;
 mod std;
-mod string;
 
-pub use std::StdSystem;
-
-pub use string::str_atom::OrcString;
+pub use std::number::num_atom::{Float, HomoArray, Int, Num};
+pub use std::std_system::StdSystem;
+pub use std::string::str_atom::OrcString;

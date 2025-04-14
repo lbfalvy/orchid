@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
+use std::fmt;
 use std::future::Future;
 use std::rc::{Rc, Weak};
-use std::{fmt, mem};
 
 use async_stream::stream;
 use derive_destructure::destructure;
@@ -13,8 +13,9 @@ use orchid_base::char_filter::char_filter_match;
 use orchid_base::clone;
 use orchid_base::error::{OrcErrv, OrcRes};
 use orchid_base::format::{FmtCtx, FmtUnit, Format};
-use orchid_base::interner::Tok;
+use orchid_base::interner::{Interner, Tok};
 use orchid_base::location::Pos;
+use orchid_base::name::Sym;
 use orchid_base::parse::Comment;
 use orchid_base::reqnot::{ReqNot, Requester};
 use orchid_base::tree::ttv_from_api;
@@ -23,8 +24,9 @@ use substack::{Stackframe, Substack};
 
 use crate::api;
 use crate::ctx::Ctx;
+use crate::expr::{Expr, ExprParseCtx};
 use crate::extension::{Extension, WeakExtension};
-use crate::tree::{ItemKind, Member, Module, ParsTokTree, Root};
+use crate::parsed::{ItemKind, ParsedMember, ParsedModule, ParsTokTree, ParsedFromApiCx, Root};
 
 #[derive(destructure)]
 struct SystemInstData {
@@ -55,6 +57,7 @@ impl System {
 	pub fn id(&self) -> api::SysId { self.0.id }
 	pub fn ext(&self) -> &Extension { &self.0.ext }
 	pub fn ctx(&self) -> &Ctx { &self.0.ctx }
+	pub fn i(&self) -> &Interner { &self.0.ctx.i }
 	pub(crate) fn reqnot(&self) -> &ReqNot<api::HostMsgSet> { self.0.ext.reqnot() }
 	pub async fn get_tree(&self, id: api::TreeId) -> api::MemberKind {
 		self.reqnot().request(api::GetMember(self.0.id, id)).await
@@ -75,15 +78,23 @@ impl System {
 	pub fn line_types(&self) -> impl Iterator<Item = &Tok<String>> + '_ { self.0.line_types.iter() }
 	pub async fn parse(
 		&self,
+		module: Sym,
 		line: Vec<ParsTokTree>,
 		exported: bool,
 		comments: Vec<Comment>,
 	) -> OrcRes<Vec<ParsTokTree>> {
-		let line =
-			join_all(line.iter().map(|t| async { t.to_api(&mut async |n, _| match *n {}).await })).await;
+		let line = join_all(line.into_iter().map(|t| async {
+			let mut expr_store = self.0.ext.exprs().clone();
+			t.into_api(&mut expr_store, &mut ()).await
+		}))
+		.await;
 		let comments = comments.iter().map(Comment::to_api).collect_vec();
-		match self.reqnot().request(api::ParseLine { exported, sys: self.id(), comments, line }).await {
-			Ok(parsed) => Ok(ttv_from_api(parsed, &mut self.ctx().clone(), &self.ctx().i).await),
+		let req = api::ParseLine { module: module.to_api(), exported, sys: self.id(), comments, line };
+		match self.reqnot().request(req).await {
+			Ok(parsed) => {
+				let mut pctx = ExprParseCtx { ctx: self.ctx().clone(), exprs: self.ext().exprs().clone() };
+				Ok(ttv_from_api(parsed, &mut self.ext().exprs().clone(), &mut pctx, self.i()).await)
+			},
 			Err(e) => Err(OrcErrv::from_api(&e, &self.ctx().i).await),
 		}
 	}
@@ -122,7 +133,11 @@ impl SystemCtor {
 		self.decl.depends.iter().map(|s| &**s)
 	}
 	pub fn id(&self) -> api::SysDeclId { self.decl.id }
-	pub async fn run<'a>(&self, depends: impl IntoIterator<Item = &'a System>) -> (Module, System) {
+	pub async fn run<'a>(
+		&self,
+		depends: impl IntoIterator<Item = &'a System>,
+		consts: &mut HashMap<Sym, Expr>,
+	) -> (ParsedModule, System) {
 		let depends = depends.into_iter().map(|si| si.id()).collect_vec();
 		debug_assert_eq!(depends.len(), self.decl.depends.len(), "Wrong number of deps provided");
 		let ext = self.ext.upgrade().expect("SystemCtor should be freed before Extension");
@@ -139,10 +154,13 @@ impl SystemCtor {
 		}));
 		let const_root = clone!(data, ext; stream! {
 			for (k, v) in sys_inst.const_root {
-				yield Member::from_api(
+				yield ParsedMember::from_api(
 					api::Member { name: k, kind: v },
-					&mut vec![Tok::from_api(k, &ext.ctx().i).await],
-					&data,
+					&mut ParsedFromApiCx {
+						consts,
+						path: ext.ctx().i.i(&[]).await,
+						sys: &data,
+					}
 				).await;
 			}
 		})
@@ -150,7 +168,7 @@ impl SystemCtor {
 		.collect::<Vec<_>>()
 		.await;
 		ext.ctx().systems.write().await.insert(id, data.downgrade());
-		let root = Module::new(const_root);
+		let root = ParsedModule::new(const_root);
 		(root, data)
 	}
 }
@@ -182,6 +200,7 @@ pub async fn init_systems(
 	fn walk_deps<'a>(
 		graph: &mut HashMap<&str, &'a SystemCtor>,
 		list: &mut Vec<&'a SystemCtor>,
+		consts: &mut HashMap<Sym, Expr>,
 		chain: Stackframe<&str>,
 	) -> Result<(), SysResolvErr> {
 		if let Some(ctor) = graph.remove(chain.item) {
@@ -193,21 +212,22 @@ pub async fn init_systems(
 					circle.extend(Substack::Frame(chain).iter().map(|s| s.to_string()));
 					return Err(SysResolvErr::Loop(circle));
 				}
-				walk_deps(graph, list, Substack::Frame(chain).new_frame(dep))?
+				walk_deps(graph, list, consts, Substack::Frame(chain).new_frame(dep))?
 			}
 			list.push(ctor);
 		}
 		Ok(())
 	}
+	let mut consts = HashMap::new();
 	for tgt in tgts {
-		walk_deps(&mut to_load, &mut to_load_ordered, Substack::Bottom.new_frame(tgt))?;
+		walk_deps(&mut to_load, &mut to_load_ordered, &mut consts, Substack::Bottom.new_frame(tgt))?;
 	}
 	let mut systems = HashMap::<&str, System>::new();
-	let mut root = Module::default();
+	let mut root_mod = ParsedModule::default();
 	for ctor in to_load_ordered.iter() {
-		let (sys_root, sys) = ctor.run(ctor.depends().map(|n| &systems[n])).await;
+		let (sys_root, sys) = ctor.run(ctor.depends().map(|n| &systems[n]), &mut consts).await;
 		systems.insert(ctor.name(), sys);
-		root.merge(sys_root);
+		root_mod.merge(sys_root);
 	}
-	Ok((Root::new(root), systems.into_values().collect_vec()))
+	Ok((Root::new(root_mod, consts), systems.into_values().collect_vec()))
 }

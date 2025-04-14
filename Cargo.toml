@@ -10,5 +10,5 @@ members = [
   "orchid-api",
   "orchid-api-derive",
   "orchid-api-traits",
-  "stdio-perftest", "xtask",
+  "stdio-perftest", "xtask", "orchid-macros",
 ]

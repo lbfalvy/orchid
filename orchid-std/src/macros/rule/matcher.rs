@@ -1,4 +1,5 @@
 use std::fmt;
+use std::rc::Rc;
 
 use itertools::Itertools;
 use orchid_api::PhKind;
@@ -8,13 +9,12 @@ use orchid_base::name::Sym;
 use orchid_base::tree::Ph;
 
 use super::any_match::any_match;
-use super::build::mk_any;
+use super::build::{mk_any, mk_vec};
 use super::shared::{AnyMatcher, VecMatcher};
 use super::state::{MatchState, StateEntry};
 use super::vec_attrs::vec_attrs;
 use super::vec_match::vec_match;
 use crate::macros::{MacTok, MacTree};
-use crate::rule::build::mk_vec;
 
 pub fn first_is_vec(pattern: &[MacTree]) -> bool { vec_attrs(pattern.first().unwrap()).is_some() }
 pub fn last_is_vec(pattern: &[MacTree]) -> bool { vec_attrs(pattern.last().unwrap()).is_some() }
@@ -30,8 +30,9 @@ impl NamedMatcher {
 		match last_is_vec(pattern) {
 			true => Self(mk_any(pattern)),
 			false => {
-				let kind: PhKind = PhKind::Vector { priority: 0, at_least_one: false };
-				let suffix = [MacTok::Ph(Ph { name: i.i("::after").await, kind }).at(Pos::None)];
+				let kind = PhKind::Vector { priority: 0, at_least_one: false };
+				let tok = MacTok::Ph(Ph { name: i.i("::after").await, kind });
+				let suffix = [MacTree { pos: Pos::None, tok: Rc::new(tok) }];
 				Self(mk_any(&pattern.iter().chain(&suffix).cloned().collect_vec()))
 			},
 		}

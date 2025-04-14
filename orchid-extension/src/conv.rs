@@ -31,7 +31,7 @@ async fn err_type(pos: Pos, i: &Interner) -> OrcErr {
 	mk_err(i.i("Type error").await, "The atom is a different type than expected", [pos.into()])
 }
 
-impl<A: AtomicFeatures> TryFromExpr for TypAtom<'_, A> {
+impl<A: AtomicFeatures> TryFromExpr for TypAtom<A> {
 	async fn try_from_expr(expr: Expr) -> OrcRes<Self> {
 		match expr.atom().await {
 			Err(ex) => Err(err_not_atom(ex.data().await.pos.clone(), ex.ctx().i()).await.into()),
@@ -51,7 +51,7 @@ impl ToExpr for GExpr {
 	fn to_expr(self) -> GExpr { self }
 }
 impl ToExpr for Expr {
-	fn to_expr(self) -> GExpr { self.gen() }
+	fn to_expr(self) -> GExpr { self.slot() }
 }
 
 impl<T: ToExpr> ToExpr for OrcRes<T> {

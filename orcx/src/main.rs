@@ -22,7 +22,7 @@ use orchid_host::execute::{ExecCtx, ExecResult};
 use orchid_host::expr::mtreev_to_expr;
 use orchid_host::extension::Extension;
 use orchid_host::lex::lex;
-use orchid_host::parse::{ParseCtxImpl, parse_items, parse_mtree};
+use orchid_host::parse::{HostParseCtxImpl, parse_items, parse_mtree};
 use orchid_host::subprocess::ext_command;
 use orchid_host::system::init_systems;
 use substack::Substack;
@@ -117,7 +117,7 @@ async fn main() -> io::Result<ExitCode> {
 					return;
 				};
 				let reporter = ReporterImpl::new();
-				let pctx = ParseCtxImpl { reporter: &reporter, systems: &systems };
+				let pctx = HostParseCtxImpl { reporter: &reporter, systems: &systems };
 				let snip = Snippet::new(first, &lexemes, i);
 				let ptree = parse_items(&pctx, Substack::Bottom, snip).await.unwrap();
 				if let Some(errv) = reporter.errv() {

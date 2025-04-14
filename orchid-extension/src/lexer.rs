@@ -6,11 +6,11 @@ use futures::future::LocalBoxFuture;
 use orchid_base::error::{OrcErr, OrcRes, mk_err};
 use orchid_base::interner::{Interner, Tok};
 use orchid_base::location::Pos;
-use orchid_base::reqnot::{ReqNot, Requester};
-use orchid_base::tree::TokHandle;
+use orchid_base::reqnot::Requester;
 
 use crate::api;
-use crate::tree::{GenTok, GenTokTree};
+use crate::system::SysCtx;
+use crate::tree::GenTokTree;
 
 pub async fn err_cascade(i: &Interner) -> OrcErr {
 	mk_err(
@@ -30,20 +30,19 @@ pub async fn err_not_applicable(i: &Interner) -> OrcErr {
 }
 
 pub struct LexContext<'a> {
+	pub ctx: SysCtx,
 	pub text: &'a Tok<String>,
-	pub sys: api::SysId,
 	pub id: api::ParsId,
 	pub pos: u32,
-	pub reqnot: ReqNot<api::ExtMsgSet>,
-	pub i: &'a Interner,
 }
 impl<'a> LexContext<'a> {
-	pub async fn recurse(&self, tail: &'a str) -> OrcRes<(&'a str, GenTokTree<'a>)> {
+	pub async fn recurse(&self, tail: &'a str) -> OrcRes<(&'a str, GenTokTree)> {
 		let start = self.pos(tail);
-		let Some(lx) = self.reqnot.request(api::SubLex { pos: start, id: self.id }).await else {
-			return Err(err_cascade(self.i).await.into());
+		let Some(lx) = self.ctx.reqnot().request(api::SubLex { pos: start, id: self.id }).await else {
+			return Err(err_cascade(self.ctx.i()).await.into());
 		};
-		Ok((&self.text[lx.pos as usize..], GenTok::Slot(TokHandle::new(lx.ticket)).at(start..lx.pos)))
+		let tree = GenTokTree::from_api(&lx.tree, &mut self.ctx.clone(), &mut (), self.ctx.i()).await;
+		Ok((&self.text[lx.pos as usize..], tree))
 	}
 
 	pub fn pos(&self, tail: &'a str) -> u32 { (self.text.len() - tail.len()) as u32 }
@@ -58,7 +57,7 @@ pub trait Lexer: Send + Sync + Sized + Default + 'static {
 	fn lex<'a>(
 		tail: &'a str,
 		ctx: &'a LexContext<'a>,
-	) -> impl Future<Output = OrcRes<(&'a str, GenTokTree<'a>)>>;
+	) -> impl Future<Output = OrcRes<(&'a str, GenTokTree)>>;
 }
 
 pub trait DynLexer: Send + Sync + 'static {
@@ -67,7 +66,7 @@ pub trait DynLexer: Send + Sync + 'static {
 		&self,
 		tail: &'a str,
 		ctx: &'a LexContext<'a>,
-	) -> LocalBoxFuture<'a, OrcRes<(&'a str, GenTokTree<'a>)>>;
+	) -> LocalBoxFuture<'a, OrcRes<(&'a str, GenTokTree)>>;
 }
 
 impl<T: Lexer> DynLexer for T {
@@ -76,7 +75,7 @@ impl<T: Lexer> DynLexer for T {
 		&self,
 		tail: &'a str,
 		ctx: &'a LexContext<'a>,
-	) -> LocalBoxFuture<'a, OrcRes<(&'a str, GenTokTree<'a>)>> {
+	) -> LocalBoxFuture<'a, OrcRes<(&'a str, GenTokTree)>> {
 		T::lex(tail, ctx).boxed_local()
 	}
 }

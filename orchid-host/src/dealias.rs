@@ -8,9 +8,10 @@ use orchid_base::format::{FmtCtxImpl, Format, take_first};
 use orchid_base::interner::{Interner, Tok};
 use orchid_base::location::Pos;
 use orchid_base::name::{NameLike, Sym, VName};
+use substack::Substack;
 
-use crate::macros::{MacTok, MacTree};
-use crate::tree::{ItemKind, MemberKind, Module, RuleKind, WalkErrorKind};
+use crate::expr::Expr;
+use crate::parsed::{ItemKind, ParsedMemberKind, ParsedModule, WalkErrorKind};
 
 /// Errors produced by absolute_path
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -73,28 +74,36 @@ pub fn absolute_path(
 	.map_err(|_| AbsPathError::RootPath)
 }
 
+pub struct DealiasCtx<'a> {
+	pub i: &'a Interner,
+	pub rep: &'a Reporter,
+	pub consts: &'a mut HashMap<Sym, Expr>,
+}
+
 pub async fn resolv_glob(
 	cwd: &[Tok<String>],
-	root: &Module,
+	root: &ParsedModule,
 	abs_path: &[Tok<String>],
 	pos: Pos,
-	i: &Interner,
-	r: &impl Reporter,
+	ctx: &mut DealiasCtx<'_>,
 ) -> Vec<Tok<String>> {
 	let coprefix_len = cwd.iter().zip(abs_path).take_while(|(a, b)| a == b).count();
 	let (co_prefix, diff_path) = abs_path.split_at(coprefix_len);
-	let co_parent = root.walk(false, co_prefix.iter().cloned()).await.expect("Invalid step in cwd");
-	let target_module = match co_parent.walk(true, diff_path.iter().cloned()).await {
+	let co_parent =
+		root.walk(false, co_prefix.iter().cloned(), ctx.consts).await.expect("Invalid step in cwd");
+	let target_module = match co_parent.walk(true, diff_path.iter().cloned(), ctx.consts).await {
 		Ok(t) => t,
 		Err(e) => {
 			let path = abs_path[..=coprefix_len + e.pos].iter().join("::");
 			let (tk, msg) = match e.kind {
 				WalkErrorKind::Constant =>
-					(i.i("Invalid import path").await, format!("{path} is a constant")),
-				WalkErrorKind::Missing => (i.i("Invalid import path").await, format!("{path} not found")),
-				WalkErrorKind::Private => (i.i("Import inaccessible").await, format!("{path} is private")),
+					(ctx.i.i("Invalid import path").await, format!("{path} is a constant")),
+				WalkErrorKind::Missing =>
+					(ctx.i.i("Invalid import path").await, format!("{path} not found")),
+				WalkErrorKind::Private =>
+					(ctx.i.i("Import inaccessible").await, format!("{path} is private")),
 			};
-			r.report(mk_err(tk, msg, [pos.into()]));
+			(&ctx.rep).report(mk_err(tk, msg, [pos.into()]));
 			return vec![];
 		},
 	};
@@ -104,36 +113,36 @@ pub async fn resolv_glob(
 /// Read import statements and convert them into aliases, rasising any import
 /// errors in the process
 pub async fn imports_to_aliases(
-	module: &Module,
+	module: &ParsedModule,
 	cwd: &mut Vec<Tok<String>>,
-	root: &Module,
+	root: &ParsedModule,
 	alias_map: &mut HashMap<Sym, Sym>,
 	alias_rev_map: &mut HashMap<Sym, HashSet<Sym>>,
-	i: &Interner,
-	rep: &impl Reporter,
+	ctx: &mut DealiasCtx<'_>,
 ) {
 	let mut import_locs = HashMap::<Sym, Vec<Pos>>::new();
 	for item in &module.items {
 		match &item.kind {
 			ItemKind::Import(imp) => match absolute_path(cwd, &imp.path) {
-				Err(e) => rep.report(e.err_obj(i, item.pos.clone(), &imp.path.iter().join("::")).await),
+				Err(e) =>
+					ctx.rep.report(e.err_obj(ctx.i, item.pos.clone(), &imp.path.iter().join("::")).await),
 				Ok(abs_path) => {
 					let names = match imp.name.as_ref() {
 						Some(n) => Either::Right([n.clone()].into_iter()),
 						None => Either::Left(
-							resolv_glob(cwd, root, &abs_path, item.pos.clone(), i, rep).await.into_iter(),
+							resolv_glob(cwd, root, &abs_path, item.pos.clone(), ctx).await.into_iter(),
 						),
 					};
 					for name in names {
-						let mut tgt = abs_path.clone().suffix([name.clone()]).to_sym(i).await;
-						let src = Sym::new(cwd.iter().cloned().chain([name]), i).await.unwrap();
+						let mut tgt = abs_path.clone().suffix([name.clone()]).to_sym(ctx.i).await;
+						let src = Sym::new(cwd.iter().cloned().chain([name]), ctx.i).await.unwrap();
 						import_locs.entry(src.clone()).or_insert(vec![]).push(item.pos.clone());
 						if let Some(tgt2) = alias_map.get(&tgt) {
 							tgt = tgt2.clone();
 						}
 						if src == tgt {
-							rep.report(mk_err(
-								i.i("Circular references").await,
+							ctx.rep.report(mk_err(
+								ctx.i.i("Circular references").await,
 								format!("{src} circularly refers to itself"),
 								[item.pos.clone().into()],
 							));
@@ -142,8 +151,8 @@ pub async fn imports_to_aliases(
 						if let Some(fst_val) = alias_map.get(&src) {
 							let locations = (import_locs.get(&src))
 								.expect("The same name could only have appeared in the same module");
-							rep.report(mk_err(
-								i.i("Conflicting imports").await,
+							ctx.rep.report(mk_err(
+								ctx.i.i("Conflicting imports").await,
 								if fst_val == &src {
 									format!("{src} is imported multiple times")
 								} else {
@@ -163,78 +172,35 @@ pub async fn imports_to_aliases(
 					}
 				},
 			},
-			ItemKind::Member(mem) => match mem.kind().await {
-				MemberKind::Const(_) => (),
-				MemberKind::Mod(m) => {
+			ItemKind::Member(mem) => match mem.kind(ctx.consts).await {
+				ParsedMemberKind::Const => (),
+				ParsedMemberKind::Mod(m) => {
 					cwd.push(mem.name());
-					imports_to_aliases(m, cwd, root, alias_map, alias_rev_map, i, rep).boxed_local().await;
+					imports_to_aliases(m, cwd, root, alias_map, alias_rev_map, ctx).boxed_local().await;
 					cwd.pop();
 				},
 			},
-			ItemKind::Export(_) | ItemKind::Macro(..) => (),
+			ItemKind::Export(_) => (),
 		}
 	}
 }
 
-pub async fn dealias(module: &mut Module, alias_map: &HashMap<Sym, Sym>, i: &Interner) {
+pub async fn dealias(
+	path: Substack<'_, Tok<String>>,
+	module: &mut ParsedModule,
+	alias_map: &HashMap<Sym, Sym>,
+	ctx: &mut DealiasCtx<'_>,
+) {
 	for item in &mut module.items {
 		match &mut item.kind {
 			ItemKind::Export(_) | ItemKind::Import(_) => (),
-			ItemKind::Member(mem) => match mem.kind_mut().await {
-				MemberKind::Const(c) => {
-					let Some(source) = c.source() else { continue };
-					let Some(new_source) = dealias_mactreev(source, alias_map, i).await else { continue };
-					c.set_source(new_source);
-				},
-				MemberKind::Mod(m) => dealias(m, alias_map, i).boxed_local().await,
+			ItemKind::Member(mem) => {
+				let path = path.push(mem.name());
+				match mem.kind_mut(ctx.consts).await {
+					ParsedMemberKind::Const => (),
+					ParsedMemberKind::Mod(m) => dealias(path, m, alias_map, ctx).boxed_local().await,
+				}
 			},
-			ItemKind::Macro(_, rules) =>
-				for rule in rules.iter_mut() {
-					let RuleKind::Native(c) = &mut rule.kind else { continue };
-					let Some(source) = c.source() else { continue };
-					let Some(new_source) = dealias_mactreev(source, alias_map, i).await else { continue };
-					c.set_source(new_source);
-				},
 		}
 	}
-}
-
-async fn dealias_mactree(
-	mtree: &MacTree,
-	aliases: &HashMap<Sym, Sym>,
-	i: &Interner,
-) -> Option<MacTree> {
-	let new_tok = match &*mtree.tok {
-		MacTok::Atom(_) | MacTok::Ph(_) => return None,
-		tok @ (MacTok::Done(_) | MacTok::Ref(_) | MacTok::Slot(_)) => panic!(
-			"{} should not appear in retained pre-macro source",
-			take_first(&tok.print(&FmtCtxImpl { i }).await, true)
-		),
-		MacTok::Name(n) => MacTok::Name(aliases.get(n).unwrap_or(n).clone()),
-		MacTok::Lambda(arg, body) => {
-			match (dealias_mactreev(arg, aliases, i).await, dealias_mactreev(body, aliases, i).await) {
-				(None, None) => return None,
-				(Some(arg), None) => MacTok::Lambda(arg, body.clone()),
-				(None, Some(body)) => MacTok::Lambda(arg.clone(), body),
-				(Some(arg), Some(body)) => MacTok::Lambda(arg, body),
-			}
-		},
-		MacTok::S(p, b) => MacTok::S(*p, dealias_mactreev(b, aliases, i).await?),
-	};
-	Some(MacTree { pos: mtree.pos.clone(), tok: Rc::new(new_tok) })
-}
-
-async fn dealias_mactreev(
-	mtreev: &[MacTree],
-	aliases: &HashMap<Sym, Sym>,
-	i: &Interner,
-) -> Option<Vec<MacTree>> {
-	let mut results = Vec::with_capacity(mtreev.len());
-	let mut any_some = false;
-	for item in mtreev {
-		let out = dealias_mactree(item, aliases, i).boxed_local().await;
-		any_some |= out.is_some();
-		results.push(out.unwrap_or(item.clone()));
-	}
-	any_some.then_some(results)
 }

@@ -8,23 +8,24 @@ use async_std::sync::RwLock;
 use futures::FutureExt;
 use hashbrown::HashSet;
 use itertools::Itertools;
-use orchid_base::error::{OrcErrv, mk_errv};
-use orchid_base::format::{FmtCtx, FmtCtxImpl, FmtUnit, Format, Variants, take_first};
+use orchid_base::error::OrcErrv;
+use orchid_base::format::{FmtCtx, FmtUnit, Format, Variants};
 use orchid_base::location::Pos;
-use orchid_base::macros::mtreev_fmt;
 use orchid_base::name::Sym;
-use orchid_base::tokens::Paren;
+use orchid_base::tl_cache;
 use orchid_base::tree::{AtomRepr, indent};
-use orchid_base::{match_mapping, tl_cache};
 use substack::Substack;
 
 use crate::api;
 use crate::atom::AtomHand;
 use crate::ctx::Ctx;
-use crate::extension::Extension;
-use crate::macros::{MacTok, MacTree};
+use crate::expr_store::ExprStore;
 
-pub type ExprParseCtx = Extension;
+#[derive(Clone)]
+pub struct ExprParseCtx {
+	pub ctx: Ctx,
+	pub exprs: ExprStore,
+}
 
 #[derive(Debug)]
 pub struct ExprData {
@@ -55,13 +56,44 @@ impl Expr {
 				.expect("this is a ref, it cannot be null"),
 		)
 	}
-	pub async fn from_api(api: &api::Expression, ctx: &mut ExprParseCtx) -> Self {
-		if let api::ExpressionKind::Slot(tk) = &api.kind {
-			return ctx.exprs().get_expr(*tk).expect("Invalid slot");
-		}
-		let pos = Pos::from_api(&api.location, &ctx.ctx().i).await;
-		let kind = RwLock::new(ExprKind::from_api(&api.kind, pos.clone(), ctx).boxed_local().await);
-		Self(Rc::new(ExprData { pos, kind }))
+	pub async fn from_api(
+		api: &api::Expression,
+		psb: PathSetBuilder<'_, u64>,
+		ctx: &mut ExprParseCtx,
+	) -> Self {
+		let pos = Pos::from_api(&api.location, &ctx.ctx.i).await;
+		let kind = match &api.kind {
+			api::ExpressionKind::Arg(n) => {
+				assert!(psb.register_arg(&n), "Arguments must be enclosed in a matching lambda");
+				ExprKind::Arg
+			},
+			api::ExpressionKind::Bottom(bot) =>
+				ExprKind::Bottom(OrcErrv::from_api(bot, &ctx.ctx.i).await),
+			api::ExpressionKind::Call(f, x) => {
+				let (lpsb, rpsb) = psb.split();
+				ExprKind::Call(
+					Expr::from_api(&f, lpsb, ctx).boxed_local().await,
+					Expr::from_api(&x, rpsb, ctx).boxed_local().await,
+				)
+			},
+			api::ExpressionKind::Const(name) => ExprKind::Const(Sym::from_api(*name, &ctx.ctx.i).await),
+			api::ExpressionKind::Lambda(x, body) => {
+				let lbuilder = psb.lambda(&x);
+				let body = Expr::from_api(&body, lbuilder.stack(), ctx).boxed_local().await;
+				ExprKind::Lambda(lbuilder.collect(), body)
+			},
+			api::ExpressionKind::NewAtom(a) =>
+				ExprKind::Atom(AtomHand::from_api(a, pos.clone(), &mut ctx.ctx.clone()).await),
+			api::ExpressionKind::Slot(tk) => return ctx.exprs.get_expr(*tk).expect("Invalid slot"),
+			api::ExpressionKind::Seq(a, b) => {
+				let (apsb, bpsb) = psb.split();
+				ExprKind::Seq(
+					Expr::from_api(&a, apsb, ctx).boxed_local().await,
+					Expr::from_api(&b, bpsb, ctx).boxed_local().await,
+				)
+			},
+		};
+		Self(Rc::new(ExprData { pos, kind: RwLock::new(kind) }))
 	}
 	pub async fn to_api(&self) -> api::InspectedKind {
 		use api::InspectedKind as K;
@@ -107,23 +139,6 @@ pub enum ExprKind {
 	Missing,
 }
 impl ExprKind {
-	pub async fn from_api(api: &api::ExpressionKind, pos: Pos, ctx: &mut ExprParseCtx) -> Self {
-		match_mapping!(api, api::ExpressionKind => ExprKind {
-			Lambda(id => PathSet::from_api(*id, api), b => Expr::from_api(b, ctx).await),
-			Bottom(b => OrcErrv::from_api(b, &ctx.ctx().i).await),
-			Call(f => Expr::from_api(f, ctx).await, x => Expr::from_api(x, ctx).await),
-			Const(c => Sym::from_api(*c, &ctx.ctx().i).await),
-			Seq(a => Expr::from_api(a, ctx).await, b => Expr::from_api(b, ctx).await),
-		} {
-			api::ExpressionKind::Arg(_) => ExprKind::Arg,
-			api::ExpressionKind::NewAtom(a) => ExprKind::Atom(AtomHand::from_api(
-				a,
-				pos,
-				&mut ctx.ctx().clone()
-			).await),
-			api::ExpressionKind::Slot(_) => panic!("Handled in Expr"),
-		})
-	}
 	pub fn at(self, pos: Pos) -> Expr { Expr(Rc::new(ExprData { pos, kind: RwLock::new(self) })) }
 }
 impl Format for ExprKind {
@@ -174,6 +189,93 @@ pub enum Step {
 	Right,
 }
 
+#[derive(Clone)]
+pub enum PathSetFrame<'a, T: PartialEq> {
+	Lambda(&'a T, &'a RefCell<Option<PathSet>>),
+	Step(Step),
+}
+
+#[derive(Clone)]
+pub struct PathSetBuilder<'a, T: PartialEq>(Substack<'a, PathSetFrame<'a, T>>);
+impl<'a, T: PartialEq> PathSetBuilder<'a, T> {
+	pub fn new() -> Self { Self(Substack::Bottom) }
+	pub fn split(&'a self) -> (Self, Self) {
+		(
+			Self(self.0.push(PathSetFrame::Step(Step::Left))),
+			Self(self.0.push(PathSetFrame::Step(Step::Right))),
+		)
+	}
+	pub fn lambda<'b>(self, arg: &'b T) -> LambdaBuilder<'b, T>
+	where 'a: 'b {
+		LambdaBuilder { arg, path: RefCell::default(), stack: self }
+	}
+	/// Register an argument with the corresponding lambda and return true if one
+	/// was found. (if false is returned, the name is unbound and may refer to a
+	/// global)
+	pub fn register_arg(self, t: &T) -> bool {
+		let mut steps = VecDeque::new();
+		for step in self.0.iter() {
+			match step {
+				PathSetFrame::Step(step) => steps.push_front(*step),
+				PathSetFrame::Lambda(name, _) if **name != *t => (),
+				PathSetFrame::Lambda(_, cell) => {
+					let mut ps_opt = cell.borrow_mut();
+					match &mut *ps_opt {
+						val @ None => *val = Some(PathSet { steps: steps.into(), next: None }),
+						Some(val) => {
+							let mut swap = PathSet { steps: Vec::new(), next: None };
+							mem::swap(&mut swap, val);
+							*val = merge(swap, &Vec::from(steps));
+						},
+					}
+					return true;
+				},
+			};
+		}
+		return false;
+		fn merge(ps: PathSet, steps: &[Step]) -> PathSet {
+			let diff_idx = ps.steps.iter().zip(steps).take_while(|(l, r)| l == r).count();
+			if diff_idx == ps.steps.len() {
+				if diff_idx == steps.len() {
+					match ps.next {
+						Some(_) => panic!("New path ends where old path forks"),
+						None => panic!("New path same as old path"),
+					}
+				}
+				let Some((left, right)) = ps.next else { panic!("Old path ends where new path continues") };
+				let next = match steps[diff_idx] {
+					Step::Left => Some((Box::new(merge(*left, &steps[diff_idx + 1..])), right)),
+					Step::Right => Some((left, Box::new(merge(*right, &steps[diff_idx + 1..])))),
+				};
+				PathSet { steps: ps.steps, next }
+			} else {
+				let shared_steps = ps.steps.iter().take(diff_idx).cloned().collect();
+				let main_steps = ps.steps.iter().skip(diff_idx + 1).cloned().collect();
+				let new_branch = steps[diff_idx + 1..].to_vec();
+				let main_side = PathSet { steps: main_steps, next: ps.next };
+				let new_side = PathSet { steps: new_branch, next: None };
+				let (left, right) = match steps[diff_idx] {
+					Step::Left => (new_side, main_side),
+					Step::Right => (main_side, new_side),
+				};
+				PathSet { steps: shared_steps, next: Some((Box::new(left), Box::new(right))) }
+			}
+		}
+	}
+}
+
+pub struct LambdaBuilder<'a, T: PartialEq> {
+	arg: &'a T,
+	path: RefCell<Option<PathSet>>,
+	stack: PathSetBuilder<'a, T>,
+}
+impl<'a, T: PartialEq> LambdaBuilder<'a, T> {
+	pub fn stack(&'a self) -> PathSetBuilder<'a, T> {
+		PathSetBuilder(self.stack.0.push(PathSetFrame::Lambda(self.arg, &self.path)))
+	}
+	pub fn collect(self) -> Option<PathSet> { self.path.into_inner() }
+}
+
 #[derive(Clone, Debug)]
 pub struct PathSet {
 	/// The single steps through [super::nort::Clause::Apply]
@@ -185,32 +287,6 @@ pub struct PathSet {
 impl PathSet {
 	pub fn next(&self) -> Option<(&PathSet, &PathSet)> {
 		self.next.as_ref().map(|(l, r)| (&**l, &**r))
-	}
-	pub fn from_api(id: u64, api: &api::ExpressionKind) -> Option<Self> {
-		use api::ExpressionKind as K;
-		struct Suffix(VecDeque<Step>, Option<(Box<PathSet>, Box<PathSet>)>);
-		fn seal(Suffix(steps, next): Suffix) -> PathSet { PathSet { steps: steps.into(), next } }
-		fn after(step: Step, mut suf: Suffix) -> Suffix {
-			suf.0.push_front(step);
-			suf
-		}
-		return from_api_inner(id, api).map(seal);
-		fn from_api_inner(id: u64, api: &api::ExpressionKind) -> Option<Suffix> {
-			match &api {
-				K::Arg(id2) => (id == *id2).then_some(Suffix(VecDeque::new(), None)),
-				K::Bottom(_) | K::Const(_) | K::NewAtom(_) | K::Slot(_) => None,
-				K::Lambda(_, b) => from_api_inner(id, &b.kind),
-				K::Call(l, r) | K::Seq(l, r) => {
-					match (from_api_inner(id, &l.kind), from_api_inner(id, &r.kind)) {
-						(Some(a), Some(b)) =>
-							Some(Suffix(VecDeque::new(), Some((Box::new(seal(a)), Box::new(seal(b)))))),
-						(Some(l), None) => Some(after(Step::Left, l)),
-						(None, Some(r)) => Some(after(Step::Right, r)),
-						(None, None) => None,
-					}
-				},
-			}
-		}
 	}
 }
 impl fmt::Display for PathSet {
@@ -238,122 +314,4 @@ pub fn bot_expr(err: impl Into<OrcErrv>) -> Expr {
 pub struct WeakExpr(Weak<ExprData>);
 impl WeakExpr {
 	pub fn upgrade(&self) -> Option<Expr> { self.0.upgrade().map(Expr) }
-}
-
-#[derive(Clone)]
-pub enum SrcToExprStep<'a> {
-	Left,
-	Right,
-	Lambda(Sym, &'a RefCell<Option<PathSet>>),
-}
-
-pub async fn mtreev_to_expr(
-	src: &[MacTree],
-	stack: Substack<'_, SrcToExprStep<'_>>,
-	ctx: &Ctx,
-) -> ExprKind {
-	let Some((x, f)) = src.split_last() else { panic!("Empty expression cannot be evaluated") };
-	let x_stack = if f.is_empty() { stack.clone() } else { stack.push(SrcToExprStep::Right) };
-	let x_kind = match &*x.tok {
-		MacTok::Atom(a) => ExprKind::Atom(a.clone()),
-		MacTok::Name(n) => 'name: {
-			let mut steps = VecDeque::new();
-			for step in x_stack.iter() {
-				match step {
-					SrcToExprStep::Left => steps.push_front(Step::Left),
-					SrcToExprStep::Right => steps.push_front(Step::Right),
-					SrcToExprStep::Lambda(name, _) if name != n => continue,
-					SrcToExprStep::Lambda(_, cell) => {
-						let mut ps = cell.borrow_mut();
-						match &mut *ps {
-							val @ None => *val = Some(PathSet { steps: steps.into(), next: None }),
-							Some(val) => {
-								let mut swap = PathSet { steps: Vec::new(), next: None };
-								mem::swap(&mut swap, val);
-								*val = merge(swap, &Vec::from(steps));
-								fn merge(ps: PathSet, steps: &[Step]) -> PathSet {
-									let diff_idx = ps.steps.iter().zip(steps).take_while(|(l, r)| l == r).count();
-									if diff_idx == ps.steps.len() {
-										if diff_idx == steps.len() {
-											match ps.next {
-												Some(_) => panic!("New path ends where old path forks"),
-												None => panic!("New path same as old path"),
-											}
-										}
-										let Some((left, right)) = ps.next else {
-											panic!("Old path ends where new path continues")
-										};
-										let next = match steps[diff_idx] {
-											Step::Left => Some((Box::new(merge(*left, &steps[diff_idx + 1..])), right)),
-											Step::Right => Some((left, Box::new(merge(*right, &steps[diff_idx + 1..])))),
-										};
-										PathSet { steps: ps.steps, next }
-									} else {
-										let shared_steps = ps.steps.iter().take(diff_idx).cloned().collect();
-										let main_steps = ps.steps.iter().skip(diff_idx + 1).cloned().collect();
-										let new_branch = steps[diff_idx + 1..].to_vec();
-										let main_side = PathSet { steps: main_steps, next: ps.next };
-										let new_side = PathSet { steps: new_branch, next: None };
-										let (left, right) = match steps[diff_idx] {
-											Step::Left => (new_side, main_side),
-											Step::Right => (main_side, new_side),
-										};
-										PathSet { steps: shared_steps, next: Some((Box::new(left), Box::new(right))) }
-									}
-								}
-							},
-						}
-						break 'name ExprKind::Arg;
-					},
-				}
-			}
-			ExprKind::Const(n.clone())
-		},
-		MacTok::Ph(_) | MacTok::Done(_) | MacTok::Ref(_) | MacTok::Slot(_) =>
-			ExprKind::Bottom(mk_errv(
-				ctx.i.i("placeholder in value").await,
-				"Placeholders cannot appear anywhere outside macro patterns",
-				[x.pos.clone().into()],
-			)),
-		MacTok::S(Paren::Round, b) if b.is_empty() =>
-			return ExprKind::Bottom(mk_errv(
-				ctx.i.i("Empty expression").await,
-				"Empty parens () are illegal",
-				[x.pos.clone().into()],
-			)),
-		MacTok::S(Paren::Round, b) => mtreev_to_expr(b, x_stack, ctx).boxed_local().await,
-		MacTok::S(..) => ExprKind::Bottom(mk_errv(
-			ctx.i.i("non-round parentheses after macros").await,
-			"[] or {} block was not consumed by macros; expressions may only contain ()",
-			[x.pos.clone().into()],
-		)),
-		MacTok::Lambda(_, b) if b.is_empty() =>
-			return ExprKind::Bottom(mk_errv(
-				ctx.i.i("Empty lambda").await,
-				"Lambdas must have a body",
-				[x.pos.clone().into()],
-			)),
-		MacTok::Lambda(arg, b) => 'lambda_converter: {
-			if let [MacTree { tok, .. }] = &**arg {
-				if let MacTok::Name(n) = &**tok {
-					let path = RefCell::new(None);
-					let b = mtreev_to_expr(b, x_stack.push(SrcToExprStep::Lambda(n.clone(), &path)), ctx)
-						.boxed_local()
-						.await;
-					break 'lambda_converter ExprKind::Lambda(path.into_inner(), b.at(x.pos.clone()));
-				}
-			}
-			let argstr = take_first(&mtreev_fmt(arg, &FmtCtxImpl { i: &ctx.i }).await, true);
-			ExprKind::Bottom(mk_errv(
-				ctx.i.i("Malformeed lambda").await,
-				format!("Lambda argument should be single name, found {argstr}"),
-				[x.pos.clone().into()],
-			))
-		},
-	};
-	if f.is_empty() {
-		return x_kind;
-	}
-	let f = mtreev_to_expr(f, stack.push(SrcToExprStep::Left), ctx).boxed_local().await;
-	ExprKind::Call(f.at(Pos::None), x_kind.at(x.pos.clone()))
 }

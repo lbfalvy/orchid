@@ -4,7 +4,6 @@ use std::future::Future;
 use std::num::NonZero;
 use std::ops::Deref;
 use std::pin::Pin;
-use std::rc::Rc;
 use std::sync::atomic::AtomicU64;
 
 use async_once_cell::OnceCell;
@@ -18,7 +17,7 @@ use never::Never;
 use orchid_api::AtomId;
 use orchid_api_traits::{Decode, Encode, enc_vec};
 use orchid_base::error::OrcRes;
-use orchid_base::format::FmtUnit;
+use orchid_base::format::{FmtCtx, FmtCtxImpl, FmtUnit};
 use orchid_base::name::Sym;
 
 use crate::api;
@@ -26,7 +25,7 @@ use crate::atom::{
 	AtomCard, AtomCtx, AtomDynfo, AtomFactory, Atomic, AtomicFeaturesImpl, AtomicVariant, MethodSet,
 	MethodSetBuilder, err_not_callable, err_not_command, get_info,
 };
-use crate::expr::{Expr, ExprHandle};
+use crate::expr::Expr;
 use crate::gen_expr::{GExpr, bot};
 use crate::system::{SysCtx, SysCtxEntry};
 use crate::system_ctor::CtedObj;
@@ -86,17 +85,15 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 			Box::new(<T as AtomCard>::Data::decode(Pin::new(&mut &data[..])).await) as Box<dyn Any>
 		})
 	}
-	fn call(&self, AtomCtx(_, id, ctx): AtomCtx, arg: api::ExprTicket) -> LocalBoxFuture<'_, GExpr> {
-		Box::pin(async move { take_atom(id.unwrap(), &ctx).await.dyn_call(ctx.clone(), arg).await })
+	fn call(&self, AtomCtx(_, id, ctx): AtomCtx, arg: Expr) -> LocalBoxFuture<'_, GExpr> {
+		Box::pin(async move { take_atom(id.unwrap(), &ctx).await.dyn_call(arg).await })
 	}
 	fn call_ref<'a>(
 		&'a self,
 		AtomCtx(_, id, ctx): AtomCtx<'a>,
-		arg: api::ExprTicket,
+		arg: Expr,
 	) -> LocalBoxFuture<'a, GExpr> {
-		Box::pin(async move {
-			AtomReadGuard::new(id.unwrap(), &ctx).await.dyn_call_ref(ctx.clone(), arg).await
-		})
+		Box::pin(async move { AtomReadGuard::new(id.unwrap(), &ctx).await.dyn_call_ref(arg).await })
 	}
 	fn print(&self, AtomCtx(_, id, ctx): AtomCtx<'_>) -> LocalBoxFuture<'_, FmtUnit> {
 		Box::pin(
@@ -129,24 +126,22 @@ impl<T: OwnedAtom> AtomDynfo for OwnedAtomDynfo<T> {
 		&'a self,
 		AtomCtx(_, id, ctx): AtomCtx<'a>,
 		mut write: Pin<&'b mut dyn Write>,
-	) -> LocalBoxFuture<'a, Option<Vec<api::ExprTicket>>> {
+	) -> LocalBoxFuture<'a, Option<Vec<Expr>>> {
 		Box::pin(async move {
 			let id = id.unwrap();
 			id.encode(write.as_mut()).await;
-			let refs = AtomReadGuard::new(id, &ctx).await.dyn_serialize(ctx.clone(), write).await;
-			refs.map(|v| v.into_iter().map(|t| t.handle().tk).collect_vec())
+			AtomReadGuard::new(id, &ctx).await.dyn_serialize(ctx.clone(), write).await
 		})
 	}
 	fn deserialize<'a>(
 		&'a self,
 		ctx: SysCtx,
 		data: &'a [u8],
-		refs: &'a [api::ExprTicket],
+		refs: &'a [Expr],
 	) -> LocalBoxFuture<'a, api::Atom> {
 		Box::pin(async move {
-			let refs =
-				refs.iter().map(|tk| Expr::from_handle(Rc::new(ExprHandle::from_args(ctx.clone(), *tk))));
-			let obj = T::deserialize(DeserCtxImpl(data, &ctx), T::Refs::from_iter(refs)).await;
+			let refs = T::Refs::from_iter(refs.iter().cloned());
+			let obj = T::deserialize(DeserCtxImpl(data, &ctx), refs).await;
 			obj._factory().build(ctx).await
 		})
 	}
@@ -220,12 +215,12 @@ pub trait OwnedAtom: Atomic<Variant = OwnedVariant> + Any + Clone + 'static {
 	type Refs: RefSet;
 	fn val(&self) -> impl Future<Output = Cow<'_, Self::Data>>;
 	#[allow(unused_variables)]
-	fn call_ref(&self, arg: ExprHandle) -> impl Future<Output = GExpr> {
-		async move { bot([err_not_callable(arg.ctx.i()).await]) }
+	fn call_ref(&self, arg: Expr) -> impl Future<Output = GExpr> {
+		async move { bot([err_not_callable(arg.ctx().i()).await]) }
 	}
-	fn call(self, arg: ExprHandle) -> impl Future<Output = GExpr> {
+	fn call(self, arg: Expr) -> impl Future<Output = GExpr> {
 		async {
-			let ctx = arg.get_ctx();
+			let ctx = arg.ctx();
 			let gcl = self.call_ref(arg).await;
 			self.free(ctx).await;
 			gcl
@@ -238,7 +233,7 @@ pub trait OwnedAtom: Atomic<Variant = OwnedVariant> + Any + Clone + 'static {
 	#[allow(unused_variables)]
 	fn free(self, ctx: SysCtx) -> impl Future<Output = ()> { async {} }
 	#[allow(unused_variables)]
-	fn print(&self, ctx: SysCtx) -> impl Future<Output = FmtUnit> {
+	fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> impl Future<Output = FmtUnit> {
 		async { format!("OwnedAtom({})", type_name::<Self>()).into() }
 	}
 	#[allow(unused_variables)]
@@ -268,9 +263,8 @@ pub trait DynOwnedAtom: 'static {
 	fn atom_tid(&self) -> TypeId;
 	fn as_any_ref(&self) -> &dyn Any;
 	fn encode<'a>(&'a self, buffer: Pin<&'a mut dyn Write>) -> LocalBoxFuture<'a, ()>;
-	fn dyn_call_ref(&self, ctx: SysCtx, arg: api::ExprTicket) -> LocalBoxFuture<'_, GExpr>;
-	fn dyn_call(self: Box<Self>, ctx: SysCtx, arg: api::ExprTicket)
-	-> LocalBoxFuture<'static, GExpr>;
+	fn dyn_call_ref(&self, arg: Expr) -> LocalBoxFuture<'_, GExpr>;
+	fn dyn_call(self: Box<Self>, arg: Expr) -> LocalBoxFuture<'static, GExpr>;
 	fn dyn_command(self: Box<Self>, ctx: SysCtx) -> LocalBoxFuture<'static, OrcRes<Option<GExpr>>>;
 	fn dyn_free(self: Box<Self>, ctx: SysCtx) -> LocalBoxFuture<'static, ()>;
 	fn dyn_print(&self, ctx: SysCtx) -> LocalBoxFuture<'_, FmtUnit>;
@@ -286,15 +280,11 @@ impl<T: OwnedAtom> DynOwnedAtom for T {
 	fn encode<'a>(&'a self, buffer: Pin<&'a mut dyn Write>) -> LocalBoxFuture<'a, ()> {
 		async { self.val().await.as_ref().encode(buffer).await }.boxed_local()
 	}
-	fn dyn_call_ref(&self, ctx: SysCtx, arg: api::ExprTicket) -> LocalBoxFuture<'_, GExpr> {
-		self.call_ref(ExprHandle::from_args(ctx, arg)).boxed_local()
+	fn dyn_call_ref(&self, arg: Expr) -> LocalBoxFuture<'_, GExpr> {
+		self.call_ref(arg).boxed_local()
 	}
-	fn dyn_call(
-		self: Box<Self>,
-		ctx: SysCtx,
-		arg: api::ExprTicket,
-	) -> LocalBoxFuture<'static, GExpr> {
-		self.call(ExprHandle::from_args(ctx, arg)).boxed_local()
+	fn dyn_call(self: Box<Self>, arg: Expr) -> LocalBoxFuture<'static, GExpr> {
+		self.call(arg).boxed_local()
 	}
 	fn dyn_command(self: Box<Self>, ctx: SysCtx) -> LocalBoxFuture<'static, OrcRes<Option<GExpr>>> {
 		self.command(ctx).boxed_local()
@@ -302,7 +292,9 @@ impl<T: OwnedAtom> DynOwnedAtom for T {
 	fn dyn_free(self: Box<Self>, ctx: SysCtx) -> LocalBoxFuture<'static, ()> {
 		self.free(ctx).boxed_local()
 	}
-	fn dyn_print(&self, ctx: SysCtx) -> LocalBoxFuture<'_, FmtUnit> { self.print(ctx).boxed_local() }
+	fn dyn_print(&self, ctx: SysCtx) -> LocalBoxFuture<'_, FmtUnit> {
+		async move { self.print(&FmtCtxImpl { i: ctx.i() }).await }.boxed_local()
+	}
 	fn dyn_serialize<'a>(
 		&'a self,
 		ctx: SysCtx,

@@ -1,103 +1,119 @@
-use std::rc::Rc;
+use std::cell::RefCell;
 
 use futures::FutureExt;
 use futures::future::join_all;
+use hashbrown::HashMap;
 use itertools::Itertools;
-use never::Never;
-use orchid_base::error::{OrcErrv, OrcRes, Reporter, ReporterImpl, mk_err, mk_errv};
-use orchid_base::interner::Tok;
+use orchid_base::error::{OrcRes, Reporter, mk_err, mk_errv};
+use orchid_base::format::fmt;
+use orchid_base::interner::{Interner, Tok};
 use orchid_base::location::Pos;
-use orchid_base::macros::{MTok, MTree};
 use orchid_base::name::Sym;
 use orchid_base::parse::{
-	Comment, Import, Parsed, Snippet, expect_end, line_items, parse_multiname, try_pop_no_fluff,
+	Comment, Import, ParseCtx, Parsed, Snippet, expect_end, line_items, parse_multiname,
+	try_pop_no_fluff,
 };
 use orchid_base::tree::{Paren, TokTree, Token};
 use substack::Substack;
 
-use crate::atom::AtomHand;
-use crate::macros::MacTree;
+use crate::ctx::Ctx;
+use crate::expr::{Expr, ExprKind, PathSetBuilder};
+use crate::parsed::{Item, ItemKind, ParsTokTree, ParsedMember, ParsedMemberKind, ParsedModule};
 use crate::system::System;
-use crate::tree::{Code, CodeLocator, Item, ItemKind, Member, MemberKind, Module, Rule, RuleKind};
 
-type ParsSnippet<'a> = Snippet<'a, 'static, AtomHand, Never>;
+type ParsSnippet<'a> = Snippet<'a, Expr, Expr>;
 
-pub struct ParseCtxImpl<'a> {
+pub struct HostParseCtxImpl<'a> {
+	pub ctx: Ctx,
 	pub systems: &'a [System],
-	pub reporter: &'a ReporterImpl,
+	pub reporter: &'a Reporter,
+	pub interner: &'a Interner,
+	pub consts: RefCell<HashMap<Sym, Vec<ParsTokTree>>>,
 }
 
-impl ParseCtx for ParseCtxImpl<'_> {
-	fn reporter(&self) -> &(impl Reporter + ?Sized) { self.reporter }
+impl ParseCtx for HostParseCtxImpl<'_> {
+	fn reporter(&self) -> &Reporter { self.reporter }
+	fn i(&self) -> &Interner { self.interner }
+}
+
+impl HostParseCtx for HostParseCtxImpl<'_> {
+	fn ctx(&self) -> &Ctx { &self.ctx }
 	fn systems(&self) -> impl Iterator<Item = &System> { self.systems.iter() }
+	async fn save_const(&self, path: Substack<'_, Tok<String>>, value: Vec<ParsTokTree>) {
+		let name = Sym::new(path.unreverse(), self.interner).await.unwrap();
+		self.consts.borrow_mut().insert(name, value);
+	}
 }
 
-pub trait ParseCtx {
+pub trait HostParseCtx: ParseCtx {
+	fn ctx(&self) -> &Ctx;
 	fn systems(&self) -> impl Iterator<Item = &System>;
-	fn reporter(&self) -> &(impl Reporter + ?Sized);
+	async fn save_const(&self, path: Substack<'_, Tok<String>>, value: Vec<ParsTokTree>);
 }
 
 pub async fn parse_items(
-	ctx: &impl ParseCtx,
+	ctx: &impl HostParseCtx,
 	path: Substack<'_, Tok<String>>,
 	items: ParsSnippet<'_>,
 ) -> OrcRes<Vec<Item>> {
-	let lines = line_items(items).await;
+	let lines = line_items(ctx, items).await;
 	let line_res =
 		join_all(lines.into_iter().map(|p| parse_item(ctx, path.clone(), p.output, p.tail))).await;
 	Ok(line_res.into_iter().flat_map(|l| l.ok().into_iter().flatten()).collect())
 }
 
 pub async fn parse_item(
-	ctx: &impl ParseCtx,
+	ctx: &impl HostParseCtx,
 	path: Substack<'_, Tok<String>>,
 	comments: Vec<Comment>,
 	item: ParsSnippet<'_>,
 ) -> OrcRes<Vec<Item>> {
 	match item.pop_front() {
 		Some((TokTree { tok: Token::Name(n), .. }, postdisc)) => match n {
-			n if *n == item.i().i("export").await => match try_pop_no_fluff(postdisc).await? {
+			n if *n == ctx.i().i("export").await => match try_pop_no_fluff(ctx, postdisc).await? {
 				Parsed { output: TokTree { tok: Token::Name(n), .. }, tail } =>
 					parse_exportable_item(ctx, path, comments, true, n.clone(), tail).await,
-				Parsed { output: TokTree { tok: Token::NS, .. }, tail } => {
-					let Parsed { output: exports, tail } = parse_multiname(ctx.reporter(), tail).await?;
+				Parsed { output: TokTree { tok: Token::S(Paren::Round, body), .. }, tail } => {
+					expect_end(ctx, tail).await?;
 					let mut ok = Vec::new();
-					for (e, pos) in exports {
-						match (&e.path[..], e.name) {
-							([], Some(n)) =>
-								ok.push(Item { comments: comments.clone(), pos, kind: ItemKind::Export(n) }),
-							(_, Some(_)) => ctx.reporter().report(mk_err(
-								tail.i().i("Compound export").await,
+					for tt in body {
+						let pos = Pos::Range(tt.range.clone());
+						match &tt.tok {
+							Token::Name(n) =>
+								ok.push(Item { comments: comments.clone(), pos, kind: ItemKind::Export(n.clone()) }),
+							Token::NS(..) => ctx.reporter().report(mk_err(
+								ctx.i().i("Compound export").await,
 								"Cannot export compound names (names containing the :: separator)",
 								[pos.into()],
 							)),
-							(_, None) => ctx.reporter().report(mk_err(
-								tail.i().i("Wildcard export").await,
-								"Exports cannot contain the globstar *",
+							t => ctx.reporter().report(mk_err(
+								ctx.i().i("Invalid export").await,
+								format!("Invalid export target {}", fmt(t, ctx.i()).await),
 								[pos.into()],
 							)),
 						}
 					}
-					expect_end(tail).await?;
+					expect_end(ctx, tail).await?;
 					Ok(ok)
 				},
-				Parsed { output, tail } => Err(mk_errv(
-					tail.i().i("Malformed export").await,
-					"`export` can either prefix other lines or list names inside ::( ) or ::[ ]",
+				Parsed { output, tail: _ } => Err(mk_errv(
+					ctx.i().i("Malformed export").await,
+					"`export` can either prefix other lines or list names inside ( )",
 					[Pos::Range(output.range.clone()).into()],
 				)),
 			},
-			n if *n == item.i().i("import").await => parse_import(ctx, postdisc).await.map(|v| {
-				Vec::from_iter(v.into_iter().map(|(t, pos)| Item {
+			n if *n == ctx.i().i("import").await => {
+				let imports = parse_import(ctx, postdisc).await?;
+				Ok(Vec::from_iter(imports.into_iter().map(|(t, pos)| Item {
 					comments: comments.clone(),
 					pos,
 					kind: ItemKind::Import(t),
-				}))
-			}),
+				})))
+			},
 			n => parse_exportable_item(ctx, path, comments, false, n.clone(), postdisc).await,
 		},
 		Some(_) => Err(mk_errv(
-			item.i().i("Expected a line type").await,
+			ctx.i().i("Expected a line type").await,
 			"All lines must begin with a keyword",
 			[Pos::Range(item.pos()).into()],
 		)),
@@ -105,37 +121,37 @@ pub async fn parse_item(
 	}
 }
 
-pub async fn parse_import(
-	ctx: &impl ParseCtx,
-	tail: ParsSnippet<'_>,
+pub async fn parse_import<'a>(
+	ctx: &impl HostParseCtx,
+	tail: ParsSnippet<'a>,
 ) -> OrcRes<Vec<(Import, Pos)>> {
-	let Parsed { output: imports, tail } = parse_multiname(ctx.reporter(), tail).await?;
-	expect_end(tail).await?;
+	let Parsed { output: imports, tail } = parse_multiname(ctx, tail).await?;
+	expect_end(ctx, tail).await?;
 	Ok(imports)
 }
 
-pub async fn parse_exportable_item(
-	ctx: &impl ParseCtx,
+pub async fn parse_exportable_item<'a>(
+	ctx: &impl HostParseCtx,
 	path: Substack<'_, Tok<String>>,
 	comments: Vec<Comment>,
 	exported: bool,
 	discr: Tok<String>,
-	tail: ParsSnippet<'_>,
+	tail: ParsSnippet<'a>,
 ) -> OrcRes<Vec<Item>> {
-	let kind = if discr == tail.i().i("mod").await {
+	let path_sym = Sym::new(path.unreverse(), ctx.i()).await.expect("Files should have a namespace");
+	let kind = if discr == ctx.i().i("mod").await {
 		let (name, body) = parse_module(ctx, path, tail).await?;
-		ItemKind::Member(Member::new(name, MemberKind::Mod(body)))
-	} else if discr == tail.i().i("const").await {
-		let (name, val) = parse_const(tail, path.clone()).await?;
-		let locator = CodeLocator::to_const(tail.i().i(&path.push(name.clone()).unreverse()).await);
-		ItemKind::Member(Member::new(name, MemberKind::Const(Code::from_code(locator, val))))
+		ItemKind::Member(ParsedMember::new(name, path_sym, ParsedMemberKind::Mod(body)))
+	} else if discr == ctx.i().i("const").await {
+		let name = parse_const(ctx, tail, path.clone()).await?;
+		ItemKind::Member(ParsedMember::new(name, path_sym, ParsedMemberKind::Const))
 	} else if let Some(sys) = ctx.systems().find(|s| s.can_parse(discr.clone())) {
-		let line = sys.parse(tail.to_vec(), exported, comments).await?;
-		return parse_items(ctx, path, Snippet::new(tail.prev(), &line, tail.i())).await;
+		let line = sys.parse(path_sym, tail.to_vec(), exported, comments).await?;
+		return parse_items(ctx, path, Snippet::new(tail.prev(), &line)).await;
 	} else {
 		let ext_lines = ctx.systems().flat_map(System::line_types).join(", ");
 		return Err(mk_errv(
-			tail.i().i("Unrecognized line type").await,
+			ctx.i().i("Unrecognized line type").await,
 			format!("Line types are: const, mod, macro, grammar, {ext_lines}"),
 			[Pos::Range(tail.prev().range.clone()).into()],
 		));
@@ -143,175 +159,115 @@ pub async fn parse_exportable_item(
 	Ok(vec![Item { comments, pos: Pos::Range(tail.pos()), kind }])
 }
 
-pub async fn parse_module(
-	ctx: &impl ParseCtx,
+pub async fn parse_module<'a>(
+	ctx: &impl HostParseCtx,
 	path: Substack<'_, Tok<String>>,
-	tail: ParsSnippet<'_>,
-) -> OrcRes<(Tok<String>, Module)> {
-	let (name, tail) = match try_pop_no_fluff(tail).await? {
+	tail: ParsSnippet<'a>,
+) -> OrcRes<(Tok<String>, ParsedModule)> {
+	let (name, tail) = match try_pop_no_fluff(ctx, tail).await? {
 		Parsed { output: TokTree { tok: Token::Name(n), .. }, tail } => (n.clone(), tail),
 		Parsed { output, .. } => {
 			return Err(mk_errv(
-				tail.i().i("Missing module name").await,
-				format!("A name was expected, {} was found", tail.fmt(output).await),
+				ctx.i().i("Missing module name").await,
+				format!("A name was expected, {} was found", fmt(output, ctx.i()).await),
 				[Pos::Range(output.range.clone()).into()],
 			));
 		},
 	};
-	let Parsed { output, tail: surplus } = try_pop_no_fluff(tail).await?;
-	expect_end(surplus).await?;
-	let Some(body) = output.as_s(Paren::Round, tail.i()) else {
+	let Parsed { output, tail: surplus } = try_pop_no_fluff(ctx, tail).await?;
+	expect_end(ctx, surplus).await?;
+	let Some(body) = output.as_s(Paren::Round) else {
 		return Err(mk_errv(
-			tail.i().i("Expected module body").await,
-			format!("A ( block ) was expected, {} was found", tail.fmt(output).await),
+			ctx.i().i("Expected module body").await,
+			format!("A ( block ) was expected, {} was found", fmt(output, ctx.i()).await),
 			[Pos::Range(output.range.clone()).into()],
 		));
 	};
 	let path = path.push(name.clone());
-	Ok((name, Module::new(parse_items(ctx, path, body).await?)))
+	Ok((name, ParsedModule::new(parse_items(ctx, path, body).await?)))
 }
 
-pub async fn parse_const(
-	tail: ParsSnippet<'_>,
+pub async fn parse_const<'a>(
+	ctx: &impl HostParseCtx,
+	tail: ParsSnippet<'a>,
 	path: Substack<'_, Tok<String>>,
-) -> OrcRes<(Tok<String>, Vec<MacTree>)> {
-	let Parsed { output, tail } = try_pop_no_fluff(tail).await?;
+) -> OrcRes<Tok<String>> {
+	let Parsed { output, tail } = try_pop_no_fluff(ctx, tail).await?;
 	let Some(name) = output.as_name() else {
 		return Err(mk_errv(
-			tail.i().i("Missing module name").await,
-			format!("A name was expected, {} was found", tail.fmt(output).await),
+			ctx.i().i("Missing module name").await,
+			format!("A name was expected, {} was found", fmt(output, ctx.i()).await),
 			[Pos::Range(output.range.clone()).into()],
 		));
 	};
-	let Parsed { output, tail } = try_pop_no_fluff(tail).await?;
-	if !output.is_kw(tail.i().i("=").await) {
+	let Parsed { output, tail } = try_pop_no_fluff(ctx, tail).await?;
+	if !output.is_kw(ctx.i().i("=").await) {
 		return Err(mk_errv(
-			tail.i().i("Missing = separator").await,
-			format!("Expected = , found {}", tail.fmt(output).await),
+			ctx.i().i("Missing = separator").await,
+			format!("Expected = , found {}", fmt(output, ctx.i()).await),
 			[Pos::Range(output.range.clone()).into()],
 		));
 	}
-	try_pop_no_fluff(tail).await?;
-	Ok((name, parse_mtree(tail, path).await?))
+	try_pop_no_fluff(ctx, tail).await?;
+	ctx.save_const(path, tail[..].to_vec()).await;
+	Ok(name)
 }
 
-pub async fn parse_mtree(
-	mut snip: ParsSnippet<'_>,
-	path: Substack<'_, Tok<String>>,
-) -> OrcRes<Vec<MacTree>> {
-	let mut mtreev = Vec::new();
-	while let Some((ttree, tail)) = snip.pop_front() {
-		snip = tail;
-		let (range, tok, tail) = match &ttree.tok {
-			Token::S(p, b) => {
-				let b = parse_mtree(Snippet::new(ttree, b, snip.i()), path.clone()).boxed_local().await?;
-				(ttree.range.clone(), MTok::S(*p, b), tail)
-			},
-			Token::Reference(name) => (ttree.range.clone(), MTok::Name(name.clone()), tail),
-			Token::Name(tok) => {
-				let mut segments = path.unreverse();
-				segments.push(tok.clone());
-				let mut end = ttree.range.end;
-				while let Some((TokTree { tok: Token::NS, .. }, tail)) = snip.pop_front() {
-					let Parsed { output, tail } = try_pop_no_fluff(tail).await?;
-					let Some(seg) = output.as_name() else {
-						return Err(mk_errv(
-							tail.i().i("Namespaced name interrupted").await,
-							"In expression context, :: must always be followed by a name.\n\
-											::() is permitted only in import and export items",
-							[Pos::Range(output.range.clone()).into()],
-						));
-					};
-					segments.push(seg);
-					snip = tail;
-					end = output.range.end;
-				}
-				(ttree.range.start..end, MTok::Name(Sym::new(segments, snip.i()).await.unwrap()), snip)
-			},
-			Token::NS => {
-				return Err(mk_errv(
-					tail.i().i("Unexpected :: in expression").await,
-					":: can only follow a name",
-					[Pos::Range(ttree.range.clone()).into()],
-				));
-			},
-			Token::Ph(ph) => (ttree.range.clone(), MTok::Ph(ph.clone()), tail),
-			Token::Macro(_) => {
-				return Err(mk_errv(
-					tail.i().i("Invalid keyword in expression").await,
-					"Expressions cannot use `macro` as a name.",
-					[Pos::Range(ttree.range.clone()).into()],
-				));
-			},
-			Token::Atom(a) => (ttree.range.clone(), MTok::Atom(a.clone()), tail),
-			Token::BR | Token::Comment(_) => continue,
-			Token::Bottom(e) => return Err(e.clone()),
-			Token::LambdaHead(arg) => (
-				ttree.range.start..snip.pos().end,
-				MTok::Lambda(
-					parse_mtree(Snippet::new(ttree, arg, snip.i()), path.clone()).boxed_local().await?,
-					parse_mtree(tail, path.clone()).boxed_local().await?,
-				),
-				Snippet::new(ttree, &[], snip.i()),
-			),
-			Token::Slot(_) | Token::X(_) =>
-				panic!("Did not expect {} in parsed token tree", tail.fmt(ttree).await),
-		};
-		mtreev.push(MTree { pos: Pos::Range(range.clone()), tok: Rc::new(tok) });
-		snip = tail;
-	}
-	Ok(mtreev)
-}
-
-pub async fn parse_macro(
+pub async fn parse_expr(
+	ctx: &impl HostParseCtx,
+	path: Sym,
+	psb: PathSetBuilder<'_, Tok<String>>,
 	tail: ParsSnippet<'_>,
-	macro_i: u16,
-	path: Substack<'_, Tok<String>>,
-) -> OrcRes<Vec<Rule>> {
-	let (surplus, prev, block) = match try_pop_no_fluff(tail).await? {
-		Parsed { tail, output: o @ TokTree { tok: Token::S(Paren::Round, b), .. } } => (tail, o, b),
-		Parsed { output, .. } => {
-			return Err(mk_errv(
-				tail.i().i("m").await,
-				"Macro blocks must either start with a block or a ..$:number",
-				[Pos::Range(output.range.clone()).into()],
-			));
-		},
+) -> OrcRes<Expr> {
+	let Some((last_idx, _)) = (tail.iter().enumerate().find(|(_, tt)| tt.as_lambda().is_some()))
+		.or_else(|| tail.iter().enumerate().rev().find(|(_, tt)| !tt.is_fluff()))
+	else {
+		return Err(mk_errv(ctx.i().i("Empty expression").await, "Expression ends abruptly here", [
+			Pos::Range(tail.pos()).into(),
+		]));
 	};
-	expect_end(surplus).await?;
-	let mut errors = Vec::new();
-	let mut rules = Vec::new();
-	for (i, item) in line_items(Snippet::new(prev, block, tail.i())).await.into_iter().enumerate() {
-		let Parsed { tail, output } = try_pop_no_fluff(item.tail).await?;
-		if !output.is_kw(tail.i().i("rule").await) {
-			errors.extend(mk_errv(
-				tail.i().i("non-rule in macro").await,
-				format!("Expected `rule`, got {}", tail.fmt(output).await),
-				[Pos::Range(output.range.clone()).into()],
-			));
-			continue;
-		};
-		let arrow = tail.i().i("=>").await;
-		let (pat, body) = match tail.split_once(|t| t.is_kw(arrow.clone())) {
-			Some((a, b)) => (a, b),
-			None => {
-				errors.extend(mk_errv(
-					tail.i().i("no => in macro rule").await,
-					"The pattern and body of a rule must be separated by a =>",
-					[Pos::Range(tail.pos()).into()],
-				));
-				continue;
-			},
-		};
-		rules.push(Rule {
-			comments: item.output,
-			pos: Pos::Range(tail.pos()),
-			pattern: parse_mtree(pat, path.clone()).await?,
-			kind: RuleKind::Native(Code::from_code(
-				CodeLocator::to_rule(tail.i().i(&path.unreverse()).await, macro_i, i as u16),
-				parse_mtree(body, path.clone()).await?,
-			)),
-		})
+	let (function, value) = tail.split_at(last_idx as u32);
+	let pos = Pos::Range(tail.pos());
+	if !function.iter().all(TokTree::is_fluff) {
+		let (f_psb, x_psb) = psb.split();
+		let x_expr = parse_expr(ctx, path.clone(), x_psb, value).boxed_local().await?;
+		let f_expr = parse_expr(ctx, path, f_psb, function).boxed_local().await?;
+		return Ok(ExprKind::Call(f_expr, x_expr).at(pos));
 	}
-	if let Ok(e) = OrcErrv::new(errors) { Err(e) } else { Ok(rules) }
+	let Parsed { output: head, tail } = try_pop_no_fluff(ctx, value).await?;
+	match &head.tok {
+		Token::BR | Token::Comment(_) => panic!("Fluff skipped"),
+		Token::Bottom(b) => Ok(ExprKind::Bottom(b.clone()).at(pos.clone())),
+		Token::Handle(expr) => Ok(expr.clone()),
+		Token::NS(n, nametail) => {
+			let mut nametail = nametail;
+			let mut segments = path.iter().chain([n]).cloned().collect_vec();
+			while let Token::NS(n, newtail) = &nametail.tok {
+				segments.push(n.clone());
+				nametail = newtail;
+			}
+			let Token::Name(n) = &nametail.tok else {
+				return Err(mk_errv(
+					ctx.i().i("Loose namespace prefix in constant").await,
+					"Namespace prefixes in constants must be followed by names",
+					[pos.into()],
+				));
+			};
+			segments.push(n.clone());
+			Ok(ExprKind::Const(Sym::new(segments, ctx.i()).await.unwrap()).at(pos.clone()))
+		},
+		Token::LambdaHead(h) => {
+			let [TokTree { tok: Token::Name(arg), .. }] = &h[..] else {
+				return Err(mk_errv(
+					ctx.i().i("Complex lambda binding in constant").await,
+					"Lambda args in constants must be identified by a single name",
+					[pos.into()],
+				));
+			};
+			let lambda_builder = psb.lambda(arg);
+			let body = parse_expr(ctx, path.clone(), lambda_builder.stack(), tail).boxed_local().await?;
+			Ok(ExprKind::Lambda(lambda_builder.collect(), body).at(pos.clone()))
+		},
+		_ => todo!("AAAAAA"), // TODO: todo
+	}
 }

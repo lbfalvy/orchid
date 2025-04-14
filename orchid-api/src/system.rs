@@ -52,11 +52,11 @@ pub struct NewSystem {
 	pub depends: Vec<SysId>,
 }
 impl Request for NewSystem {
-	type Response = SystemInst;
+	type Response = NewSystemResponse;
 }
 
 #[derive(Clone, Debug, Coding)]
-pub struct SystemInst {
+pub struct NewSystemResponse {
 	/// The set of possible starting characters of tokens the lexer of this system
 	/// can process. The lexer will notify this system if it encounters one of
 	/// these characters.9

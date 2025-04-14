@@ -2,9 +2,9 @@ use orchid_base::name::Sym;
 
 use super::scal_match::scalv_match;
 use super::shared::AnyMatcher;
+use super::state::MatchState;
 use super::vec_match::vec_match;
 use crate::macros::MacTree;
-use crate::rule::state::MatchState;
 
 #[must_use]
 pub fn any_match<'a>(

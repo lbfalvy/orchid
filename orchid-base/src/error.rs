@@ -169,20 +169,16 @@ pub fn mk_errv(
 	mk_err(description, message, posv).into()
 }
 
-pub trait Reporter {
-	fn report(&self, e: impl Into<OrcErrv>);
-}
-
-pub struct ReporterImpl {
+pub struct Reporter {
 	errors: RefCell<Vec<OrcErr>>,
 }
-impl ReporterImpl {
+
+impl Reporter {
+	pub fn report(&self, e: impl Into<OrcErrv>) { self.errors.borrow_mut().extend(e.into()) }
 	pub fn new() -> Self { Self { errors: RefCell::new(vec![]) } }
 	pub fn errv(self) -> Option<OrcErrv> { OrcErrv::new(self.errors.into_inner()).ok() }
 }
-impl Reporter for ReporterImpl {
-	fn report(&self, e: impl Into<OrcErrv>) { self.errors.borrow_mut().extend(e.into()) }
-}
-impl Default for ReporterImpl {
+
+impl Default for Reporter {
 	fn default() -> Self { Self::new() }
 }

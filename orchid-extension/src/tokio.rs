@@ -2,19 +2,16 @@ use crate::entrypoint::ExtensionData;
 
 #[cfg(feature = "tokio")]
 pub async fn tokio_main(data: ExtensionData) {
-	use std::future::Future;
 	use std::io::Write;
 	use std::mem;
-	use std::pin::{Pin, pin};
+	use std::pin::Pin;
 	use std::rc::Rc;
 
 	use async_std::io;
-	use async_stream::stream;
+	use futures::StreamExt;
 	use futures::future::LocalBoxFuture;
 	use futures::stream::FuturesUnordered;
-	use futures::{StreamExt, stream, stream_select};
 	use orchid_api_traits::{Decode, Encode};
-	use orchid_base::clone;
 	use tokio::task::{LocalSet, spawn_local};
 
 	use crate::api;

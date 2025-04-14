@@ -13,13 +13,14 @@ use never::Never;
 use orchid_api_traits::Encode;
 use orchid_base::clone;
 use orchid_base::error::OrcRes;
+use orchid_base::format::{FmtCtx, FmtUnit};
 use orchid_base::name::Sym;
 use trait_set::trait_set;
 
 use crate::atom::{Atomic, MethodSetBuilder};
 use crate::atom_owned::{DeserializeCtx, OwnedAtom, OwnedVariant};
 use crate::conv::ToExpr;
-use crate::expr::{Expr, ExprHandle};
+use crate::expr::Expr;
 use crate::gen_expr::GExpr;
 use crate::system::{SysCtx, SysCtxEntry};
 
@@ -66,14 +67,13 @@ impl Fun {
 impl Atomic for Fun {
 	type Data = ();
 	type Variant = OwnedVariant;
-	fn reg_reqs() -> MethodSetBuilder<Self> { MethodSetBuilder::new() }
 }
 impl OwnedAtom for Fun {
 	type Refs = Vec<Expr>;
 	async fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(()) }
-	async fn call_ref(&self, arg: ExprHandle) -> GExpr {
+	async fn call_ref(&self, arg: Expr) -> GExpr {
 		std::io::Write::flush(&mut std::io::stderr()).unwrap();
-		let new_args = self.args.iter().cloned().chain([Expr::from_handle(Rc::new(arg))]).collect_vec();
+		let new_args = self.args.iter().cloned().chain([arg]).collect_vec();
 		if new_args.len() == self.arity.into() {
 			(self.fun)(new_args).await.to_expr()
 		} else {
@@ -81,7 +81,7 @@ impl OwnedAtom for Fun {
 				.to_expr()
 		}
 	}
-	async fn call(self, arg: ExprHandle) -> GExpr { self.call_ref(arg).await }
+	async fn call(self, arg: Expr) -> GExpr { self.call_ref(arg).await }
 	async fn serialize(&self, _: SysCtx, write: Pin<&mut (impl Write + ?Sized)>) -> Self::Refs {
 		self.path.to_api().encode(write).await;
 		self.args.clone()
@@ -92,7 +92,7 @@ impl OwnedAtom for Fun {
 		let (arity, fun) = sys.get_or_default::<FunsCtx>().0.lock().await.get(&path).unwrap().clone();
 		Self { args, arity, path, fun }
 	}
-	async fn print(&self, _: SysCtx) -> orchid_base::format::FmtUnit {
+	async fn print<'a>(&'a self, _: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
 		format!("{}:{}/{}", self.path, self.args.len(), self.arity).into()
 	}
 }
@@ -116,20 +116,19 @@ impl Lambda {
 impl Atomic for Lambda {
 	type Data = ();
 	type Variant = OwnedVariant;
-	fn reg_reqs() -> MethodSetBuilder<Self> { MethodSetBuilder::new() }
 }
 impl OwnedAtom for Lambda {
 	type Refs = Never;
 	async fn val(&self) -> Cow<'_, Self::Data> { Cow::Owned(()) }
-	async fn call_ref(&self, arg: ExprHandle) -> GExpr {
-		let new_args = self.args.iter().cloned().chain([Expr::from_handle(Rc::new(arg))]).collect_vec();
+	async fn call_ref(&self, arg: Expr) -> GExpr {
+		let new_args = self.args.iter().cloned().chain([arg]).collect_vec();
 		if new_args.len() == self.arity.into() {
 			(self.fun)(new_args).await.to_expr()
 		} else {
 			Self { args: new_args, arity: self.arity, fun: self.fun.clone() }.to_expr()
 		}
 	}
-	async fn call(self, arg: ExprHandle) -> GExpr { self.call_ref(arg).await }
+	async fn call(self, arg: Expr) -> GExpr { self.call_ref(arg).await }
 }
 
 mod expr_func_derives {

@@ -20,12 +20,20 @@ pub struct ExprHandle {
 	pub ctx: SysCtx,
 }
 impl ExprHandle {
-	pub(crate) fn from_args(ctx: SysCtx, tk: api::ExprTicket) -> Self { Self { ctx, tk } }
+	/// # Safety
+	///
+	/// This function does not signal to take ownership of the expr. It must only
+	/// be called on tickets that are already implicitly owned.
+	pub unsafe fn from_args(ctx: SysCtx, tk: api::ExprTicket) -> Self { Self { ctx, tk } }
 	pub fn get_ctx(&self) -> SysCtx { self.ctx.clone() }
 	pub async fn clone(&self) -> Self {
 		self.ctx.reqnot().notify(api::Acquire(self.ctx.sys_id(), self.tk)).await;
 		Self { ctx: self.ctx.clone(), tk: self.tk }
 	}
+	/// Drop the handle and get the ticket without a release notification.
+	/// Use this with messages that imply ownership transfer. This function is
+	/// safe because abusing it is a memory leak.
+	pub fn into_tk(self) -> api::ExprTicket { self.destructure().0 }
 }
 impl fmt::Debug for ExprHandle {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -66,7 +74,7 @@ impl Expr {
 		}))
 		.await
 	}
-	pub async fn atom(self) -> Result<ForeignAtom<'static>, Self> {
+	pub async fn atom(self) -> Result<ForeignAtom, Self> {
 		match self.data().await {
 			ExprData { kind: ExprKind::Atom(atom), .. } => Ok(atom.clone()),
 			_ => Err(self),
@@ -75,7 +83,9 @@ impl Expr {
 	pub fn handle(&self) -> Rc<ExprHandle> { self.handle.clone() }
 	pub fn ctx(&self) -> SysCtx { self.handle.ctx.clone() }
 
-	pub fn gen(&self) -> GExpr { GExpr { pos: Pos::SlotTarget, kind: GExprKind::Slot(self.clone()) } }
+	pub fn slot(&self) -> GExpr {
+		GExpr { pos: Pos::SlotTarget, kind: GExprKind::Slot(self.clone()) }
+	}
 }
 impl Format for Expr {
 	async fn print<'a>(&'a self, _c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
@@ -96,7 +106,7 @@ pub struct ExprData {
 
 #[derive(Clone, Debug)]
 pub enum ExprKind {
-	Atom(ForeignAtom<'static>),
+	Atom(ForeignAtom),
 	Bottom(OrcErrv),
 	Opaque,
 }

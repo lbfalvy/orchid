@@ -15,7 +15,6 @@ pub mod interner;
 pub mod join;
 pub mod location;
 pub mod logging;
-pub mod macros;
 mod match_mapping;
 pub mod msg;
 pub mod name;

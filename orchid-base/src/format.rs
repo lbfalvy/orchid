@@ -270,3 +270,6 @@ pub trait Format {
 impl Format for Never {
 	async fn print<'a>(&'a self, _c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit { match *self {} }
 }
+
+/// Format with default strategy. Currently equal to [take_first_fmt]
+pub async fn fmt(v: &(impl Format + ?Sized), i: &Interner) -> String { take_first_fmt(v, i).await }

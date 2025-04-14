@@ -1,12 +1,14 @@
 [package]
 name = "orchid-std"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 async-once-cell = "0.5.4"
 async-std = "1.13.0"
+async-stream = "0.3.6"
 futures = "0.3.31"
+hashbrown = "0.15.2"
 itertools = "0.14.0"
 never = "0.1.0"
 once_cell = "1.20.2"
@@ -20,3 +22,6 @@ orchid-extension = { version = "0.1.0", path = "../orchid-extension", features =
 ordered-float = "5.0.0"
 rust_decimal = "1.36.0"
 tokio = { version = "1.43.0", features = ["full"] }
+
+[dev-dependencies]
+test_executors = "0.3.2"

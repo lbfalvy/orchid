@@ -17,7 +17,6 @@ pub struct Int(pub i64);
 impl Atomic for Int {
 	type Variant = ThinVariant;
 	type Data = Self;
-	fn reg_reqs() -> MethodSetBuilder<Self> { MethodSetBuilder::new() }
 }
 impl ThinAtom for Int {
 	async fn print(&self, _: SysCtx) -> FmtUnit { self.0.to_string().into() }
@@ -33,7 +32,6 @@ pub struct Float(pub NotNan<f64>);
 impl Atomic for Float {
 	type Variant = ThinVariant;
 	type Data = Self;
-	fn reg_reqs() -> MethodSetBuilder<Self> { MethodSetBuilder::new() }
 }
 impl ThinAtom for Float {
 	async fn print(&self, _: SysCtx) -> FmtUnit { self.0.to_string().into() }

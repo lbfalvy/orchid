@@ -13,7 +13,7 @@ use futures::future::{join, join_all};
 use futures::{FutureExt, StreamExt, stream, stream_select};
 use hashbrown::HashMap;
 use itertools::Itertools;
-use orchid_api::HostMsgSet;
+use orchid_api::{HostMsgSet, LsModule};
 use orchid_api_traits::Request;
 use orchid_base::builtin::ExtInit;
 use orchid_base::clone;
@@ -45,7 +45,6 @@ pub struct ExtensionData {
 	exprs: ExprStore,
 	exiting_snd: Sender<()>,
 	lex_recur: Mutex<HashMap<api::ParsId, channel::Sender<ReqPair<api::SubLex>>>>,
-	mac_recur: Mutex<HashMap<api::ParsId, channel::Sender<ReqPair<api::RunMacros>>>>,
 }
 impl Drop for ExtensionData {
 	fn drop(&mut self) {
@@ -79,7 +78,7 @@ impl Extension {
 			})));
 			ExtensionData {
 				exiting_snd,
-				exprs: ExprStore::default(),
+				exprs: ctx.common_exprs.derive(),
 				ctx: ctx.clone(),
 				systems: (init.systems.iter().cloned())
 					.map(|decl| SystemCtor { decl, ext: WeakExtension(weak.clone()) })
@@ -88,7 +87,6 @@ impl Extension {
 				init: init.clone(),
 				next_pars: RefCell::new(NonZeroU64::new(1).unwrap()),
 				lex_recur: Mutex::default(),
-				mac_recur: Mutex::default(),
 				reqnot: ReqNot::new(
 					msg_logger,
 					move |sfn, _| clone!(init; Box::pin(async move { init.send(sfn).await })),
@@ -169,12 +167,8 @@ impl Extension {
 											})
 											.await
 									},
-									api::ExtHostReq::RunMacros(rm) => {
-										let (rep_in, rep_out) = channel::bounded(1);
-										let lex_g = this.0.mac_recur.lock().await;
-										let req_in = lex_g.get(&rm.run_id).expect("Sublex for nonexistent lexid");
-										req_in.send(ReqPair(rm.clone(), rep_in)).await.unwrap();
-										hand.handle(&rm, &rep_out.recv().await.unwrap()).await
+									api::ExtHostReq::LsModule(ref ls @ LsModule(ref sys, ref path)) => {
+										todo!() // TODO
 									},
 									api::ExtHostReq::ExtAtomPrint(ref eap @ api::ExtAtomPrint(ref atom)) => {
 										let atom = AtomHand::new(atom.clone(), &ctx).await;

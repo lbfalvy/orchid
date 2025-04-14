@@ -94,11 +94,9 @@ fn parse_string(str: &str) -> Result<String, StringError> {
 #[derive(Default)]
 pub struct StringLexer;
 impl Lexer for StringLexer {
-	const CHAR_FILTER: &'static [std::ops::RangeInclusive<char>] = &['"'..='"', '\''..='\''];
+	const CHAR_FILTER: &'static [std::ops::RangeInclusive<char>] = &['"'..='"', '`'..='`'];
 	async fn lex<'a>(all: &'a str, ctx: &'a LexContext<'a>) -> OrcRes<(&'a str, GenTokTree<'a>)> {
-		let Some((mut tail, delim)) = (all.strip_prefix('"').map(|t| (t, '"')))
-			.or_else(|| all.strip_prefix('\'').map(|t| (t, '\'')))
-		else {
+		let Some(mut tail) = all.strip_prefix('"') else {
 			return Err(err_not_applicable(ctx.i).await.into());
 		};
 		let mut ret = None;
@@ -125,7 +123,7 @@ impl Lexer for StringLexer {
 			wrap_tokv([concat_fn, prev, new])
 		};
 		loop {
-			if let Some(rest) = tail.strip_prefix(delim) {
+			if let Some(rest) = tail.strip_prefix('"') {
 				return Ok((rest, add_frag(ret, str_to_gen(&mut cur, tail, &mut errors, ctx).await).await));
 			} else if let Some(rest) = tail.strip_prefix('$') {
 				ret = Some(add_frag(ret, str_to_gen(&mut cur, tail, &mut errors, ctx).await).await);

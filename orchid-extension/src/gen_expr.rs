@@ -1,11 +1,12 @@
-use std::future::Future;
+use std::rc::Rc;
 
 use futures::FutureExt;
 use orchid_base::error::{OrcErr, OrcErrv};
+use orchid_base::format::{FmtCtx, FmtUnit, Format, Variants};
 use orchid_base::location::Pos;
-use orchid_base::match_mapping;
 use orchid_base::name::Sym;
 use orchid_base::reqnot::ReqHandlish;
+use orchid_base::{match_mapping, tl_cache};
 
 use crate::api;
 use crate::atom::{AtomFactory, ToAtom};
@@ -14,6 +15,7 @@ use crate::expr::Expr;
 use crate::func_atom::Lambda;
 use crate::system::SysCtx;
 
+#[derive(Clone, Debug)]
 pub struct GExpr {
 	pub kind: GExprKind,
 	pub pos: Pos,
@@ -34,7 +36,13 @@ impl GExpr {
 		}
 	}
 }
+impl Format for GExpr {
+	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
+		self.kind.print(c).await
+	}
+}
 
+#[derive(Clone, Debug)]
 pub enum GExprKind {
 	Call(Box<GExpr>, Box<GExpr>),
 	Lambda(u64, Box<GExpr>),
@@ -65,6 +73,28 @@ impl GExprKind {
 		} {
 			Self::Slot(_) => panic!("processed elsewhere")
 		})
+	}
+}
+impl Format for GExprKind {
+	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
+		match self {
+			GExprKind::Call(f, x) =>
+				tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("{0} ({1})")))
+					.units([f.print(c).await, x.print(c).await]),
+			GExprKind::Lambda(arg, body) =>
+				tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("\\{0}.{1}")))
+					.units([arg.to_string().into(), body.print(c).await]),
+			GExprKind::Arg(arg) => arg.to_string().into(),
+			GExprKind::Seq(a, b) =>
+				tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("[{0}] {1}")))
+					.units([a.print(c).await, b.print(c).await]),
+			GExprKind::Const(sym) => sym.to_string().into(),
+			GExprKind::NewAtom(atom_factory) => atom_factory.to_string().into(),
+			GExprKind::Slot(expr) =>
+				tl_cache!(Rc<Variants>: Rc::new(Variants::default().bounded("{{{0}}}")))
+					.units([expr.print(c).await]),
+			GExprKind::Bottom(orc_errv) => orc_errv.to_string().into(),
+		}
 	}
 }
 

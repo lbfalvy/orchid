@@ -16,7 +16,7 @@ use crate::atom::{
 	AtomCard, AtomCtx, AtomDynfo, AtomFactory, Atomic, AtomicFeaturesImpl, AtomicVariant, MethodSet,
 	MethodSetBuilder, err_not_callable, err_not_command, get_info,
 };
-use crate::expr::ExprHandle;
+use crate::expr::Expr;
 use crate::gen_expr::{GExpr, bot};
 use crate::system::SysCtx;
 use crate::system_ctor::CtedObj;
@@ -49,23 +49,11 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
 	fn decode<'a>(&'a self, AtomCtx(buf, ..): AtomCtx<'a>) -> LocalBoxFuture<'a, Box<dyn Any>> {
 		Box::pin(async { Box::new(T::decode(Pin::new(&mut &buf[..])).await) as Box<dyn Any> })
 	}
-	fn call<'a>(
-		&'a self,
-		AtomCtx(buf, _, ctx): AtomCtx<'a>,
-		arg: api::ExprTicket,
-	) -> LocalBoxFuture<'a, GExpr> {
-		Box::pin(async move {
-			T::decode(Pin::new(&mut &buf[..])).await.call(ExprHandle::from_args(ctx, arg)).await
-		})
+	fn call<'a>(&'a self, AtomCtx(buf, ..): AtomCtx<'a>, arg: Expr) -> LocalBoxFuture<'a, GExpr> {
+		Box::pin(async move { T::decode(Pin::new(&mut &buf[..])).await.call(arg).await })
 	}
-	fn call_ref<'a>(
-		&'a self,
-		AtomCtx(buf, _, ctx): AtomCtx<'a>,
-		arg: api::ExprTicket,
-	) -> LocalBoxFuture<'a, GExpr> {
-		Box::pin(async move {
-			T::decode(Pin::new(&mut &buf[..])).await.call(ExprHandle::from_args(ctx, arg)).await
-		})
+	fn call_ref<'a>(&'a self, AtomCtx(buf, ..): AtomCtx<'a>, arg: Expr) -> LocalBoxFuture<'a, GExpr> {
+		Box::pin(async move { T::decode(Pin::new(&mut &buf[..])).await.call(arg).await })
 	}
 	fn handle_req<'a, 'm1: 'a, 'm2: 'a>(
 		&'a self,
@@ -89,7 +77,7 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
 		&'a self,
 		ctx: AtomCtx<'a>,
 		write: Pin<&'b mut dyn Write>,
-	) -> LocalBoxFuture<'a, Option<Vec<api::ExprTicket>>> {
+	) -> LocalBoxFuture<'a, Option<Vec<Expr>>> {
 		Box::pin(async {
 			T::decode(Pin::new(&mut &ctx.0[..])).await.encode(write).await;
 			Some(Vec::new())
@@ -99,7 +87,7 @@ impl<T: ThinAtom> AtomDynfo for ThinAtomDynfo<T> {
 		&'a self,
 		ctx: SysCtx,
 		data: &'a [u8],
-		refs: &'a [api::ExprTicket],
+		refs: &'a [Expr],
 	) -> LocalBoxFuture<'a, api::Atom> {
 		assert!(refs.is_empty(), "Refs found when deserializing thin atom");
 		Box::pin(async { T::decode(Pin::new(&mut &data[..])).await._factory().build(ctx).await })
@@ -116,8 +104,8 @@ pub trait ThinAtom:
 	AtomCard<Data = Self> + Atomic<Variant = ThinVariant> + Coding + Send + Sync + 'static
 {
 	#[allow(unused_variables)]
-	fn call(&self, arg: ExprHandle) -> impl Future<Output = GExpr> {
-		async move { bot([err_not_callable(arg.ctx.i()).await]) }
+	fn call(&self, arg: Expr) -> impl Future<Output = GExpr> {
+		async move { bot([err_not_callable(arg.ctx().i()).await]) }
 	}
 	#[allow(unused_variables)]
 	fn command(&self, ctx: SysCtx) -> impl Future<Output = OrcRes<Option<GExpr>>> {

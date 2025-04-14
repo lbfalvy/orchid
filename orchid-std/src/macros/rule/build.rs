@@ -5,8 +5,8 @@ use orchid_base::side::Side;
 use orchid_base::tree::Ph;
 
 use super::shared::{AnyMatcher, ScalMatcher, VecMatcher};
+use super::vec_attrs::vec_attrs;
 use crate::macros::{MacTok, MacTree};
-use crate::rule::vec_attrs::vec_attrs;
 
 pub type MaxVecSplit<'a> = (&'a [MacTree], (Tok<String>, u8, bool), &'a [MacTree]);
 
@@ -91,7 +91,6 @@ pub fn mk_vec(pattern: &[MacTree]) -> VecMatcher {
 #[must_use]
 fn mk_scalar(pattern: &MacTree) -> ScalMatcher {
 	match &*pattern.tok {
-		MacTok::Atom(_) | MacTok::Done(_) => panic!("Atoms and Done aren't supported in matchers"),
 		MacTok::Name(n) => ScalMatcher::Name(n.clone()),
 		MacTok::Ph(Ph { name, kind }) => match kind {
 			PhKind::Vector { .. } => {
@@ -101,7 +100,7 @@ fn mk_scalar(pattern: &MacTree) -> ScalMatcher {
 		},
 		MacTok::S(c, body) => ScalMatcher::S(*c, Box::new(mk_any(body))),
 		MacTok::Lambda(arg, body) => ScalMatcher::Lambda(Box::new(mk_any(arg)), Box::new(mk_any(body))),
-		MacTok::Ref(_) | MacTok::Slot(_) => panic!("Extension-only variants"),
+		MacTok::Value(_) | MacTok::Slot => panic!("Only used for templating"),
 	}
 }
 

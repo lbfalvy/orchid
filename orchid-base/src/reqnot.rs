@@ -1,4 +1,4 @@
-use std::any::{Any, TypeId};
+use std::any::Any;
 use std::cell::RefCell;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -45,6 +45,9 @@ pub trait ReqHandlish {
 		self.defer_drop_objsafe(Box::new(val));
 	}
 	fn defer_drop_objsafe(&self, val: Box<dyn Any>);
+}
+impl ReqHandlish for &'_ dyn ReqHandlish {
+	fn defer_drop_objsafe(&self, val: Box<dyn Any>) { (**self).defer_drop_objsafe(val) }
 }
 
 #[derive(destructure)]
@@ -170,12 +173,16 @@ pub trait DynRequester {
 
 pub struct MappedRequester<'a, T: 'a>(Box<dyn Fn(T) -> LocalBoxFuture<'a, RawReply> + 'a>, Logger);
 impl<'a, T> MappedRequester<'a, T> {
-	fn new<U: DynRequester + 'a>(req: U, logger: Logger) -> Self
-	where T: Into<U::Transfer> {
+	fn new<U: DynRequester + 'a, F: Fn(T) -> U::Transfer + 'a>(
+		req: U,
+		cb: F,
+		logger: Logger,
+	) -> Self {
 		let req_arc = Arc::new(req);
+		let cb_arc = Arc::new(cb);
 		MappedRequester(
 			Box::new(move |t| {
-				Box::pin(clone!(req_arc; async move { req_arc.raw_request(t.into()).await}))
+				Box::pin(clone!(req_arc, cb_arc; async move { req_arc.raw_request(cb_arc(t)).await}))
 			}),
 			logger,
 		)
@@ -217,10 +224,10 @@ pub trait Requester: DynRequester {
 		&self,
 		data: R,
 	) -> impl Future<Output = R::Response>;
-	fn map<'a, U: Into<Self::Transfer>>(self) -> MappedRequester<'a, U>
+	fn map<'a, U>(self, cb: impl Fn(U) -> Self::Transfer + 'a) -> MappedRequester<'a, U>
 	where Self: Sized + 'a {
 		let logger = self.logger().clone();
-		MappedRequester::new(self, logger)
+		MappedRequester::new(self, cb, logger)
 	}
 }
 

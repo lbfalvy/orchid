@@ -42,9 +42,7 @@ Prioritised macro patterns must start and end with a vectorial placeholder. They
 Macros are checked from the outermost block inwards.
 
 1. For every name token, test all named macros starting with that name
-   1. Take the first rule that matches in each block
-   2. If there are multiple matches across blocks, raise an ambiguity error
-   3. If the tail is implicit, recurse on it
+   1. If the tail is implicit, continue iterating
 2. Test all prioritized macros
    1. Take the first rule that matches in the highest prioritized block
 
@@ -78,7 +76,8 @@ Recursion has to happen through the interpreter itself, so the macro system is d
 - atom `MacRecurState` holds the recursion state
 - function `resolve_recur` finds all matches on a MacTree
   - type: `MacRecurState -> MacTree -> MacTree`
-  - use all macros to find all matches in the tree
+  - use all relevant macros to find all matches in the tree
+    - since macros must contain a locally defined token, it can be assumed that at the point that a constant is evaluated and all imports in the parent module have been resolved, necessarily all relevant macro rules must have been loaded
   - for each match
     - check for recursion violations
     - wrap the body in iife-s corresponding to the named values in the match state

@@ -28,7 +28,7 @@ use async_std::io::{Read, Write};
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::{Channel, Decode, Encode, MsgSet, Request, read_exact, write_exact};
 
-use crate::{atom, expr, interner, lexer, logging, macros, parser, system, tree, vfs};
+use crate::{atom, expr, interner, lexer, logging, parser, system, tree, vfs};
 
 static HOST_INTRO: &[u8] = b"Orchid host, binary API v0\n";
 pub struct HostHeader {
@@ -88,7 +88,7 @@ pub enum ExtHostReq {
 	SysFwd(system::SysFwd),
 	ExprReq(expr::ExprReq),
 	SubLex(lexer::SubLex),
-	RunMacros(macros::RunMacros),
+	LsModule(tree::LsModule),
 }
 
 /// Notifications sent from the extension to the host
@@ -119,7 +119,6 @@ pub enum HostExtReq {
 	ParseLine(parser::ParseLine),
 	GetMember(tree::GetMember),
 	VfsReq(vfs::VfsReq),
-	ApplyMacro(macros::ApplyMacro),
 }
 
 /// Notifications sent from the host to the extension

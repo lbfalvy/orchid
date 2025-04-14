@@ -5,8 +5,8 @@ use orchid_base::name::Sym;
 
 use super::scal_match::scalv_match;
 use super::shared::VecMatcher;
+use super::state::{MatchState, StateEntry};
 use crate::macros::MacTree;
-use crate::rule::state::{MatchState, StateEntry};
 
 #[must_use]
 pub fn vec_match<'a>(

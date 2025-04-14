@@ -1,8 +1,9 @@
 use std::cell::RefCell;
 use std::num::{NonZero, NonZeroU16};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::{fmt, ops};
 
+use async_once_cell::OnceCell;
 use async_std::sync::RwLock;
 use hashbrown::HashMap;
 use orchid_api::SysId;
@@ -11,8 +12,9 @@ use orchid_base::interner::Interner;
 
 use crate::api;
 use crate::atom::WeakAtomHand;
+use crate::expr_store::ExprStore;
+use crate::parsed::Root;
 use crate::system::{System, WeakSystem};
-use crate::tree::Module;
 
 pub struct CtxData {
 	pub i: Rc<Interner>,
@@ -20,7 +22,8 @@ pub struct CtxData {
 	pub systems: RwLock<HashMap<api::SysId, WeakSystem>>,
 	pub system_id: RefCell<NonZeroU16>,
 	pub owned_atoms: RwLock<HashMap<api::AtomId, WeakAtomHand>>,
-	// pub root: RwLock<Module>,
+	pub common_exprs: ExprStore,
+	pub root: OnceCell<Weak<Root>>,
 }
 #[derive(Clone)]
 pub struct Ctx(Rc<CtxData>);
@@ -36,7 +39,8 @@ impl Ctx {
 			systems: RwLock::default(),
 			system_id: RefCell::new(NonZero::new(1).unwrap()),
 			owned_atoms: RwLock::default(),
-			// root: RwLock::new(Module::default()),
+			common_exprs: ExprStore::default(),
+			root: OnceCell::default(),
 		}))
 	}
 	pub(crate) async fn system_inst(&self, id: api::SysId) -> Option<System> {
@@ -46,6 +50,10 @@ impl Ctx {
 		let mut g = self.system_id.borrow_mut();
 		*g = g.checked_add(1).unwrap_or(NonZeroU16::new(1).unwrap());
 		SysId(*g)
+	}
+	pub async fn set_root(&self, root: Weak<Root>) {
+		assert!(self.root.get().is_none(), "Root already assigned");
+		self.root.get_or_init(async { root }).await;
 	}
 }
 impl fmt::Debug for Ctx {

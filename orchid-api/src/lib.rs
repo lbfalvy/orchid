@@ -2,8 +2,6 @@ mod lexer;
 pub use lexer::*;
 mod format;
 pub use format::*;
-mod macros;
-pub use macros::*;
 mod atom;
 pub use atom::*;
 mod error;

@@ -40,7 +40,9 @@ impl<'a> MatchState<'a> {
 	pub fn combine(self, s: Self) -> Self {
 		Self {
 			placeholders: self.placeholders.into_iter().chain(s.placeholders).collect(),
-			name_posv: join_maps(self.name_posv, s.name_posv, |_, l, r| l.into_iter().chain(r).collect()),
+			name_posv: join_maps::<_, Vec<Pos>>(self.name_posv, s.name_posv, |_, l, r| {
+				l.into_iter().chain(r).collect()
+			}),
 		}
 	}
 	pub fn ph_len(&self, key: &Tok<String>) -> Option<usize> {
