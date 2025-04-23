@@ -34,7 +34,7 @@ use crate::fs::VirtFS;
 use crate::lexer::{LexContext, err_cascade, err_not_applicable};
 use crate::system::{SysCtx, atom_by_idx};
 use crate::system_ctor::{CtedObj, DynSystemCtor};
-use crate::tree::{GenItemKind, GenTok, GenTokTree, LazyMemberFactory, TreeIntoApiCtxImpl};
+use crate::tree::{GenTok, GenTokTree, LazyMemberFactory, TreeIntoApiCtxImpl};
 
 pub type ExtReq<'a> = RequestHandle<'a, api::ExtMsgSet>;
 pub type ExtReqNot = ReqNot<api::ExtMsgSet>;
@@ -197,9 +197,6 @@ pub fn extension_init(
 							let lazy_mems = Mutex::new(HashMap::new());
 							let ctx = init_ctx(new_sys.id, cted.clone(), hand.reqnot()).await;
 							let const_root = stream::from_iter(cted.inst().dyn_env())
-								.filter_map(
-									async |i| if let GenItemKind::Member(m) = i.kind { Some(m) } else { None },
-								)
 								.then(|mem| {
 									let (req, lazy_mems) = (&hand, &lazy_mems);
 									clone!(i, ctx; async move {

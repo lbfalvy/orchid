@@ -1,9 +1,10 @@
+use core::ops::Range;
 use std::num::NonZeroU64;
 
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
-use crate::{Comment, HostExtReq, OrcResult, SysId, TStrv, TokenTree};
+use crate::{HostExtReq, OrcResult, SysId, TStr, TStrv, TokenTree};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Coding)]
 pub struct ParsId(pub NonZeroU64);
@@ -19,4 +20,10 @@ pub struct ParseLine {
 }
 impl Request for ParseLine {
 	type Response = OrcResult<Vec<TokenTree>>;
+}
+
+#[derive(Clone, Debug, Coding)]
+pub struct Comment {
+	pub text: TStr,
+	pub range: Range<u32>,
 }

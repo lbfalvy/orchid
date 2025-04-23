@@ -113,14 +113,23 @@ pub fn strip_fluff<A: ExprRepr, X: ExtraTok>(tt: &TokTree<A, X>) -> Option<TokTr
 #[derive(Clone, Debug)]
 pub struct Comment {
 	pub text: Tok<String>,
-	pub pos: Pos,
+	pub range: Range<u32>,
 }
 impl Comment {
-	pub fn to_api(&self) -> api::Comment {
-		api::Comment { location: self.pos.to_api(), text: self.text.to_api() }
+	pub async fn from_api(c: &api::Comment, i: &Interner) -> Self {
+		Self { text: i.ex(c.text).await, range: c.range.clone() }
 	}
-	pub async fn from_api(api: &api::Comment, i: &Interner) -> Self {
-		Self { pos: Pos::from_api(&api.location, i).await, text: Tok::from_api(api.text, i).await }
+	pub async fn from_tk(tk: &TokTree<impl ExprRepr, impl ExtraTok>, i: &Interner) -> Option<Self> {
+		match &tk.tok {
+			Token::Comment(text) => Some(Self { text: i.i(&**text).await, range: tk.range.clone() }),
+			_ => None,
+		}
+	}
+	pub fn to_tk<R: ExprRepr, X: ExtraTok>(&self) -> TokTree<R, X> {
+		TokTree { tok: Token::Comment(self.text.rc().clone()), range: self.range.clone() }
+	}
+	pub fn to_api(&self) -> api::Comment {
+		api::Comment { range: self.range.clone(), text: self.text.to_api() }
 	}
 }
 
@@ -145,11 +154,7 @@ pub async fn line_items<'a, A: ExprRepr, X: ExtraTok>(
 			Some(i) => {
 				let (cmts, tail) = line.split_at(i);
 				let comments = join_all(comments.drain(..).chain(cmts.cur).map(|t| async {
-					match &t.tok {
-						Token::Comment(c) =>
-							Comment { text: ctx.i().i(&**c).await, pos: Pos::Range(t.range.clone()) },
-						_ => unreachable!("All are comments checked above"),
-					}
+					Comment::from_tk(t, ctx.i()).await.expect("All are comments checked above")
 				}))
 				.await;
 				items.push(Parsed { output: comments, tail });

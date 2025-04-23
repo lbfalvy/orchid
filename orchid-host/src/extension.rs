@@ -10,7 +10,7 @@ use async_std::sync::Mutex;
 use async_stream::stream;
 use derive_destructure::destructure;
 use futures::future::{join, join_all};
-use futures::{FutureExt, StreamExt, stream, stream_select};
+use futures::{StreamExt, stream};
 use hashbrown::HashMap;
 use itertools::Itertools;
 use orchid_api::{HostMsgSet, LsModule};

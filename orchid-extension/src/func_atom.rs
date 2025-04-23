@@ -17,7 +17,7 @@ use orchid_base::format::{FmtCtx, FmtUnit};
 use orchid_base::name::Sym;
 use trait_set::trait_set;
 
-use crate::atom::{Atomic, MethodSetBuilder};
+use crate::atom::Atomic;
 use crate::atom_owned::{DeserializeCtx, OwnedAtom, OwnedVariant};
 use crate::conv::ToExpr;
 use crate::expr::Expr;

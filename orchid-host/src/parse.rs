@@ -141,10 +141,10 @@ pub async fn parse_exportable_item<'a>(
 	let path_sym = Sym::new(path.unreverse(), ctx.i()).await.expect("Files should have a namespace");
 	let kind = if discr == ctx.i().i("mod").await {
 		let (name, body) = parse_module(ctx, path, tail).await?;
-		ItemKind::Member(ParsedMember::new(name, path_sym, ParsedMemberKind::Mod(body)))
+		ItemKind::Member(ParsedMember { name, full_name: path_sym, kind: ParsedMemberKind::Mod(body) })
 	} else if discr == ctx.i().i("const").await {
 		let name = parse_const(ctx, tail, path.clone()).await?;
-		ItemKind::Member(ParsedMember::new(name, path_sym, ParsedMemberKind::Const))
+		ItemKind::Member(ParsedMember { name, full_name: path_sym, kind: ParsedMemberKind::Const })
 	} else if let Some(sys) = ctx.systems().find(|s| s.can_parse(discr.clone())) {
 		let line = sys.parse(path_sym, tail.to_vec(), exported, comments).await?;
 		return parse_items(ctx, path, Snippet::new(tail.prev(), &line)).await;

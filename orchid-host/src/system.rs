@@ -26,7 +26,8 @@ use crate::api;
 use crate::ctx::Ctx;
 use crate::expr::{Expr, ExprParseCtx};
 use crate::extension::{Extension, WeakExtension};
-use crate::parsed::{ItemKind, ParsedMember, ParsedModule, ParsTokTree, ParsedFromApiCx, Root};
+use crate::parsed::{ItemKind, ParsTokTree, ParsedFromApiCx, ParsedMember, ParsedModule, Root};
+use crate::tree::{Member, Module};
 
 #[derive(destructure)]
 struct SystemInstData {
@@ -137,7 +138,7 @@ impl SystemCtor {
 		&self,
 		depends: impl IntoIterator<Item = &'a System>,
 		consts: &mut HashMap<Sym, Expr>,
-	) -> (ParsedModule, System) {
+	) -> (Module, System) {
 		let depends = depends.into_iter().map(|si| si.id()).collect_vec();
 		debug_assert_eq!(depends.len(), self.decl.depends.len(), "Wrong number of deps provided");
 		let ext = self.ext.upgrade().expect("SystemCtor should be freed before Extension");
@@ -152,10 +153,17 @@ impl SystemCtor {
 				.await,
 			id,
 		}));
+		let const_root = Module::from_api((sys_inst.const_root.into_iter()).map(|k, v| api::Member {
+			name: k,
+			kind: v,
+			comments: vec![],
+			exported: true,
+		}))
+		.await;
 		let const_root = clone!(data, ext; stream! {
 			for (k, v) in sys_inst.const_root {
-				yield ParsedMember::from_api(
-					api::Member { name: k, kind: v },
+				yield Member::from_api(
+					,
 					&mut ParsedFromApiCx {
 						consts,
 						path: ext.ctx().i.i(&[]).await,

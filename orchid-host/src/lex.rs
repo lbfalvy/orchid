@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use async_std::sync::Mutex;
 use futures::FutureExt;
@@ -107,11 +107,11 @@ pub async fn lex_once(ctx: &mut LexCtx<'_>) -> OrcRes<ParsTokTree> {
 			));
 		};
 		ctx.set_tail(tail);
-		ParsTok::Comment(Arc::new(cmt.to_string()))
+		ParsTok::Comment(Rc::new(cmt.to_string()))
 	} else if let Some(tail) = ctx.tail.strip_prefix("--").filter(|t| !t.starts_with(op_char)) {
 		let end = tail.find(['\n', '\r']).map_or(tail.len(), |n| n - 1);
 		ctx.push_pos(end as u32);
-		ParsTok::Comment(Arc::new(tail[2..end].to_string()))
+		ParsTok::Comment(Rc::new(tail[2..end].to_string()))
 	} else if ctx.strip_char('\\') {
 		let mut arg = Vec::new();
 		ctx.trim_ws();

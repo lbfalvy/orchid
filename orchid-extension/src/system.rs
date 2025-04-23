@@ -23,7 +23,7 @@ use crate::func_atom::Fun;
 use crate::lexer::LexerObj;
 use crate::parser::ParserObj;
 use crate::system_ctor::{CtedObj, SystemCtor};
-use crate::tree::GenItem;
+use crate::tree::GenMember;
 
 /// System as consumed by foreign code
 pub trait SystemCard: Default + Send + Sync + 'static {
@@ -82,7 +82,7 @@ impl<T: SystemCard> DynSystemCard for T {
 
 /// System as defined by author
 pub trait System: Send + Sync + SystemCard + 'static {
-	fn env() -> Vec<GenItem>;
+	fn env() -> Vec<GenMember>;
 	fn vfs() -> DeclFs;
 	fn lexers() -> Vec<LexerObj>;
 	fn parsers() -> Vec<ParserObj>;
@@ -90,7 +90,7 @@ pub trait System: Send + Sync + SystemCard + 'static {
 }
 
 pub trait DynSystem: Send + Sync + DynSystemCard + 'static {
-	fn dyn_env(&self) -> Vec<GenItem>;
+	fn dyn_env(&self) -> Vec<GenMember>;
 	fn dyn_vfs(&self) -> DeclFs;
 	fn dyn_lexers(&self) -> Vec<LexerObj>;
 	fn dyn_parsers(&self) -> Vec<ParserObj>;
@@ -99,7 +99,7 @@ pub trait DynSystem: Send + Sync + DynSystemCard + 'static {
 }
 
 impl<T: System> DynSystem for T {
-	fn dyn_env(&self) -> Vec<GenItem> { Self::env() }
+	fn dyn_env(&self) -> Vec<GenMember> { Self::env() }
 	fn dyn_vfs(&self) -> DeclFs { Self::vfs() }
 	fn dyn_lexers(&self) -> Vec<LexerObj> { Self::lexers() }
 	fn dyn_parsers(&self) -> Vec<ParserObj> { Self::parsers() }

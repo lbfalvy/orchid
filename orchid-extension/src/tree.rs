@@ -1,10 +1,11 @@
 use std::num::NonZero;
 use std::rc::Rc;
 
+use async_stream::stream;
 use dyn_clone::{DynClone, clone_box};
-use futures::FutureExt;
 use futures::future::{LocalBoxFuture, join_all};
-use hashbrown::{HashMap, HashSet};
+use futures::{FutureExt, StreamExt};
+use hashbrown::HashMap;
 use itertools::Itertools;
 use orchid_base::interner::{Interner, Tok};
 use orchid_base::location::Pos;
@@ -64,60 +65,27 @@ impl TokenVariant<api::ExprTicket> for Expr {
 	}
 }
 
-fn with_export(mem: GenMember, public: bool) -> Vec<GenItem> {
-	(public.then(|| GenItemKind::Export(mem.name.clone())).into_iter())
-		.chain([GenItemKind::Member(mem)])
-		.map(|kind| GenItem { comments: vec![], kind })
-		.collect()
-}
-
-pub struct GenItem {
-	pub kind: GenItemKind,
-	pub comments: Vec<String>,
-}
-impl GenItem {
-	pub async fn into_api(self, ctx: &mut impl TreeIntoApiCtx) -> api::Item {
-		let kind = match self.kind {
-			GenItemKind::Export(n) => api::ItemKind::Export(ctx.sys().i().i::<String>(&n).await.to_api()),
-			GenItemKind::Member(mem) => api::ItemKind::Member(mem.into_api(ctx).await),
-			GenItemKind::Import(cn) => api::ItemKind::Import(
-				Sym::parse(&cn, ctx.sys().i()).await.expect("Import path empty string").to_api(),
-			),
-		};
-		let comments = join_all(self.comments.iter().map(|c| async {
-			api::Comment {
-				location: api::Location::Inherit,
-				text: ctx.sys().i().i::<String>(c).await.to_api(),
-			}
-		}))
-		.await;
-		api::Item { location: api::Location::Inherit, comments, kind }
-	}
-}
-
-pub fn cnst(public: bool, name: &str, value: impl ToExpr) -> Vec<GenItem> {
-	with_export(GenMember { name: name.to_string(), kind: MemKind::Const(value.to_expr()) }, public)
-}
-pub fn import(public: bool, path: &str) -> Vec<GenItem> {
-	let mut out = vec![GenItemKind::Import(path.to_string())];
-	if public {
-		out.push(GenItemKind::Export(path.split("::").last().unwrap().to_string()));
-	}
-	out.into_iter().map(|kind| GenItem { comments: vec![], kind }).collect()
+pub fn cnst(public: bool, name: &str, value: impl ToExpr) -> Vec<GenMember> {
+	vec![GenMember {
+		name: name.to_string(),
+		kind: MemKind::Const(value.to_expr()),
+		comments: vec![],
+		public,
+	}]
 }
 pub fn module(
 	public: bool,
 	name: &str,
-	items: impl IntoIterator<Item = Vec<GenItem>>,
-) -> Vec<GenItem> {
-	let (name, kind) = root_mod(name, items);
-	with_export(GenMember { name, kind }, public)
+	mems: impl IntoIterator<Item = Vec<GenMember>>,
+) -> Vec<GenMember> {
+	let (name, kind) = root_mod(name, mems);
+	vec![GenMember { name, kind, public, comments: vec![] }]
 }
-pub fn root_mod(name: &str, items: impl IntoIterator<Item = Vec<GenItem>>) -> (String, MemKind) {
-	let kind = MemKind::Mod { items: items.into_iter().flatten().collect() };
+pub fn root_mod(name: &str, mems: impl IntoIterator<Item = Vec<GenMember>>) -> (String, MemKind) {
+	let kind = MemKind::Mod { members: mems.into_iter().flatten().collect() };
 	(name.to_string(), kind)
 }
-pub fn fun<I, O>(exported: bool, name: &str, xf: impl ExprFunc<I, O>) -> Vec<GenItem> {
+pub fn fun<I, O>(public: bool, name: &str, xf: impl ExprFunc<I, O>) -> Vec<GenMember> {
 	let fac = LazyMemberFactory::new(move |sym, ctx| async {
 		return MemKind::Const(build_lambdas(Fun::new(sym, ctx, xf).await, 0));
 		fn build_lambdas(fun: Fun, i: u64) -> GExpr {
@@ -132,9 +100,9 @@ pub fn fun<I, O>(exported: bool, name: &str, xf: impl ExprFunc<I, O>) -> Vec<Gen
 			)
 		}
 	});
-	with_export(GenMember { name: name.to_string(), kind: MemKind::Lazy(fac) }, exported)
+	vec![GenMember { name: name.to_string(), kind: MemKind::Lazy(fac), public, comments: vec![] }]
 }
-pub fn prefix(path: &str, items: impl IntoIterator<Item = Vec<GenItem>>) -> Vec<GenItem> {
+pub fn prefix(path: &str, items: impl IntoIterator<Item = Vec<GenMember>>) -> Vec<GenMember> {
 	let mut items = items.into_iter().flatten().collect_vec();
 	for step in path.split("::").collect_vec().into_iter().rev() {
 		items = module(true, step, [items]);
@@ -144,8 +112,8 @@ pub fn prefix(path: &str, items: impl IntoIterator<Item = Vec<GenItem>>) -> Vec<
 
 pub fn comments<'a>(
 	cmts: impl IntoIterator<Item = &'a str>,
-	mut val: Vec<GenItem>,
-) -> Vec<GenItem> {
+	mut val: Vec<GenMember>,
+) -> Vec<GenMember> {
 	let cmts = cmts.into_iter().map(|c| c.to_string()).collect_vec();
 	for v in val.iter_mut() {
 		v.comments.extend(cmts.iter().cloned());
@@ -159,50 +127,35 @@ pub fn comments<'a>(
 /// - Comments on exports and submodules are combined
 /// - Duplicate constants result in an error
 /// - A combination of lazy and anything results in an error
-pub fn merge_trivial(trees: impl IntoIterator<Item = Vec<GenItem>>) -> Vec<GenItem> {
-	let mut imported = HashSet::<String>::new();
-	let mut exported = HashMap::<String, HashSet<String>>::new();
-	let mut members = HashMap::<String, (MemKind, HashSet<String>)>::new();
-	for item in trees.into_iter().flatten() {
-		match item.kind {
-			GenItemKind::Import(sym) => {
-				imported.insert(sym);
+pub fn merge_trivial(trees: impl IntoIterator<Item = Vec<GenMember>>) -> Vec<GenMember> {
+	let mut all_members = HashMap::<String, (MemKind, Vec<String>)>::new();
+	for mem in trees.into_iter().flatten() {
+		assert!(mem.public, "Non-trivial merge in {}", mem.name);
+		match mem.kind {
+			unit @ (MemKind::Const(_) | MemKind::Lazy(_)) => {
+				let prev = all_members.insert(mem.name.clone(), (unit, mem.comments.into_iter().collect()));
+				assert!(prev.is_none(), "Conflict in trivial tree merge on {}", mem.name);
 			},
-			GenItemKind::Export(e) =>
-				exported.entry(e.clone()).or_insert(HashSet::new()).extend(item.comments.iter().cloned()),
-			GenItemKind::Member(mem) => match mem.kind {
-				unit @ (MemKind::Const(_) | MemKind::Lazy(_)) => {
-					let prev = members.insert(mem.name.clone(), (unit, item.comments.into_iter().collect()));
-					assert!(prev.is_none(), "Conflict in trivial tree merge on {}", mem.name);
+			MemKind::Mod { members } => match all_members.entry(mem.name.clone()) {
+				hashbrown::hash_map::Entry::Vacant(slot) => {
+					slot.insert((MemKind::Mod { members }, mem.comments.into_iter().collect()));
 				},
-				MemKind::Mod { items } => match members.entry(mem.name.clone()) {
-					hashbrown::hash_map::Entry::Vacant(slot) => {
-						slot.insert((MemKind::Mod { items }, item.comments.into_iter().collect()));
+				hashbrown::hash_map::Entry::Occupied(mut old) => match old.get_mut() {
+					(MemKind::Mod { members: old_items, .. }, old_cmts) => {
+						let mut swap = vec![];
+						std::mem::swap(&mut swap, old_items);
+						*old_items = merge_trivial([swap, members]);
+						old_cmts.extend(mem.comments);
 					},
-					hashbrown::hash_map::Entry::Occupied(mut old) => match old.get_mut() {
-						(MemKind::Mod { items: old_items }, old_cmts) => {
-							let mut swap = vec![];
-							std::mem::swap(&mut swap, old_items);
-							*old_items = merge_trivial([swap, items]);
-							old_cmts.extend(item.comments);
-						},
-						_ => panic!("Conflict in trivial merge on {}", mem.name),
-					},
+					_ => panic!("non-trivial merge on {}", mem.name),
 				},
 			},
 		}
 	}
 
-	(imported.into_iter().map(|txt| GenItem { comments: vec![], kind: GenItemKind::Import(txt) }))
-		.chain(exported.into_iter().map(|(k, cmtv)| GenItem {
-			comments: cmtv.into_iter().collect(),
-			kind: GenItemKind::Export(k),
-		}))
-		.chain(members.into_iter().map(|(name, (kind, cmtv))| GenItem {
-			comments: cmtv.into_iter().collect(),
-			kind: GenItemKind::Member(GenMember { name, kind }),
-		}))
-		.collect()
+	(all_members.into_iter())
+		.map(|(name, (kind, comments))| GenMember { comments, kind, name, public: true })
+		.collect_vec()
 }
 
 trait_set! {
@@ -220,29 +173,25 @@ impl Clone for LazyMemberFactory {
 	fn clone(&self) -> Self { Self(clone_box(&*self.0)) }
 }
 
-pub enum GenItemKind {
-	Member(GenMember),
-	Export(String),
-	Import(String),
-}
-
 pub struct GenMember {
 	pub name: String,
 	pub kind: MemKind,
+	pub public: bool,
+	pub comments: Vec<String>,
 }
 impl GenMember {
 	pub async fn into_api(self, ctx: &mut impl TreeIntoApiCtx) -> api::Member {
 		let name = ctx.sys().i().i::<String>(&self.name).await;
-		api::Member {
-			kind: self.kind.into_api(&mut ctx.push_path(name.clone())).await,
-			name: name.to_api(),
-		}
+		let kind = self.kind.into_api(&mut ctx.push_path(name.clone())).await;
+		let comments =
+			join_all(self.comments.iter().map(|cmt| async { ctx.sys().i().i(cmt).await.to_api() })).await;
+		api::Member { kind, name: name.to_api(), comments, exported: self.public }
 	}
 }
 
 pub enum MemKind {
 	Const(GExpr),
-	Mod { items: Vec<GenItem> },
+	Mod { members: Vec<GenMember> },
 	Lazy(LazyMemberFactory),
 }
 impl MemKind {
@@ -250,13 +199,10 @@ impl MemKind {
 		match self {
 			Self::Lazy(lazy) => api::MemberKind::Lazy(ctx.with_lazy(lazy)),
 			Self::Const(c) => api::MemberKind::Const(c.api_return(ctx.sys(), ctx.req()).await),
-			Self::Mod { items } => {
-				let mut api_items = Vec::new();
-				for i in items {
-					api_items.push(i.into_api(ctx).boxed_local().await)
-				}
-				api::MemberKind::Module(api::Module { items: api_items })
-			},
+			Self::Mod { members } => api::MemberKind::Module(api::Module {
+				members: Box::pin(stream! { for m in members { yield m.into_api(ctx).await } }.collect())
+					.await,
+			}),
 		}
 	}
 }

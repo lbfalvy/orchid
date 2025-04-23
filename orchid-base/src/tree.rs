@@ -4,7 +4,6 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::ops::Range;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use async_stream::stream;
 use futures::future::join_all;
@@ -216,7 +215,7 @@ pub enum Token<H: ExprRepr, X: ExtraTok> {
 	/// Information about the code addressed to the human reader or dev tooling
 	/// It has no effect on the behaviour of the program unless it's explicitly
 	/// read via reflection
-	Comment(Arc<String>),
+	Comment(Rc<String>),
 	/// The part of a lambda between `\` and `.` enclosing the argument. The body
 	/// stretches to the end of the enclosing parens or the end of the const line
 	LambdaHead(Vec<TokTree<H, X>>),

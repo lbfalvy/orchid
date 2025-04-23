@@ -1,14 +1,12 @@
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 use std::ops::Range;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
-use crate::{
-	ExprTicket, Expression, ExtHostReq, HostExtReq, Location, OrcError, SysId, TStr, TStrv,
-};
+use crate::{ExprTicket, Expression, ExtHostReq, HostExtReq, OrcError, SysId, TStr, TStrv};
 
 /// A token tree from a lexer recursion request. Its lifetime is the lex call,
 /// the lexer can include it in its output or discard it by implication.
@@ -49,7 +47,7 @@ pub enum Token {
 	/// NewExpr(Bottom) because it fails in dead branches too.
 	Bottom(Vec<OrcError>),
 	/// A comment
-	Comment(Arc<String>),
+	Comment(Rc<String>),
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Coding)]
@@ -63,41 +61,24 @@ pub enum Paren {
 pub struct TreeId(pub NonZeroU64);
 
 #[derive(Clone, Debug, Coding)]
-pub struct Item {
-	pub location: Location,
-	pub comments: Vec<Comment>,
-	pub kind: ItemKind,
-}
-
-#[derive(Clone, Debug, Coding)]
-pub enum ItemKind {
-	Member(Member),
-	Export(TStr),
-	Import(TStrv),
-}
-
-#[derive(Clone, Debug, Coding)]
-pub struct Comment {
-	pub text: TStr,
-	pub location: Location,
-}
-
-#[derive(Clone, Debug, Coding)]
 pub struct Member {
 	pub name: TStr,
+	pub exported: bool,
 	pub kind: MemberKind,
+	pub comments: Vec<TStr>,
 }
 
 #[derive(Clone, Debug, Coding)]
 pub enum MemberKind {
 	Const(Expression),
 	Module(Module),
+	Import(TStrv),
 	Lazy(TreeId),
 }
 
 #[derive(Clone, Debug, Coding)]
 pub struct Module {
-	pub items: Vec<Item>,
+	pub members: Vec<Member>,
 }
 
 /// Evaluate a lazy member. This call will only be issued to each system once.
