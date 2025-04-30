@@ -1,6 +1,6 @@
 use std::fmt::{self, Display};
 use std::iter;
-use std::ops::{Deref, Range};
+use std::ops::Deref;
 
 use futures::FutureExt;
 use futures::future::join_all;
@@ -10,9 +10,9 @@ use crate::api;
 use crate::error::{OrcRes, Reporter, mk_err, mk_errv};
 use crate::format::fmt;
 use crate::interner::{Interner, Tok};
-use crate::location::Pos;
-use crate::name::VPath;
-use crate::tree::{ExprRepr, ExtraTok, Paren, TokTree, Token};
+use crate::location::{Pos, SrcRange};
+use crate::name::{VName, VPath};
+use crate::tree::{ExprRepr, ExtraTok, Paren, TokTree, Token, ttv_range};
 
 pub trait ParseCtx {
 	fn i(&self) -> &Interner;
@@ -58,10 +58,7 @@ where
 	pub fn get(self, idx: u32) -> Option<&'a TokTree<A, X>> { self.cur.get(idx as usize) }
 	pub fn len(self) -> u32 { self.cur.len() as u32 }
 	pub fn prev(self) -> &'a TokTree<A, X> { self.prev }
-	pub fn pos(self) -> Range<u32> {
-		(self.cur.first().map(|f| f.range.start..self.cur.last().unwrap().range.end))
-			.unwrap_or(self.prev.range.clone())
-	}
+	pub fn sr(self) -> SrcRange { ttv_range(self.cur).unwrap_or_else(|| self.prev.sr.clone()) }
 	pub fn pop_front(self) -> Option<(&'a TokTree<A, X>, Self)> {
 		self.cur.first().map(|r| (r, self.split_at(1).1))
 	}
@@ -107,7 +104,7 @@ pub fn strip_fluff<A: ExprRepr, X: ExtraTok>(tt: &TokTree<A, X>) -> Option<TokTr
 		Token::S(p, b) => Token::S(*p, b.iter().filter_map(strip_fluff).collect()),
 		t => t.clone(),
 	};
-	Some(TokTree { tok, range: tt.range.clone() })
+	Some(TokTree { tok, sr: tt.sr.clone() })
 }
 
 #[derive(Clone, Debug)]
@@ -116,6 +113,7 @@ pub struct Comment {
 	pub range: Range<u32>,
 }
 impl Comment {
+	// XXX: which of these four are actually used?
 	pub async fn from_api(c: &api::Comment, i: &Interner) -> Self {
 		Self { text: i.ex(c.text).await, range: c.range.clone() }
 	}
@@ -170,10 +168,11 @@ pub async fn try_pop_no_fluff<'a, A: ExprRepr, X: ExtraTok>(
 ) -> ParseRes<'a, &'a TokTree<A, X>, A, X> {
 	match snip.skip_fluff().pop_front() {
 		Some((output, tail)) => Ok(Parsed { output, tail }),
-		None => Err(mk_errv(ctx.i().i("Unexpected end").await, "Pattern ends abruptly", [Pos::Range(
-			snip.pos(),
-		)
-		.into()])),
+		None => Err(mk_errv(
+			ctx.i().i("Unexpected end").await,
+			"Line ends abruptly; more tokens were expected",
+			[snip.sr().pos().into()],
+		)),
 	}
 }
 
@@ -185,7 +184,7 @@ pub async fn expect_end(
 		Some(surplus) => Err(mk_errv(
 			ctx.i().i("Extra code after end of line").await,
 			"Code found after the end of the line",
-			[Pos::Range(surplus.range.clone()).into()],
+			[surplus.sr.pos().into()],
 		)),
 		None => Ok(()),
 	}
@@ -202,7 +201,7 @@ pub async fn expect_tok<'a, A: ExprRepr, X: ExtraTok>(
 		t => Err(mk_errv(
 			ctx.i().i("Expected specific keyword").await,
 			format!("Expected {tok} but found {:?}", fmt(t, ctx.i()).await),
-			[Pos::Range(head.range.clone()).into()],
+			[head.sr.pos().into()],
 		)),
 	}
 }
@@ -217,12 +216,12 @@ pub type ParseRes<'a, T, H, X> = OrcRes<Parsed<'a, T, H, X>>;
 pub async fn parse_multiname<'a, A: ExprRepr, X: ExtraTok>(
 	ctx: &impl ParseCtx,
 	tail: Snippet<'a, A, X>,
-) -> ParseRes<'a, Vec<(Import, Pos)>, A, X> {
+) -> ParseRes<'a, Vec<Import>, A, X> {
 	let Some((tt, tail)) = tail.skip_fluff().pop_front() else {
 		return Err(mk_errv(
 			ctx.i().i("Expected token").await,
 			"Expected a name, a parenthesized list of names, or a globstar.",
-			[Pos::Range(tail.pos()).into()],
+			[tail.sr().pos().into()],
 		));
 	};
 	let ret = rec(tt, ctx).await;
@@ -230,8 +229,8 @@ pub async fn parse_multiname<'a, A: ExprRepr, X: ExtraTok>(
 	pub async fn rec<A: ExprRepr, X: ExtraTok>(
 		tt: &TokTree<A, X>,
 		ctx: &impl ParseCtx,
-	) -> OrcRes<Vec<(Vec<Tok<String>>, Option<Tok<String>>, Pos)>> {
-		let ttpos = Pos::Range(tt.range.clone());
+	) -> OrcRes<Vec<(Vec<Tok<String>>, Option<Tok<String>>, SrcRange)>> {
+		let ttpos = tt.sr.pos();
 		match &tt.tok {
 			Token::NS(ns, body) => {
 				if !ns.starts_with(name_start) {
@@ -247,7 +246,7 @@ pub async fn parse_multiname<'a, A: ExprRepr, X: ExtraTok>(
 			Token::Name(ntok) => {
 				let n = ntok;
 				let nopt = Some(n.clone());
-				Ok(vec![(vec![], nopt, Pos::Range(tt.range.clone()))])
+				Ok(vec![(vec![], nopt, tt.sr.clone())])
 			},
 			Token::S(Paren::Round, b) => {
 				let mut o = Vec::new();
@@ -272,19 +271,29 @@ pub async fn parse_multiname<'a, A: ExprRepr, X: ExtraTok>(
 	}
 	ret.map(|output| {
 		let output = (output.into_iter())
-			.map(|(p, name, pos)| (Import { path: VPath::new(p.into_iter().rev()), name }, pos))
+			.map(|(p, name, sr)| Import { path: VPath::new(p.into_iter().rev()), name, sr })
 			.collect_vec();
 		Parsed { output, tail }
 	})
 }
 
-/// A compound name, possibly ending with a globstar
+/// A compound name, possibly ending with a globstar. It cannot be just a
+/// globstar; either the name has to be known or the path has to be non-empty.
 #[derive(Debug, Clone)]
 pub struct Import {
 	pub path: VPath,
 	pub name: Option<Tok<String>>,
+	pub sr: SrcRange,
 }
-
+impl Import {
+	/// Most specific concrete path
+	pub fn mspath(self) -> VName {
+		match self.name {
+			Some(n) => self.path.name_with_suffix(n),
+			None => self.path.into_name().expect("Import cannot be empty"),
+		}
+	}
+}
 impl Display for Import {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "{}::{}", self.path.iter().join("::"), self.name.as_ref().map_or("*", |t| t.as_str()))

@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::fmt::Debug;
 use std::rc::Rc;
 
@@ -12,7 +11,7 @@ use itertools::Itertools;
 use orchid_base::error::{OrcRes, mk_errv};
 use orchid_base::format::{FmtCtx, FmtUnit, Format, Variants};
 use orchid_base::interner::Tok;
-use orchid_base::location::Pos;
+use orchid_base::location::{Pos, SrcRange};
 use orchid_base::name::{NameLike, Sym};
 use orchid_base::parse::{Comment, Import};
 use orchid_base::tl_cache;
@@ -37,7 +36,7 @@ impl TokenVariant<api::ExprTicket> for Expr {
 	async fn from_api(
 		api: &api::ExprTicket,
 		ctx: &mut Self::FromApiCtx<'_>,
-		_: Pos,
+		_: SrcRange,
 		_: &orchid_base::interner::Interner,
 	) -> Self {
 		let expr = ctx.get_expr(*api).expect("Dangling expr");
@@ -51,7 +50,7 @@ impl TokenVariant<api::Expression> for Expr {
 	async fn from_api(
 		api: &api::Expression,
 		ctx: &mut Self::FromApiCtx<'_>,
-		_: Pos,
+		_: SrcRange,
 		_: &orchid_base::interner::Interner,
 	) -> Self {
 		Expr::from_api(api, PathSetBuilder::new(), ctx).await
@@ -76,7 +75,7 @@ impl<'a> ParsedFromApiCx<'a> {
 
 #[derive(Debug)]
 pub struct Item {
-	pub pos: Pos,
+	pub sr: SrcRange,
 	pub comments: Vec<Comment>,
 	pub kind: ItemKind,
 }
@@ -88,8 +87,9 @@ pub enum ItemKind {
 	Import(Import),
 }
 impl ItemKind {
-	pub fn at(self, pos: Pos) -> Item { Item { comments: vec![], pos, kind: self } }
+	pub fn at(self, sr: SrcRange) -> Item { Item { comments: vec![], sr, kind: self } }
 }
+
 impl Format for Item {
 	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
 		let comment_text = self.comments.iter().join("\n");
@@ -135,7 +135,6 @@ pub enum ParsedMemberKind {
 
 #[derive(Debug, Default)]
 pub struct ParsedModule {
-	pub imports: Vec<Sym>,
 	pub exports: Vec<Tok<String>>,
 	pub items: Vec<Item>,
 }
@@ -148,7 +147,7 @@ impl ParsedModule {
 				_ => None,
 			})
 			.collect_vec();
-		Self { imports: vec![], exports, items }
+		Self { exports, items }
 	}
 	pub fn merge(&mut self, other: ParsedModule) {
 		let mut swap = ParsedModule::default();
@@ -178,6 +177,10 @@ impl ParsedModule {
 		}
 		Ok(cur)
 	}
+	pub fn get_imports(&self) -> impl IntoIterator<Item = &Import> {
+		(self.items.iter())
+			.filter_map(|it| if let ItemKind::Import(i) = &it.kind { Some(i) } else { None })
+	}
 }
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum WalkErrorKind {
@@ -192,8 +195,7 @@ pub struct WalkError {
 }
 impl Format for ParsedModule {
 	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
-		let import_str = self.imports.iter().map(|i| format!("import {i}")).join("\n");
-		let head_str = format!("{import_str}\nexport ::({})\n", self.exports.iter().join(", "));
+		let head_str = format!("export ::({})\n", self.exports.iter().join(", "));
 		Variants::sequence(self.items.len() + 1, "\n", None).units(
 			[head_str.into()].into_iter().chain(join_all(self.items.iter().map(|i| i.print(c))).await),
 		)

@@ -20,6 +20,7 @@ use orchid_base::clone;
 use orchid_base::format::{FmtCtxImpl, Format};
 use orchid_base::interner::Tok;
 use orchid_base::logging::Logger;
+use orchid_base::name::Sym;
 use orchid_base::reqnot::{DynRequester, ReqNot, Requester as _};
 
 use crate::api;
@@ -203,6 +204,7 @@ impl Extension {
 	pub(crate) async fn lex_req<F: Future<Output = Option<api::SubLexed>>>(
 		&self,
 		source: Tok<String>,
+		src: Sym,
 		pos: u32,
 		sys: api::SysId,
 		mut r: impl FnMut(u32) -> F,
@@ -214,8 +216,9 @@ impl Extension {
 		self.0.lex_recur.lock().await.insert(id, req_in); // lex_recur released
 		let (ret, ()) = join(
 			async {
-				let res =
-					(self.reqnot()).request(api::LexExpr { id, pos, sys, text: source.to_api() }).await;
+				let res = (self.reqnot())
+					.request(api::LexExpr { id, pos, sys, src: src.to_api(), text: source.to_api() })
+					.await;
 				// collect sender to unblock recursion handler branch before returning
 				self.0.lex_recur.lock().await.remove(&id);
 				res

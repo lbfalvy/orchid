@@ -7,7 +7,6 @@ use itertools::Itertools;
 use orchid_base::error::{OrcRes, Reporter, mk_err, mk_errv};
 use orchid_base::format::fmt;
 use orchid_base::interner::{Interner, Tok};
-use orchid_base::location::Pos;
 use orchid_base::name::Sym;
 use orchid_base::parse::{
 	Comment, Import, ParseCtx, Parsed, Snippet, expect_end, line_items, parse_multiname,
@@ -25,6 +24,7 @@ type ParsSnippet<'a> = Snippet<'a, Expr, Expr>;
 
 pub struct HostParseCtxImpl<'a> {
 	pub ctx: Ctx,
+	pub src: Sym,
 	pub systems: &'a [System],
 	pub reporter: &'a Reporter,
 	pub interner: &'a Interner,
@@ -77,19 +77,19 @@ pub async fn parse_item(
 					expect_end(ctx, tail).await?;
 					let mut ok = Vec::new();
 					for tt in body {
-						let pos = Pos::Range(tt.range.clone());
+						let sr = tt.sr.clone();
 						match &tt.tok {
 							Token::Name(n) =>
-								ok.push(Item { comments: comments.clone(), pos, kind: ItemKind::Export(n.clone()) }),
+								ok.push(Item { comments: comments.clone(), sr, kind: ItemKind::Export(n.clone()) }),
 							Token::NS(..) => ctx.reporter().report(mk_err(
 								ctx.i().i("Compound export").await,
 								"Cannot export compound names (names containing the :: separator)",
-								[pos.into()],
+								[sr.pos().into()],
 							)),
 							t => ctx.reporter().report(mk_err(
 								ctx.i().i("Invalid export").await,
 								format!("Invalid export target {}", fmt(t, ctx.i()).await),
-								[pos.into()],
+								[sr.pos().into()],
 							)),
 						}
 					}
@@ -99,14 +99,14 @@ pub async fn parse_item(
 				Parsed { output, tail: _ } => Err(mk_errv(
 					ctx.i().i("Malformed export").await,
 					"`export` can either prefix other lines or list names inside ( )",
-					[Pos::Range(output.range.clone()).into()],
+					[output.sr.pos().into()],
 				)),
 			},
 			n if *n == ctx.i().i("import").await => {
 				let imports = parse_import(ctx, postdisc).await?;
-				Ok(Vec::from_iter(imports.into_iter().map(|(t, pos)| Item {
+				Ok(Vec::from_iter(imports.into_iter().map(|t| Item {
 					comments: comments.clone(),
-					pos,
+					sr: t.sr.clone(),
 					kind: ItemKind::Import(t),
 				})))
 			},
@@ -115,7 +115,7 @@ pub async fn parse_item(
 		Some(_) => Err(mk_errv(
 			ctx.i().i("Expected a line type").await,
 			"All lines must begin with a keyword",
-			[Pos::Range(item.pos()).into()],
+			[item.sr().pos().into()],
 		)),
 		None => unreachable!("These lines are filtered and aggregated in earlier stages"),
 	}
@@ -124,7 +124,7 @@ pub async fn parse_item(
 pub async fn parse_import<'a>(
 	ctx: &impl HostParseCtx,
 	tail: ParsSnippet<'a>,
-) -> OrcRes<Vec<(Import, Pos)>> {
+) -> OrcRes<Vec<Import>> {
 	let Parsed { output: imports, tail } = parse_multiname(ctx, tail).await?;
 	expect_end(ctx, tail).await?;
 	Ok(imports)
@@ -153,10 +153,10 @@ pub async fn parse_exportable_item<'a>(
 		return Err(mk_errv(
 			ctx.i().i("Unrecognized line type").await,
 			format!("Line types are: const, mod, macro, grammar, {ext_lines}"),
-			[Pos::Range(tail.prev().range.clone()).into()],
+			[tail.prev().sr.pos().into()],
 		));
 	};
-	Ok(vec![Item { comments, pos: Pos::Range(tail.pos()), kind }])
+	Ok(vec![Item { comments, sr: tail.sr(), kind }])
 }
 
 pub async fn parse_module<'a>(
@@ -170,7 +170,7 @@ pub async fn parse_module<'a>(
 			return Err(mk_errv(
 				ctx.i().i("Missing module name").await,
 				format!("A name was expected, {} was found", fmt(output, ctx.i()).await),
-				[Pos::Range(output.range.clone()).into()],
+				[output.sr.pos().into()],
 			));
 		},
 	};
@@ -180,7 +180,7 @@ pub async fn parse_module<'a>(
 		return Err(mk_errv(
 			ctx.i().i("Expected module body").await,
 			format!("A ( block ) was expected, {} was found", fmt(output, ctx.i()).await),
-			[Pos::Range(output.range.clone()).into()],
+			[output.sr.pos().into()],
 		));
 	};
 	let path = path.push(name.clone());
@@ -197,7 +197,7 @@ pub async fn parse_const<'a>(
 		return Err(mk_errv(
 			ctx.i().i("Missing module name").await,
 			format!("A name was expected, {} was found", fmt(output, ctx.i()).await),
-			[Pos::Range(output.range.clone()).into()],
+			[output.sr.pos().into()],
 		));
 	};
 	let Parsed { output, tail } = try_pop_no_fluff(ctx, tail).await?;
@@ -205,7 +205,7 @@ pub async fn parse_const<'a>(
 		return Err(mk_errv(
 			ctx.i().i("Missing = separator").await,
 			format!("Expected = , found {}", fmt(output, ctx.i()).await),
-			[Pos::Range(output.range.clone()).into()],
+			[output.sr.pos().into()],
 		));
 	}
 	try_pop_no_fluff(ctx, tail).await?;
@@ -223,11 +223,11 @@ pub async fn parse_expr(
 		.or_else(|| tail.iter().enumerate().rev().find(|(_, tt)| !tt.is_fluff()))
 	else {
 		return Err(mk_errv(ctx.i().i("Empty expression").await, "Expression ends abruptly here", [
-			Pos::Range(tail.pos()).into(),
+			tail.sr().pos().into(),
 		]));
 	};
 	let (function, value) = tail.split_at(last_idx as u32);
-	let pos = Pos::Range(tail.pos());
+	let pos = tail.sr().pos();
 	if !function.iter().all(TokTree::is_fluff) {
 		let (f_psb, x_psb) = psb.split();
 		let x_expr = parse_expr(ctx, path.clone(), x_psb, value).boxed_local().await?;

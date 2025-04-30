@@ -1,11 +1,12 @@
 use std::future::Future;
-use std::ops::{Range, RangeInclusive};
+use std::ops::RangeInclusive;
 
 use futures::FutureExt;
 use futures::future::LocalBoxFuture;
 use orchid_base::error::{OrcErr, OrcRes, mk_err};
 use orchid_base::interner::{Interner, Tok};
-use orchid_base::location::Pos;
+use orchid_base::location::{Pos, SrcRange};
+use orchid_base::name::Sym;
 use orchid_base::reqnot::Requester;
 
 use crate::api;
@@ -34,6 +35,7 @@ pub struct LexContext<'a> {
 	pub text: &'a Tok<String>,
 	pub id: api::ParsId,
 	pub pos: u32,
+	pub src: Sym,
 }
 impl<'a> LexContext<'a> {
 	pub async fn recurse(&self, tail: &'a str) -> OrcRes<(&'a str, GenTokTree)> {
@@ -41,14 +43,15 @@ impl<'a> LexContext<'a> {
 		let Some(lx) = self.ctx.reqnot().request(api::SubLex { pos: start, id: self.id }).await else {
 			return Err(err_cascade(self.ctx.i()).await.into());
 		};
-		let tree = GenTokTree::from_api(&lx.tree, &mut self.ctx.clone(), &mut (), self.ctx.i()).await;
+		let tree =
+			GenTokTree::from_api(&lx.tree, &mut self.ctx.clone(), &mut (), &self.src, self.ctx.i()).await;
 		Ok((&self.text[lx.pos as usize..], tree))
 	}
 
 	pub fn pos(&self, tail: &'a str) -> u32 { (self.text.len() - tail.len()) as u32 }
 
-	pub fn tok_ran(&self, len: u32, tail: &'a str) -> Range<u32> {
-		self.pos(tail) - len..self.pos(tail)
+	pub fn tok_ran(&self, len: u32, tail: &'a str) -> SrcRange {
+		SrcRange::new(self.pos(tail) - len..self.pos(tail), &self.src)
 	}
 }
 

@@ -5,7 +5,8 @@ use ordered_float::NotNan;
 
 use crate::error::{OrcErr, mk_err};
 use crate::interner::Interner;
-use crate::location::Pos;
+use crate::location::SrcRange;
+use crate::name::Sym;
 
 /// A number, either floating point or unsigned int, parsed by Orchid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -54,7 +55,12 @@ pub struct NumError {
 	pub kind: NumErrorKind,
 }
 
-pub async fn num_to_err(NumError { kind, range }: NumError, offset: u32, i: &Interner) -> OrcErr {
+pub async fn num_to_err(
+	NumError { kind, range }: NumError,
+	offset: u32,
+	source: &Sym,
+	i: &Interner,
+) -> OrcErr {
 	mk_err(
 		i.i("Failed to parse number").await,
 		match kind {
@@ -62,7 +68,7 @@ pub async fn num_to_err(NumError { kind, range }: NumError, offset: u32, i: &Int
 			NumErrorKind::InvalidDigit => "non-digit character encountered",
 			NumErrorKind::Overflow => "The number being described is too large or too accurate",
 		},
-		[Pos::Range(offset + range.start as u32..offset + range.end as u32).into()],
+		[SrcRange::new(offset + range.start as u32..offset + range.end as u32, source).pos().into()],
 	)
 }
 

@@ -17,8 +17,6 @@ pub enum Location {
 	Gen(CodeGenInfo),
 	/// Range and file
 	SourceRange(SourceRange),
-	/// Range only, file implied. Most notably used by parsers
-	Range(Range<u32>),
 }
 
 #[derive(Clone, Debug, Coding)]

@@ -268,10 +268,11 @@ pub fn extension_init(
 							let vfs = systems_g[sys_id].vfses[vfs_id].load(&path, ctx).await;
 							hand.handle(&vfs_read, &vfs).await
 						},
-						api::HostExtReq::LexExpr(lex @ api::LexExpr { sys, text, pos, id }) => {
+						api::HostExtReq::LexExpr(lex @ api::LexExpr { sys, src, text, pos, id }) => {
 							let sys_ctx = get_ctx(sys).await;
 							let text = Tok::from_api(text, &i).await;
-							let ctx = LexContext { id, pos, text: &text, ctx: sys_ctx.clone() };
+							let src = Sym::from_api(src, sys_ctx.i()).await;
+							let ctx = LexContext { id, pos, text: &text, src, ctx: sys_ctx.clone() };
 							let trigger_char = text.chars().nth(pos as usize).unwrap();
 							let err_na = err_not_applicable(&i).await;
 							let err_cascade = err_cascade(&i).await;
@@ -294,11 +295,12 @@ pub fn extension_init(
 							hand.handle(&lex, &None).await
 						},
 						api::HostExtReq::ParseLine(pline) => {
-							let api::ParseLine { module, exported, comments, sys, line } = &pline;
+							let api::ParseLine { module, src, exported, comments, sys, line } = &pline;
 							let mut ctx = get_ctx(*sys).await;
 							let parsers = ctx.cted().inst().dyn_parsers();
+							let src = Sym::from_api(*src, ctx.i()).await;
 							let comments = join_all(comments.iter().map(|c| Comment::from_api(c, &i))).await;
-							let line: Vec<GenTokTree> = ttv_from_api(line, &mut ctx, &mut (), &i).await;
+							let line: Vec<GenTokTree> = ttv_from_api(line, &mut ctx, &mut (), &src, &i).await;
 							let snip = Snippet::new(line.first().expect("Empty line"), &line);
 							let (head, tail) = snip.pop_front().unwrap();
 							let name = if let GenTok::Name(n) = &head.tok { n } else { panic!("No line head") };

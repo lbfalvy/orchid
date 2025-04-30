@@ -1,10 +1,7 @@
-use std::rc::Rc;
-
 use futures::FutureExt;
 use hashbrown::{HashMap, HashSet};
 use itertools::{Either, Itertools};
 use orchid_base::error::{OrcErr, Reporter, mk_err};
-use orchid_base::format::{FmtCtxImpl, Format, take_first};
 use orchid_base::interner::{Interner, Tok};
 use orchid_base::location::Pos;
 use orchid_base::name::{NameLike, Sym, VName};
@@ -125,18 +122,17 @@ pub async fn imports_to_aliases(
 		match &item.kind {
 			ItemKind::Import(imp) => match absolute_path(cwd, &imp.path) {
 				Err(e) =>
-					ctx.rep.report(e.err_obj(ctx.i, item.pos.clone(), &imp.path.iter().join("::")).await),
+					ctx.rep.report(e.err_obj(ctx.i, item.sr.pos(), &imp.path.iter().join("::")).await),
 				Ok(abs_path) => {
 					let names = match imp.name.as_ref() {
 						Some(n) => Either::Right([n.clone()].into_iter()),
-						None => Either::Left(
-							resolv_glob(cwd, root, &abs_path, item.pos.clone(), ctx).await.into_iter(),
-						),
+						None =>
+							Either::Left(resolv_glob(cwd, root, &abs_path, item.sr.pos(), ctx).await.into_iter()),
 					};
 					for name in names {
 						let mut tgt = abs_path.clone().suffix([name.clone()]).to_sym(ctx.i).await;
 						let src = Sym::new(cwd.iter().cloned().chain([name]), ctx.i).await.unwrap();
-						import_locs.entry(src.clone()).or_insert(vec![]).push(item.pos.clone());
+						import_locs.entry(src.clone()).or_insert(vec![]).push(item.sr.pos());
 						if let Some(tgt2) = alias_map.get(&tgt) {
 							tgt = tgt2.clone();
 						}
@@ -144,7 +140,7 @@ pub async fn imports_to_aliases(
 							ctx.rep.report(mk_err(
 								ctx.i.i("Circular references").await,
 								format!("{src} circularly refers to itself"),
-								[item.pos.clone().into()],
+								[item.sr.pos().into()],
 							));
 							continue;
 						}

@@ -23,15 +23,13 @@ pub enum Pos {
 	Inherit,
 	Gen(CodeGenInfo),
 	/// Range and file
-	SourceRange(SourceRange),
-	/// Range only, file implied. Most notably used by parsers
-	Range(Range<u32>),
+	SrcRange(SrcRange),
 }
 impl Pos {
 	pub fn pretty_print(&self, get_src: &mut impl GetSrc) -> String {
 		match self {
 			Self::Gen(g) => g.to_string(),
-			Self::SourceRange(sr) => sr.pretty_print(&get_src(&sr.path)),
+			Self::SrcRange(sr) => sr.pretty_print(&get_src(&sr.path)),
 			// Can't pretty print partial and meta-location
 			other => format!("{other:?}"),
 		}
@@ -39,17 +37,17 @@ impl Pos {
 	pub async fn from_api(api: &api::Location, i: &Interner) -> Self {
 		match_mapping!(api, api::Location => Pos {
 			None, Inherit, SlotTarget,
-			Range(r.clone()),
 			Gen(cgi => CodeGenInfo::from_api(cgi, i).await),
-			SourceRange(sr => SourceRange::from_api(sr, i).await)
+		} {
+			api::Location::SourceRange(sr) => Self::SrcRange(SrcRange::from_api(sr, i).await)
 		})
 	}
 	pub fn to_api(&self) -> api::Location {
 		match_mapping!(self, Pos => api::Location {
 			None, Inherit, SlotTarget,
-			Range(r.clone()),
 			Gen(cgi.to_api()),
-			SourceRange(sr.to_api()),
+		} {
+			Self::SrcRange(sr) => api::Location::SourceRange(sr.to_api()),
 		})
 	}
 }
@@ -57,12 +55,12 @@ impl Pos {
 /// Exact source code location. Includes where the code was loaded from, what
 /// the original source code was, and a byte range.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SourceRange {
+pub struct SrcRange {
 	pub(crate) path: Sym,
 	pub(crate) range: Range<u32>,
 }
-impl SourceRange {
-	pub fn new(range: &Range<u32>, path: &Sym) -> Self {
+impl SrcRange {
+	pub fn new(range: Range<u32>, path: &Sym) -> Self {
 		Self { range: range.clone(), path: path.clone() }
 	}
 	/// Create a dud [SourceRange] for testing. Its value is unspecified and
@@ -77,7 +75,7 @@ impl SourceRange {
 	/// 0-based index of last byte + 1
 	pub fn end(&self) -> u32 { self.range.end }
 	/// Syntactic location
-	pub fn pos(&self) -> Pos { Pos::SourceRange(self.clone()) }
+	pub fn pos(&self) -> Pos { Pos::SrcRange(self.clone()) }
 	/// Transform the numeric byte range
 	pub fn map_range(&self, map: impl FnOnce(Range<u32>) -> Range<u32>) -> Self {
 		Self { range: map(self.range()), path: self.path() }

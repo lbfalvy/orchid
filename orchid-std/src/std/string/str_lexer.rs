@@ -118,8 +118,8 @@ impl Lexer for StringLexer {
 		}
 		let add_frag = |prev: Option<GenTokTree<'a>>, new: GenTokTree<'a>| async {
 			let Some(prev) = prev else { return new };
-			let concat_fn = GenTok::Reference(sym!(std::string::concat; ctx.i).await)
-				.at(prev.range.start..prev.range.start);
+			let concat_fn =
+				GenTok::Reference(sym!(std::string::concat; ctx.i).await).at(prev.sr.start..prev.sr.start);
 			wrap_tokv([concat_fn, prev, new])
 		};
 		loop {

@@ -2,7 +2,6 @@ use std::borrow::Borrow;
 use std::fmt::{self, Debug, Display};
 use std::future::Future;
 use std::marker::PhantomData;
-use std::ops::Range;
 use std::rc::Rc;
 
 use async_stream::stream;
@@ -16,7 +15,8 @@ use trait_set::trait_set;
 use crate::error::OrcErrv;
 use crate::format::{FmtCtx, FmtUnit, Format, Variants};
 use crate::interner::{Interner, Tok};
-use crate::location::Pos;
+use crate::location::{Pos, SrcRange};
+use crate::name::Sym;
 use crate::parse::Snippet;
 use crate::{api, match_mapping, tl_cache};
 
@@ -26,7 +26,7 @@ pub trait TokenVariant<ApiEquiv: Clone + Debug + Coding>: Format + Clone + fmt::
 	fn from_api(
 		api: &ApiEquiv,
 		ctx: &mut Self::FromApiCtx<'_>,
-		pos: Pos,
+		pos: SrcRange,
 		i: &Interner,
 	) -> impl Future<Output = Self>;
 	fn into_api(self, ctx: &mut Self::ToApiCtx<'_>) -> impl Future<Output = ApiEquiv>;
@@ -34,7 +34,7 @@ pub trait TokenVariant<ApiEquiv: Clone + Debug + Coding>: Format + Clone + fmt::
 impl<T: Clone + Debug + Coding> TokenVariant<T> for Never {
 	type FromApiCtx<'a> = ();
 	type ToApiCtx<'a> = ();
-	async fn from_api(_: &T, _: &mut Self::FromApiCtx<'_>, _: Pos, _: &Interner) -> Self {
+	async fn from_api(_: &T, _: &mut Self::FromApiCtx<'_>, _: SrcRange, _: &Interner) -> Self {
 		panic!("Cannot deserialize Never")
 	}
 	async fn into_api(self, _: &mut Self::ToApiCtx<'_>) -> T { match self {} }
@@ -55,7 +55,7 @@ pub fn recur<H: ExprRepr, X: ExtraTok>(
 	tt: TokTree<H, X>,
 	f: &impl Fn(TokTree<H, X>, &dyn RecurCB<H, X>) -> TokTree<H, X>,
 ) -> TokTree<H, X> {
-	f(tt, &|TokTree { range, tok }| {
+	f(tt, &|TokTree { sr: range, tok }| {
 		let tok = match tok {
 			tok @ (Token::BR | Token::Bottom(_) | Token::Comment(_) | Token::Name(_)) => tok,
 			tok @ (Token::Handle(_) | Token::NewExpr(_)) => tok,
@@ -64,7 +64,7 @@ pub fn recur<H: ExprRepr, X: ExtraTok>(
 				Token::LambdaHead(arg.into_iter().map(|tt| recur(tt, f)).collect_vec()),
 			Token::S(p, b) => Token::S(p, b.into_iter().map(|tt| recur(tt, f)).collect_vec()),
 		};
-		TokTree { range, tok }
+		TokTree { sr: range, tok }
 	})
 }
 
@@ -94,28 +94,33 @@ impl Display for TokHandle<'_> {
 #[derive(Clone, Debug)]
 pub struct TokTree<H: ExprRepr, X: ExtraTok> {
 	pub tok: Token<H, X>,
-	pub range: Range<u32>,
+	/// The protocol has a Range<u32> because these are always transmitted in the
+	/// context of a given snippet, but internal logic and error reporting is
+	/// easier if the in-memory representation also includes the snippet path.
+	pub sr: SrcRange,
 }
 impl<H: ExprRepr, X: ExtraTok> TokTree<H, X> {
 	pub async fn from_api(
 		tt: &api::TokenTree,
 		hctx: &mut H::FromApiCtx<'_>,
 		xctx: &mut X::FromApiCtx<'_>,
+		src: &Sym,
 		i: &Interner,
 	) -> Self {
+		let pos = SrcRange::new(tt.range.clone(), src);
 		let tok = match_mapping!(&tt.token, api::Token => Token::<H, X> {
 			BR,
 			NS(n => Tok::from_api(*n, i).await,
-				b => Box::new(Self::from_api(b, hctx, xctx, i).boxed_local().await)),
+				b => Box::new(Self::from_api(b, hctx, xctx, src, i).boxed_local().await)),
 			Bottom(e => OrcErrv::from_api(e, i).await),
-			LambdaHead(arg => ttv_from_api(arg, hctx, xctx, i).await),
+			LambdaHead(arg => ttv_from_api(arg, hctx, xctx, src, i).await),
 			Name(n => Tok::from_api(*n, i).await),
-			S(*par, b => ttv_from_api(b, hctx, xctx, i).await),
+			S(*par, b => ttv_from_api(b, hctx, xctx, src, i).await),
 			Comment(c.clone()),
-			NewExpr(expr => X::from_api(expr, xctx, Pos::Range(tt.range.clone()), i).await),
-			Handle(tk => H::from_api(tk, hctx, Pos::Range(tt.range.clone()), i).await)
+			NewExpr(expr => X::from_api(expr, xctx, pos.clone(), i).await),
+			Handle(tk => H::from_api(tk, hctx, pos.clone(), i).await)
 		});
-		Self { range: tt.range.clone(), tok }
+		Self { sr: pos, tok }
 	}
 
 	pub async fn into_api(
@@ -134,7 +139,7 @@ impl<H: ExprRepr, X: ExtraTok> TokTree<H, X> {
 			Handle(hand.into_api(hctx).await),
 			NewExpr(expr.into_api(xctx).await),
 		});
-		api::TokenTree { range: self.range.clone(), token }
+		api::TokenTree { range: self.sr.range.clone(), token }
 	}
 
 	pub fn is_kw(&self, tk: Tok<String>) -> bool { self.tok.is_kw(tk) }
@@ -152,8 +157,9 @@ impl<H: ExprRepr, X: ExtraTok> TokTree<H, X> {
 	}
 	pub fn is_fluff(&self) -> bool { matches!(self.tok, Token::Comment(_) | Token::BR) }
 	pub fn lambda(arg: Vec<Self>, mut body: Vec<Self>) -> Self {
-		let arg_range = ttv_range(&arg);
-		let s_range = arg_range.start..body.last().expect("Lambda with empty body!").range.end;
+		let arg_range = ttv_range(&arg).expect("Lambda with empty arg!");
+		let mut s_range = arg_range.clone();
+		s_range.range.end = body.last().expect("Lambda with empty body!").sr.range.end;
 		body.insert(0, Token::LambdaHead(arg).at(arg_range));
 		Token::S(Paren::Round, body).at(s_range)
 	}
@@ -168,11 +174,12 @@ pub async fn ttv_from_api<H: ExprRepr, X: ExtraTok>(
 	tokv: impl IntoIterator<Item: Borrow<api::TokenTree>>,
 	hctx: &mut H::FromApiCtx<'_>,
 	xctx: &mut X::FromApiCtx<'_>,
+	src: &Sym,
 	i: &Interner,
 ) -> Vec<TokTree<H, X>> {
 	stream! {
 		for tok in tokv {
-			yield TokTree::<H, X>::from_api(tok.borrow(), hctx, xctx, i).boxed_local().await
+			yield TokTree::<H, X>::from_api(tok.borrow(), hctx, xctx, src, i).boxed_local().await
 		}
 	}
 	.collect()
@@ -201,8 +208,8 @@ pub fn wrap_tokv<H: ExprRepr, X: ExtraTok>(
 		0 => panic!("A tokv with no elements is illegal"),
 		1 => items_v.into_iter().next().unwrap(),
 		_ => {
-			let range = items_v.first().unwrap().range.start..items_v.last().unwrap().range.end;
-			Token::S(api::Paren::Round, items_v).at(range)
+			let sr = ttv_range(&items_v).expect("empty handled above");
+			Token::S(api::Paren::Round, items_v).at(sr)
 		},
 	}
 }
@@ -237,7 +244,7 @@ pub enum Token<H: ExprRepr, X: ExtraTok> {
 	Bottom(OrcErrv),
 }
 impl<H: ExprRepr, X: ExtraTok> Token<H, X> {
-	pub fn at(self, range: Range<u32>) -> TokTree<H, X> { TokTree { range, tok: self } }
+	pub fn at(self, sr: SrcRange) -> TokTree<H, X> { TokTree { sr, tok: self } }
 	pub fn is_kw(&self, tk: Tok<String>) -> bool { matches!(self, Token::Name(n) if *n == tk) }
 	pub fn as_s(&self, par: Paren) -> Option<&[TokTree<H, X>]> {
 		match self {
@@ -273,9 +280,9 @@ impl<H: ExprRepr, X: ExtraTok> Format for Token<H, X> {
 	}
 }
 
-pub fn ttv_range<'a>(ttv: &[TokTree<impl ExprRepr + 'a, impl ExtraTok + 'a>]) -> Range<u32> {
-	assert!(!ttv.is_empty(), "Empty slice has no range");
-	ttv.first().unwrap().range.start..ttv.last().unwrap().range.end
+pub fn ttv_range<'a>(ttv: &[TokTree<impl ExprRepr + 'a, impl ExtraTok + 'a>]) -> Option<SrcRange> {
+	let range = ttv.first()?.sr.range.start..ttv.last().unwrap().sr.range.end;
+	Some(SrcRange { path: ttv.first().unwrap().sr.path(), range })
 }
 
 pub async fn ttv_fmt<'a: 'b, 'b>(

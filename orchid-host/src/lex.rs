@@ -4,7 +4,8 @@ use async_std::sync::Mutex;
 use futures::FutureExt;
 use orchid_base::error::{OrcErrv, OrcRes, mk_errv};
 use orchid_base::interner::Tok;
-use orchid_base::location::Pos;
+use orchid_base::location::SrcRange;
+use orchid_base::name::Sym;
 use orchid_base::parse::{name_char, name_start, op_char, unrep_space};
 use orchid_base::tokens::PARENS;
 use orchid_base::tree::recur;
@@ -18,6 +19,7 @@ use crate::system::System;
 pub struct LexCtx<'a> {
 	pub systems: &'a [System],
 	pub source: &'a Tok<String>,
+	pub path: &'a Sym,
 	pub tail: &'a str,
 	pub sub_trees: &'a mut Vec<Expr>,
 	pub ctx: &'a Ctx,
@@ -27,6 +29,7 @@ impl<'a> LexCtx<'a> {
 	where 'a: 'b {
 		LexCtx {
 			source: self.source,
+			path: self.path,
 			tail: &self.source[pos as usize..],
 			systems: self.systems,
 			sub_trees: &mut *self.sub_trees,
@@ -49,7 +52,7 @@ impl<'a> LexCtx<'a> {
 		let mut exprs = self.ctx.common_exprs.clone();
 		let foo = recur(subtree, &|tt, r| {
 			if let ParsTok::NewExpr(expr) = tt.tok {
-				return ParsTok::Handle(expr).at(tt.range);
+				return ParsTok::Handle(expr).at(tt.sr);
 			}
 			r(tt)
 		});
@@ -60,6 +63,7 @@ impl<'a> LexCtx<'a> {
 			&tree,
 			&mut self.ctx.common_exprs.clone(),
 			&mut ExprParseCtx { ctx: self.ctx.clone(), exprs: self.ctx.common_exprs.clone() },
+			self.path,
 			&self.ctx.i,
 		)
 		.await
@@ -103,7 +107,7 @@ pub async fn lex_once(ctx: &mut LexCtx<'_>) -> OrcRes<ParsTokTree> {
 			return Err(mk_errv(
 				ctx.ctx.i.i("Unterminated block comment").await,
 				"This block comment has no ending ]--",
-				[Pos::Range(start..start + 3).into()],
+				[SrcRange::new(start..start + 3, ctx.path).pos().into()],
 			));
 		};
 		ctx.set_tail(tail);
@@ -120,7 +124,7 @@ pub async fn lex_once(ctx: &mut LexCtx<'_>) -> OrcRes<ParsTokTree> {
 				return Err(mk_errv(
 					ctx.ctx.i.i("Unclosed lambda").await,
 					"Lambdae started with \\ should separate arguments from body with .",
-					[Pos::Range(start..start + 1).into()],
+					[SrcRange::new(start..start + 1, ctx.path).pos().into()],
 				));
 			}
 			arg.push(lex_once(ctx).boxed_local().await?);
@@ -135,7 +139,7 @@ pub async fn lex_once(ctx: &mut LexCtx<'_>) -> OrcRes<ParsTokTree> {
 				return Err(mk_errv(
 					ctx.ctx.i.i("unclosed paren").await,
 					format!("this {lp} has no matching {rp}"),
-					[Pos::Range(start..start + 1).into()],
+					[SrcRange::new(start..start + 1, ctx.path).pos().into()],
 				));
 			}
 			body.push(lex_once(ctx).boxed_local().await?);
@@ -153,7 +157,7 @@ pub async fn lex_once(ctx: &mut LexCtx<'_>) -> OrcRes<ParsTokTree> {
 					.lex(source, pos, |pos| async move {
 						let mut ctx_g = ctx_lck.lock().await;
 						match lex_once(&mut ctx_g.push(pos)).boxed_local().await {
-							Ok(t) => Some(api::SubLexed { pos: t.range.end, tree: ctx_g.ser_subtree(t).await }),
+							Ok(t) => Some(api::SubLexed { pos: t.sr.end(), tree: ctx_g.ser_subtree(t).await }),
 							Err(e) => {
 								errors_lck.lock().await.push(e);
 								None
@@ -185,16 +189,22 @@ pub async fn lex_once(ctx: &mut LexCtx<'_>) -> OrcRes<ParsTokTree> {
 			return Err(mk_errv(
 				ctx.ctx.i.i("Unrecognized character").await,
 				"The following syntax is meaningless.",
-				[Pos::Range(start..start + 1).into()],
+				[SrcRange::new(start..start + 1, ctx.path).pos().into()],
 			));
 		}
 	};
-	Ok(ParsTokTree { tok, range: start..ctx.get_pos() })
+	Ok(ParsTokTree { tok, sr: SrcRange::new(start..ctx.get_pos(), ctx.path) })
 }
 
-pub async fn lex(text: Tok<String>, systems: &[System], ctx: &Ctx) -> OrcRes<Vec<ParsTokTree>> {
+pub async fn lex(
+	text: Tok<String>,
+	path: Sym,
+	systems: &[System],
+	ctx: &Ctx,
+) -> OrcRes<Vec<ParsTokTree>> {
 	let mut sub_trees = Vec::new();
-	let mut ctx = LexCtx { source: &text, sub_trees: &mut sub_trees, tail: &text[..], systems, ctx };
+	let mut ctx =
+		LexCtx { source: &text, sub_trees: &mut sub_trees, tail: &text[..], systems, path: &path, ctx };
 	let mut tokv = Vec::new();
 	ctx.trim(unrep_space);
 	while !ctx.tail.is_empty() {

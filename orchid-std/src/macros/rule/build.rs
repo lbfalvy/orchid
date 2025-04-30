@@ -110,7 +110,7 @@ mod test {
 
 	use orchid_api::PhKind;
 	use orchid_base::interner::Interner;
-	use orchid_base::location::SourceRange;
+	use orchid_base::location::SrcRange;
 	use orchid_base::sym;
 	use orchid_base::tokens::Paren;
 	use orchid_base::tree::Ph;
@@ -124,7 +124,7 @@ mod test {
 		spin_on(async {
 			let i = Interner::new_master();
 			let ex = |tok: MacTok| async {
-				MacTree { tok: Rc::new(tok), pos: SourceRange::mock(&i).await.pos() }
+				MacTree { tok: Rc::new(tok), pos: SrcRange::mock(&i).await.pos() }
 			};
 			let pattern = vec![
 				ex(MacTok::Ph(Ph {

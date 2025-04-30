@@ -3,7 +3,7 @@ use std::ops::RangeInclusive;
 use orchid_api_derive::{Coding, Hierarchy};
 use orchid_api_traits::Request;
 
-use crate::{ExtHostReq, HostExtReq, OrcResult, ParsId, SysId, TStr, TokenTree};
+use crate::{ExtHostReq, HostExtReq, OrcResult, ParsId, SysId, TStr, TStrv, TokenTree};
 
 /// - All ranges contain at least one character
 /// - All ranges are in increasing characeter order
@@ -18,6 +18,8 @@ pub struct LexExpr {
 	pub id: ParsId,
 	pub text: TStr,
 	pub pos: u32,
+	/// Source root module path
+	pub src: TStrv,
 }
 impl Request for LexExpr {
 	type Response = Option<OrcResult<LexedExpr>>;

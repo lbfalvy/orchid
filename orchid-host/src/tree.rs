@@ -10,6 +10,7 @@ use orchid_base::name::Sym;
 
 use crate::api;
 use crate::ctx::Ctx;
+use crate::dealias::absolute_path;
 use crate::expr::Expr;
 use crate::parsed::{ParsedMemberKind, ParsedModule};
 use crate::system::System;
@@ -36,6 +37,34 @@ impl Module {
 			members.insert(sys.ctx().i.ex(mem.name).await, member);
 		}
 		Self { members }
+	}
+	async fn walk(&self, mut path: impl Iterator<Item = Tok<String>>, ) -> &Self { todo!()}
+	async fn from_parsed(
+		parsed: &ParsedModule,
+		path: Sym,
+		parsed_root_path: Sym,
+		parsed_root: &ParsedModule,
+		root: &Module,
+		preload: &mut HashMap<Sym, Module>,
+	) -> Self {
+		let mut imported_names = Vec::new();
+		for import in parsed.get_imports() {
+			if let Some(n) = import.name.clone() {
+				imported_names.push(n);
+				continue;
+			}
+			// the path in a wildcard import has to be a module
+			if import.path.is_empty() {
+				panic!("Imported root")
+			}
+			if let Some(subpath) = import.path.strip_prefix(&parsed_root_path) {
+				let abs = absolute_path(&path, subpath);
+				// path is in parsed_root
+			} else {
+				// path is in root 
+			}
+		}
+		todo!()
 	}
 }
 

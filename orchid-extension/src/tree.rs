@@ -8,7 +8,7 @@ use futures::{FutureExt, StreamExt};
 use hashbrown::HashMap;
 use itertools::Itertools;
 use orchid_base::interner::{Interner, Tok};
-use orchid_base::location::Pos;
+use orchid_base::location::SrcRange;
 use orchid_base::name::Sym;
 use orchid_base::reqnot::ReqHandlish;
 use orchid_base::tree::{TokTree, Token, TokenVariant};
@@ -32,7 +32,7 @@ impl TokenVariant<api::Expression> for GExpr {
 	async fn from_api(
 		_: &api::Expression,
 		_: &mut Self::FromApiCtx<'_>,
-		_: Pos,
+		_: SrcRange,
 		_: &Interner,
 	) -> Self {
 		panic!("Received new expression from host")
@@ -47,7 +47,7 @@ impl TokenVariant<api::ExprTicket> for Expr {
 	async fn from_api(
 		api: &api::ExprTicket,
 		ctx: &mut Self::FromApiCtx<'_>,
-		_: Pos,
+		_: SrcRange,
 		_: &Interner,
 	) -> Self {
 		// SAFETY: receiving trees from sublexers implies ownership transfer

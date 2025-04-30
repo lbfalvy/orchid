@@ -13,7 +13,11 @@ pub struct ParsId(pub NonZeroU64);
 #[extends(HostExtReq)]
 pub struct ParseLine {
 	pub sys: SysId,
+	/// The immediately enclosing module path
 	pub module: TStrv,
+	/// The root module path for the snipppet of source code, prefix of
+	/// [ParseLine#module]
+	pub src: TStrv,
 	pub comments: Vec<Comment>,
 	pub exported: bool,
 	pub line: Vec<TokenTree>,
