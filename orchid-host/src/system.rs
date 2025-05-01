@@ -26,8 +26,8 @@ use crate::api;
 use crate::ctx::Ctx;
 use crate::expr::{Expr, ExprParseCtx};
 use crate::extension::{Extension, WeakExtension};
-use crate::parsed::{ItemKind, ParsTokTree, ParsedFromApiCx, ParsedMember, ParsedModule, Root};
-use crate::tree::{Member, Module};
+use crate::parsed::{ItemKind, ParsTokTree, ParsedModule, Root};
+use crate::tree::Module;
 
 #[derive(destructure)]
 struct SystemInstData {
@@ -70,10 +70,11 @@ impl System {
 	pub async fn lex<F: Future<Output = Option<api::SubLexed>>>(
 		&self,
 		source: Tok<String>,
+		src: Sym,
 		pos: u32,
 		r: impl FnMut(u32) -> F,
 	) -> api::OrcResult<Option<api::LexedExpr>> {
-		self.0.ext.lex_req(source, pos, self.id(), r).await
+		self.0.ext.lex_req(source, src, pos, self.id(), r).await
 	}
 	pub fn can_parse(&self, ltyp: Tok<String>) -> bool { self.0.line_types.contains(&ltyp) }
 	pub fn line_types(&self) -> impl Iterator<Item = &Tok<String>> + '_ { self.0.line_types.iter() }
@@ -84,17 +85,26 @@ impl System {
 		exported: bool,
 		comments: Vec<Comment>,
 	) -> OrcRes<Vec<ParsTokTree>> {
+		let src_path = line.first().expect("cannot be empty").sr.path();
 		let line = join_all(line.into_iter().map(|t| async {
 			let mut expr_store = self.0.ext.exprs().clone();
 			t.into_api(&mut expr_store, &mut ()).await
 		}))
 		.await;
 		let comments = comments.iter().map(Comment::to_api).collect_vec();
-		let req = api::ParseLine { module: module.to_api(), exported, sys: self.id(), comments, line };
+		let req = api::ParseLine {
+			module: module.to_api(),
+			src: src_path.to_api(),
+			exported,
+			sys: self.id(),
+			comments,
+			line,
+		};
 		match self.reqnot().request(req).await {
 			Ok(parsed) => {
 				let mut pctx = ExprParseCtx { ctx: self.ctx().clone(), exprs: self.ext().exprs().clone() };
-				Ok(ttv_from_api(parsed, &mut self.ext().exprs().clone(), &mut pctx, self.i()).await)
+				let mut ext_exprs = self.ext().exprs().clone();
+				Ok(ttv_from_api(parsed, &mut ext_exprs, &mut pctx, &src_path, self.i()).await)
 			},
 			Err(e) => Err(OrcErrv::from_api(&e, &self.ctx().i).await),
 		}
@@ -153,13 +163,14 @@ impl SystemCtor {
 				.await,
 			id,
 		}));
-		let const_root = Module::from_api((sys_inst.const_root.into_iter()).map(|k, v| api::Member {
-			name: k,
-			kind: v,
-			comments: vec![],
-			exported: true,
-		}))
-		.await;
+		let const_root =
+			Module::from_api((sys_inst.const_root.into_iter()).map(|(k, v)| api::Member {
+				name: k,
+				kind: v,
+				comments: vec![],
+				exported: true,
+			}))
+			.await;
 		let const_root = clone!(data, ext; stream! {
 			for (k, v) in sys_inst.const_root {
 				yield Member::from_api(

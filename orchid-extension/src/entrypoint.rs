@@ -299,7 +299,8 @@ pub fn extension_init(
 							let mut ctx = get_ctx(*sys).await;
 							let parsers = ctx.cted().inst().dyn_parsers();
 							let src = Sym::from_api(*src, ctx.i()).await;
-							let comments = join_all(comments.iter().map(|c| Comment::from_api(c, &i))).await;
+							let comments =
+								join_all(comments.iter().map(|c| Comment::from_api(c, src.clone(), &i))).await;
 							let line: Vec<GenTokTree> = ttv_from_api(line, &mut ctx, &mut (), &src, &i).await;
 							let snip = Snippet::new(line.first().expect("Empty line"), &line);
 							let (head, tail) = snip.pop_front().unwrap();

@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use futures::FutureExt;
 use hashbrown::{HashMap, HashSet};
 use itertools::{Either, Itertools};
@@ -8,7 +10,7 @@ use orchid_base::name::{NameLike, Sym, VName};
 use substack::Substack;
 
 use crate::expr::Expr;
-use crate::parsed::{ItemKind, ParsedMemberKind, ParsedModule, WalkErrorKind};
+use crate::parsed::{ItemKind, ParsedMemberKind, ParsedModule};
 
 /// Errors produced by absolute_path
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -74,129 +76,87 @@ pub fn absolute_path(
 pub struct DealiasCtx<'a> {
 	pub i: &'a Interner,
 	pub rep: &'a Reporter,
-	pub consts: &'a mut HashMap<Sym, Expr>,
 }
 
-pub async fn resolv_glob(
+pub async fn resolv_glob<Mod: Tree>(
 	cwd: &[Tok<String>],
-	root: &ParsedModule,
+	root: &Mod,
 	abs_path: &[Tok<String>],
 	pos: Pos,
-	ctx: &mut DealiasCtx<'_>,
+	i: &Interner,
+	rep: &Reporter,
+	walk_cx: &mut Mod::Ctx,
 ) -> Vec<Tok<String>> {
 	let coprefix_len = cwd.iter().zip(abs_path).take_while(|(a, b)| a == b).count();
 	let (co_prefix, diff_path) = abs_path.split_at(coprefix_len);
 	let co_parent =
-		root.walk(false, co_prefix.iter().cloned(), ctx.consts).await.expect("Invalid step in cwd");
-	let target_module = match co_parent.walk(true, diff_path.iter().cloned(), ctx.consts).await {
+		root.walk(true, co_prefix.iter().cloned(), walk_cx).await.expect("Invalid step in cwd");
+	let target_module = match co_parent.walk(false, diff_path.iter().cloned(), walk_cx).await {
 		Ok(t) => t,
 		Err(e) => {
 			let path = abs_path[..=coprefix_len + e.pos].iter().join("::");
 			let (tk, msg) = match e.kind {
-				WalkErrorKind::Constant =>
-					(ctx.i.i("Invalid import path").await, format!("{path} is a constant")),
-				WalkErrorKind::Missing =>
-					(ctx.i.i("Invalid import path").await, format!("{path} not found")),
-				WalkErrorKind::Private =>
-					(ctx.i.i("Import inaccessible").await, format!("{path} is private")),
+				ChildErrorKind::Constant =>
+					(i.i("Invalid import path").await, format!("{path} is a const")),
+				ChildErrorKind::Missing => (i.i("Invalid import path").await, format!("{path} not found")),
+				ChildErrorKind::Private => (i.i("Import inaccessible").await, format!("{path} is private")),
 			};
-			(&ctx.rep).report(mk_err(tk, msg, [pos.into()]));
+			rep.report(mk_err(tk, msg, [pos.into()]));
 			return vec![];
 		},
 	};
-	target_module.exports.clone()
+	target_module.children(false)
 }
 
-/// Read import statements and convert them into aliases, rasising any import
-/// errors in the process
-pub async fn imports_to_aliases(
-	module: &ParsedModule,
-	cwd: &mut Vec<Tok<String>>,
-	root: &ParsedModule,
-	alias_map: &mut HashMap<Sym, Sym>,
-	alias_rev_map: &mut HashMap<Sym, HashSet<Sym>>,
-	ctx: &mut DealiasCtx<'_>,
-) {
-	let mut import_locs = HashMap::<Sym, Vec<Pos>>::new();
-	for item in &module.items {
-		match &item.kind {
-			ItemKind::Import(imp) => match absolute_path(cwd, &imp.path) {
-				Err(e) =>
-					ctx.rep.report(e.err_obj(ctx.i, item.sr.pos(), &imp.path.iter().join("::")).await),
-				Ok(abs_path) => {
-					let names = match imp.name.as_ref() {
-						Some(n) => Either::Right([n.clone()].into_iter()),
-						None =>
-							Either::Left(resolv_glob(cwd, root, &abs_path, item.sr.pos(), ctx).await.into_iter()),
-					};
-					for name in names {
-						let mut tgt = abs_path.clone().suffix([name.clone()]).to_sym(ctx.i).await;
-						let src = Sym::new(cwd.iter().cloned().chain([name]), ctx.i).await.unwrap();
-						import_locs.entry(src.clone()).or_insert(vec![]).push(item.sr.pos());
-						if let Some(tgt2) = alias_map.get(&tgt) {
-							tgt = tgt2.clone();
-						}
-						if src == tgt {
-							ctx.rep.report(mk_err(
-								ctx.i.i("Circular references").await,
-								format!("{src} circularly refers to itself"),
-								[item.sr.pos().into()],
-							));
-							continue;
-						}
-						if let Some(fst_val) = alias_map.get(&src) {
-							let locations = (import_locs.get(&src))
-								.expect("The same name could only have appeared in the same module");
-							ctx.rep.report(mk_err(
-								ctx.i.i("Conflicting imports").await,
-								if fst_val == &src {
-									format!("{src} is imported multiple times")
-								} else {
-									format!("{} could refer to both {fst_val} and {src}", src.last())
-								},
-								locations.iter().map(|p| p.clone().into()).collect_vec(),
-							))
-						}
-						let mut srcv = vec![src.clone()];
-						if let Some(src_extra) = alias_rev_map.remove(&src) {
-							srcv.extend(src_extra);
-						}
-						for src in srcv {
-							alias_map.insert(src.clone(), tgt.clone());
-							alias_rev_map.entry(tgt.clone()).or_insert(HashSet::new()).insert(src);
-						}
-					}
-				},
-			},
-			ItemKind::Member(mem) => match mem.kind(ctx.consts).await {
-				ParsedMemberKind::Const => (),
-				ParsedMemberKind::Mod(m) => {
-					cwd.push(mem.name());
-					imports_to_aliases(m, cwd, root, alias_map, alias_rev_map, ctx).boxed_local().await;
-					cwd.pop();
-				},
-			},
-			ItemKind::Export(_) => (),
-		}
-	}
+pub enum ChildResult<'a, T: Tree + ?Sized> {
+	Value(&'a T),
+	Err(ChildErrorKind),
+	Alias(&'a [Tok<String>]),
+}
+pub trait Tree {
+	type Ctx;
+	fn children(&self, public_only: bool) -> HashSet<Tok<String>>;
+	fn child(&self, key: Tok<String>, public_only: bool) -> ChildResult<'_, Self>;
+}
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub enum ChildErrorKind {
+	Missing,
+	Private,
+	Constant,
+}
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct ChildError {
+	pub at_path: Vec<Tok<String>>,
+	pub kind: ChildErrorKind,
 }
 
-pub async fn dealias(
-	path: Substack<'_, Tok<String>>,
-	module: &mut ParsedModule,
-	alias_map: &HashMap<Sym, Sym>,
-	ctx: &mut DealiasCtx<'_>,
-) {
-	for item in &mut module.items {
-		match &mut item.kind {
-			ItemKind::Export(_) | ItemKind::Import(_) => (),
-			ItemKind::Member(mem) => {
-				let path = path.push(mem.name());
-				match mem.kind_mut(ctx.consts).await {
-					ParsedMemberKind::Const => (),
-					ParsedMemberKind::Mod(m) => dealias(path, m, alias_map, ctx).boxed_local().await,
-				}
+// Problem: walk should take into account aliases and visibility
+//
+// help: since every alias is also its own import, visibility only has to be
+// checked on the top level
+//
+// idea: do a simple stack machine like below with no visibility for aliases and
+// call it from an access-checking implementation for just the top level
+//
+// caveat: we need to check EVERY IMPORT to ensure that all
+// errors are raised
+
+fn walk_no_access_chk<T: Tree>(
+	root: &T,
+	path: impl IntoIterator<Item = Tok<String>>,
+) -> Result<&T, ChildError> {
+	let mut cur = root;
+	let mut cur_path = Vec::new();
+	let mut path = VecDeque::from(path);
+	while let Some(step) = path.pop_front() {
+		match cur.child(step, false) {
+			ChildResult::Alias(target) => {
+				path.reserve(target.len());
+				target.iter().rev().for_each(|tok| path.push_front(tok.clone()));
+				cur = root;
+				cur_path = Vec::new();
 			},
+			ChildResult::Err(e) => return Err(ChildError { pos: (), kind: () }),
 		}
 	}
 }

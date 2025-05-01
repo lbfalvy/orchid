@@ -150,11 +150,11 @@ pub async fn lex_once(ctx: &mut LexCtx<'_>) -> OrcRes<ParsTokTree> {
 		for sys in ctx.systems {
 			let mut errors = Vec::new();
 			if ctx.tail.starts_with(|c| sys.can_lex(c)) {
-				let (source, pos) = (ctx.source.clone(), ctx.get_pos());
+				let (source, pos, path) = (ctx.source.clone(), ctx.get_pos(), ctx.path.clone());
 				let ctx_lck = &Mutex::new(&mut *ctx);
 				let errors_lck = &Mutex::new(&mut errors);
 				let lx = sys
-					.lex(source, pos, |pos| async move {
+					.lex(source, path, pos, |pos| async move {
 						let mut ctx_g = ctx_lck.lock().await;
 						match lex_once(&mut ctx_g.push(pos)).boxed_local().await {
 							Ok(t) => Some(api::SubLexed { pos: t.sr.end(), tree: ctx_g.ser_subtree(t).await }),

@@ -6,7 +6,7 @@ use async_std::sync::{Mutex, RwLock};
 use async_stream::stream;
 use futures::future::join_all;
 use futures::{FutureExt, StreamExt};
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
 use orchid_base::error::{OrcRes, mk_errv};
 use orchid_base::format::{FmtCtx, FmtUnit, Format, Variants};
@@ -58,18 +58,6 @@ impl TokenVariant<api::Expression> for Expr {
 	type ToApiCtx<'a> = ();
 	async fn into_api(self, (): &mut Self::ToApiCtx<'_>) -> api::Expression {
 		panic!("Failed to replace NewExpr before returning sublexer value")
-	}
-}
-
-pub struct ParsedFromApiCx<'a> {
-	pub sys: &'a System,
-	pub consts: &'a mut HashMap<Sym, Expr>,
-	pub path: Tok<Vec<Tok<String>>>,
-}
-impl<'a> ParsedFromApiCx<'a> {
-	pub async fn push<'c>(&'c mut self, name: Tok<String>) -> ParsedFromApiCx<'c> {
-		let path = self.sys.ctx().i.i(&self.path.iter().cloned().chain([name]).collect_vec()).await;
-		ParsedFromApiCx { path, consts: &mut *self.consts, sys: self.sys }
 	}
 }
 
@@ -154,11 +142,19 @@ impl ParsedModule {
 		std::mem::swap(self, &mut swap);
 		*self = ParsedModule::new(swap.items.into_iter().chain(other.items))
 	}
-	pub async fn walk<'a>(
+	pub fn get_imports(&self) -> impl IntoIterator<Item = &Import> {
+		(self.items.iter())
+			.filter_map(|it| if let ItemKind::Import(i) = &it.kind { Some(i) } else { None })
+	}
+}
+impl Tree for ParsedModule {
+	type Ctx = ();
+	async fn walk<I: IntoIterator<Item = Tok<String>>>(
 		&self,
-		allow_private: bool,
-		path: impl IntoIterator<Item = Tok<String>>,
-	) -> Result<&ParsedModule, WalkError> {
+		public_only: bool,
+		path: I,
+		_ctx: &'_ mut Self::Ctx,
+	) -> Result<&Self, WalkError> {
 		let mut cur = self;
 		for (pos, step) in path.into_iter().enumerate() {
 			let Some(member) = (cur.items.iter())
@@ -167,7 +163,7 @@ impl ParsedModule {
 			else {
 				return Err(WalkError { pos, kind: WalkErrorKind::Missing });
 			};
-			if !allow_private && !cur.exports.contains(&step) {
+			if public_only && !cur.exports.contains(&step) {
 				return Err(WalkError { pos, kind: WalkErrorKind::Private });
 			}
 			match &member.kind {
@@ -177,21 +173,19 @@ impl ParsedModule {
 		}
 		Ok(cur)
 	}
-	pub fn get_imports(&self) -> impl IntoIterator<Item = &Import> {
-		(self.items.iter())
-			.filter_map(|it| if let ItemKind::Import(i) = &it.kind { Some(i) } else { None })
+	fn children(&self, public_only: bool) -> HashSet<Tok<String>> {
+		let mut public: HashSet<_> = self.exports.iter().cloned().collect();
+		if !public_only {
+			public.extend(
+				(self.items.iter())
+					.filter_map(
+						|it| if let ItemKind::Member(mem) = &it.kind { Some(&mem.name) } else { None },
+					)
+					.cloned(),
+			)
+		}
+		public
 	}
-}
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum WalkErrorKind {
-	Missing,
-	Private,
-	Constant,
-}
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct WalkError {
-	pub pos: usize,
-	pub kind: WalkErrorKind,
 }
 impl Format for ParsedModule {
 	async fn print<'a>(&'a self, c: &'a (impl FmtCtx + ?Sized + 'a)) -> FmtUnit {
@@ -237,7 +231,7 @@ impl Root {
 			return Ok(val.clone());
 		}
 		let (cn, mp) = name.split_last();
-		let module = self.tree.walk(true, mp.iter().cloned()).await.unwrap();
+		let module = self.tree.walk(false, mp.iter().cloned(), &mut ()).await.unwrap();
 		let member = (module.items.iter())
 			.filter_map(|it| if let ItemKind::Member(m) = &it.kind { Some(m) } else { None })
 			.find(|m| m.name() == cn);

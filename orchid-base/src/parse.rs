@@ -10,8 +10,8 @@ use crate::api;
 use crate::error::{OrcRes, Reporter, mk_err, mk_errv};
 use crate::format::fmt;
 use crate::interner::{Interner, Tok};
-use crate::location::{Pos, SrcRange};
-use crate::name::{VName, VPath};
+use crate::location::SrcRange;
+use crate::name::{Sym, VName, VPath};
 use crate::tree::{ExprRepr, ExtraTok, Paren, TokTree, Token, ttv_range};
 
 pub trait ParseCtx {
@@ -110,24 +110,24 @@ pub fn strip_fluff<A: ExprRepr, X: ExtraTok>(tt: &TokTree<A, X>) -> Option<TokTr
 #[derive(Clone, Debug)]
 pub struct Comment {
 	pub text: Tok<String>,
-	pub range: Range<u32>,
+	pub sr: SrcRange,
 }
 impl Comment {
 	// XXX: which of these four are actually used?
-	pub async fn from_api(c: &api::Comment, i: &Interner) -> Self {
-		Self { text: i.ex(c.text).await, range: c.range.clone() }
+	pub async fn from_api(c: &api::Comment, src: Sym, i: &Interner) -> Self {
+		Self { text: i.ex(c.text).await, sr: SrcRange::new(c.range.clone(), &src) }
 	}
 	pub async fn from_tk(tk: &TokTree<impl ExprRepr, impl ExtraTok>, i: &Interner) -> Option<Self> {
 		match &tk.tok {
-			Token::Comment(text) => Some(Self { text: i.i(&**text).await, range: tk.range.clone() }),
+			Token::Comment(text) => Some(Self { text: i.i(&**text).await, sr: tk.sr.clone() }),
 			_ => None,
 		}
 	}
 	pub fn to_tk<R: ExprRepr, X: ExtraTok>(&self) -> TokTree<R, X> {
-		TokTree { tok: Token::Comment(self.text.rc().clone()), range: self.range.clone() }
+		TokTree { tok: Token::Comment(self.text.rc().clone()), sr: self.sr.clone() }
 	}
 	pub fn to_api(&self) -> api::Comment {
-		api::Comment { range: self.range.clone(), text: self.text.to_api() }
+		api::Comment { range: self.sr.range(), text: self.text.to_api() }
 	}
 }
 
