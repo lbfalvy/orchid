@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use futures::FutureExt;
 use hashbrown::{HashMap, HashSet};
 use itertools::{Either, Itertools};
-use orchid_base::error::{OrcErr, Reporter, mk_err};
+use orchid_base::error::{OrcErr, OrcRes, Reporter, mk_err, mk_errv};
 use orchid_base::interner::{Interner, Tok};
 use orchid_base::location::Pos;
 use orchid_base::name::{NameLike, Sym, VName};
@@ -85,13 +85,13 @@ pub async fn resolv_glob<Mod: Tree>(
 	pos: Pos,
 	i: &Interner,
 	rep: &Reporter,
-	walk_cx: &mut Mod::Ctx,
-) -> Vec<Tok<String>> {
+	ctx: &mut Mod::Ctx,
+) -> OrcRes<HashSet<Tok<String>>> {
 	let coprefix_len = cwd.iter().zip(abs_path).take_while(|(a, b)| a == b).count();
-	let (co_prefix, diff_path) = abs_path.split_at(coprefix_len);
-	let co_parent =
-		root.walk(true, co_prefix.iter().cloned(), walk_cx).await.expect("Invalid step in cwd");
-	let target_module = match co_parent.walk(false, diff_path.iter().cloned(), walk_cx).await {
+	let (co_prefix, diff_path) = abs_path.split_at(abs_path.len().min(coprefix_len + 1));
+	let fst_diff =
+		walk(root, false, co_prefix.iter().cloned(), ctx).await.expect("Invalid step in cwd");
+	let target_module = match walk(fst_diff, true, diff_path.iter().cloned(), ctx).await {
 		Ok(t) => t,
 		Err(e) => {
 			let path = abs_path[..=coprefix_len + e.pos].iter().join("::");
@@ -101,11 +101,10 @@ pub async fn resolv_glob<Mod: Tree>(
 				ChildErrorKind::Missing => (i.i("Invalid import path").await, format!("{path} not found")),
 				ChildErrorKind::Private => (i.i("Import inaccessible").await, format!("{path} is private")),
 			};
-			rep.report(mk_err(tk, msg, [pos.into()]));
-			return vec![];
+			return Err(mk_errv(tk, msg, [pos.into()]));
 		},
 	};
-	target_module.children(false)
+	Ok(target_module.children(coprefix_len < abs_path.len()))
 }
 
 pub enum ChildResult<'a, T: Tree + ?Sized> {
@@ -116,7 +115,12 @@ pub enum ChildResult<'a, T: Tree + ?Sized> {
 pub trait Tree {
 	type Ctx;
 	fn children(&self, public_only: bool) -> HashSet<Tok<String>>;
-	fn child(&self, key: Tok<String>, public_only: bool) -> ChildResult<'_, Self>;
+	fn child(
+		&self,
+		key: Tok<String>,
+		public_only: bool,
+		ctx: &mut Self::Ctx,
+	) -> impl Future<Output = ChildResult<'_, Self>>;
 }
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum ChildErrorKind {
@@ -126,7 +130,7 @@ pub enum ChildErrorKind {
 }
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ChildError {
-	pub at_path: Vec<Tok<String>>,
+	pub pos: usize,
 	pub kind: ChildErrorKind,
 }
 
@@ -141,22 +145,42 @@ pub struct ChildError {
 // caveat: we need to check EVERY IMPORT to ensure that all
 // errors are raised
 
-fn walk_no_access_chk<T: Tree>(
-	root: &T,
-	path: impl IntoIterator<Item = Tok<String>>,
-) -> Result<&T, ChildError> {
-	let mut cur = root;
-	let mut cur_path = Vec::new();
-	let mut path = VecDeque::from(path);
-	while let Some(step) = path.pop_front() {
-		match cur.child(step, false) {
+async fn walk_no_access_chk<'a, T: Tree>(
+	root: &'a T,
+	cur: &mut &'a T,
+	path: impl IntoIterator<Item = Tok<String>, IntoIter: DoubleEndedIterator>,
+	ctx: &mut T::Ctx,
+) -> Result<(), ChildErrorKind> {
+	// this VecDeque is used like a stack to leverage its Extend implementation.
+	let mut path: VecDeque<Tok<String>> = path.into_iter().rev().collect();
+	while let Some(step) = path.pop_back() {
+		match cur.child(step, false, ctx).await {
 			ChildResult::Alias(target) => {
-				path.reserve(target.len());
-				target.iter().rev().for_each(|tok| path.push_front(tok.clone()));
-				cur = root;
-				cur_path = Vec::new();
+				path.extend(target.iter().cloned().rev());
+				*cur = root;
 			},
-			ChildResult::Err(e) => return Err(ChildError { pos: (), kind: () }),
+			ChildResult::Err(e) => return Err(e),
+			ChildResult::Value(v) => *cur = v,
 		}
 	}
+	Ok(())
+}
+
+async fn walk<'a, T: Tree>(
+	root: &'a T,
+	public_only: bool,
+	path: impl IntoIterator<Item = Tok<String>>,
+	ctx: &mut T::Ctx,
+) -> Result<&'a T, ChildError> {
+	let mut cur = root;
+	for (i, item) in path.into_iter().enumerate() {
+		match cur.child(item, public_only, ctx).await {
+			ChildResult::Value(v) => cur = v,
+			ChildResult::Err(kind) => return Err(ChildError { pos: i, kind }),
+			ChildResult::Alias(path) => (walk_no_access_chk(root, &mut cur, path.iter().cloned(), ctx)
+				.await)
+				.map_err(|kind| ChildError { kind, pos: i })?,
+		}
+	}
+	Ok(cur)
 }

@@ -19,6 +19,7 @@ use orchid_base::tree::{TokTree, Token, TokenVariant};
 
 use crate::api;
 use crate::ctx::Ctx;
+use crate::dealias::{ChildErrorKind, ChildResult, Tree};
 use crate::expr::{Expr, ExprParseCtx, PathSetBuilder};
 use crate::expr_store::ExprStore;
 use crate::system::System;
@@ -121,6 +122,9 @@ pub enum ParsedMemberKind {
 	Mod(ParsedModule),
 }
 
+// TODO: cannot determine alias origin at this stage; parsed tree is never
+// walkable!
+
 #[derive(Debug, Default)]
 pub struct ParsedModule {
 	pub exports: Vec<Tok<String>>,
@@ -149,29 +153,25 @@ impl ParsedModule {
 }
 impl Tree for ParsedModule {
 	type Ctx = ();
-	async fn walk<I: IntoIterator<Item = Tok<String>>>(
+	async fn child(
 		&self,
+		key: Tok<String>,
 		public_only: bool,
-		path: I,
-		_ctx: &'_ mut Self::Ctx,
-	) -> Result<&Self, WalkError> {
-		let mut cur = self;
-		for (pos, step) in path.into_iter().enumerate() {
-			let Some(member) = (cur.items.iter())
-				.filter_map(|it| if let ItemKind::Member(m) = &it.kind { Some(m) } else { None })
-				.find(|m| m.name == step)
-			else {
-				return Err(WalkError { pos, kind: WalkErrorKind::Missing });
-			};
-			if public_only && !cur.exports.contains(&step) {
-				return Err(WalkError { pos, kind: WalkErrorKind::Private });
-			}
-			match &member.kind {
-				ParsedMemberKind::Const => return Err(WalkError { pos, kind: WalkErrorKind::Constant }),
-				ParsedMemberKind::Mod(m) => cur = m,
-			}
+		ctx: &mut Self::Ctx,
+	) -> ChildResult<'_, Self> {
+		let Some(member) = (self.items.iter())
+			.filter_map(|it| if let ItemKind::Member(m) = &it.kind { Some(m) } else { None })
+			.find(|m| m.name == key)
+		else {
+			return ChildResult::Err(ChildErrorKind::Missing);
+		};
+		if public_only && !self.exports.contains(&key) {
+			return ChildResult::Err(ChildErrorKind::Private);
 		}
-		Ok(cur)
+		match &member.kind {
+			ParsedMemberKind::Const => return ChildResult::Err(ChildErrorKind::Constant),
+			ParsedMemberKind::Mod(m) => return ChildResult::Value(m),
+		}
 	}
 	fn children(&self, public_only: bool) -> HashSet<Tok<String>> {
 		let mut public: HashSet<_> = self.exports.iter().cloned().collect();
